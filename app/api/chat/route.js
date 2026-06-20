@@ -138,7 +138,8 @@ function isMorningGreeting(messages) {
   const text = (
     typeof last.content === "string" ? last.content : last.content?.[0]?.text ?? ""
   ).toLowerCase().trim();
-  return ["buongiorno", "buon giorno", "ciao bea", "morning"].some((g) => text.startsWith(g));
+  // usa includes invece di startsWith per gestire emoji prima del testo (es. "☀️ Buongiorno Bea")
+  return ["buongiorno", "buon giorno", "ciao bea", "morning"].some((g) => text.includes(g));
 }
 
 function isBea(body) {
