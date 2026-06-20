@@ -287,7 +287,8 @@ export default function App() {
         body:JSON.stringify({
           model:"claude-sonnet-4-6",max_tokens:1000,
           system:[{type:"text",text:AGENTS[currentAgent].systemPrompt,cache_control:{type:"ephemeral"}}],
-          messages:msgs
+          messages: msgs,
+agentId: currentAgent
         })
       });
       const data=await res.json();
