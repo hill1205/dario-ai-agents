@@ -51,12 +51,22 @@ async function resetRoutineDaily(apiKey) {
 }
 
 async function getDocPage(docId, pageId, apiKey) {
-  const res = await fetch(
-    `${CU_V3}/workspaces/${WORKSPACE_ID}/docs/${docId}/pages/${pageId}?content_format=text/plain`,
-    { headers: cuHeaders(apiKey) }
-  );
-  const data = await res.json();
-  return data.content ?? "(vuoto)";
+  try {
+    const url = `${CU_V3}/workspaces/${WORKSPACE_ID}/docs/${docId}/pages/${pageId}?content_format=text/plain`;
+    const res = await fetch(url, { headers: cuHeaders(apiKey) });
+    
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error(`[ClickUp Docs] ${docId}/${pageId} → HTTP ${res.status}: ${errText}`);
+      return `(errore ${res.status} — controlla Vercel logs)`;
+    }
+    
+    const data = await res.json();
+    return data.content ?? "(vuoto)";
+  } catch (err) {
+    console.error(`[ClickUp Docs] ${docId}/${pageId} → exception: ${err.message}`);
+    return `(eccezione: ${err.message})`;
+  }
 }
 
 function formatTasks(tasks) {
