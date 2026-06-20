@@ -54,13 +54,11 @@ async function getDocPage(docId, pageId, apiKey) {
   try {
     const url = `${CU_V3}/workspaces/${WORKSPACE_ID}/docs/${docId}/pages/${pageId}?content_format=text/plain`;
     const res = await fetch(url, { headers: cuHeaders(apiKey) });
-
     if (!res.ok) {
       const errText = await res.text();
       console.error(`[ClickUp Docs] ${docId}/${pageId} → HTTP ${res.status}: ${errText}`);
       return `(errore HTTP ${res.status})`;
     }
-
     const data = await res.json();
     return data.content ?? "(vuoto)";
   } catch (err) {
@@ -101,7 +99,7 @@ async function buildMorningContext(apiKey) {
 
   return `
 === CONTESTO AGGIORNATO — ${now} (Bucarest) ===
-ISTRUZIONE OBBLIGATORIA: Il briefing mattutino DEVE includere una sezione "📬 Aggiornamenti Assistenti" con il contenuto esatto dei Daily Update qui sotto. Se un Daily Update contiene "(errore...)" o "(vuoto)", scrivilo esplicitamente nella sezione.
+ISTRUZIONE OBBLIGATORIA: Il briefing mattutino DEVE includere una sezione "📬 Aggiornamenti Assistenti" con il contenuto esatto dei Daily Update qui sotto. Se un Daily Update contiene "(errore...)" o "(vuoto)", scrivilo esplicitamente.
 
 [STATO PROGETTO BEA]
 ${stato}
@@ -143,10 +141,16 @@ function isMorningGreeting(messages) {
   return ["buongiorno", "buon giorno", "ciao bea", "morning"].some((g) => text.startsWith(g));
 }
 
-function isBea(system) {
+function isBea(body) {
+  // Controlla agentId esplicito
+  if (body.agentId) return body.agentId === "bea";
+  // Fallback: cerca in tutto il system prompt (stringa o array)
+  const system = body.system;
   if (!system) return false;
-  const text = typeof system === "string" ? system : system?.[0]?.text ?? "";
-  return text.toLowerCase().includes("beatrice") || text.toLowerCase().includes("sei la sua assistente");
+  const allText = Array.isArray(system)
+    ? system.map((b) => b.text ?? "").join(" ")
+    : String(system);
+  return allText.toLowerCase().includes("beatrice");
 }
 
 export async function POST(request) {
@@ -154,7 +158,7 @@ export async function POST(request) {
     const body = await request.json();
     const clickupKey = process.env.CLICKUP_API_KEY;
 
-    if (clickupKey && isBea(body.system) && isMorningGreeting(body.messages)) {
+    if (clickupKey && isBea(body) && isMorningGreeting(body.messages)) {
       const ctx = await buildMorningContext(clickupKey);
       if (typeof body.system === "string") {
         body.system = body.system + "\n\n" + ctx;
@@ -162,6 +166,9 @@ export async function POST(request) {
         body.system = [...body.system, { type: "text", text: ctx }];
       }
     }
+
+    // Rimuovi agentId prima di mandare ad Anthropic
+    delete body.agentId;
 
     const response = await fetch(ANTHROPIC_URL, {
       method: "POST",
