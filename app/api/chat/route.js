@@ -258,7 +258,7 @@ export async function POST(request) {
         // Bea: contesto mattutino completo
         const ctx = await buildMorningContext(clickupKey);
         injectContext(body, ctx);
-      } else if (agentId && agentId !== "bea" && AGENT_LISTS[agentId] && isFirstMessage(body.messages)) {
+      } else if (agentId } else if (agentId && agentId !== "bea" && AGENT_LISTS[agentId] && isFirstMessage(body.messages)) {} else if (agentId && agentId !== "bea" && AGENT_LISTS[agentId] && isFirstMessage(body.messages)) { agentId !== "bea" } else if (agentId && agentId !== "bea" && AGENT_LISTS[agentId] && isFirstMessage(body.messages)) {} else if (agentId && agentId !== "bea" && AGENT_LISTS[agentId] && isFirstMessage(body.messages)) { AGENT_LISTS[agentId]) {
         // Altri agenti: contesto ClickUp al primo messaggio
         const ctx = await buildAgentContext(agentId, clickupKey);
         if (ctx) injectContext(body, ctx);
