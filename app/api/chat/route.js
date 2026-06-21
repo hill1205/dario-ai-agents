@@ -12,7 +12,6 @@ const LISTS = {
   IN_SOSPESO:          "901218950377",
 };
 
-// Daily Update documents (letti da Bea nel briefing mattutino)
 const DAILY_DOCS = {
   MARIO:   { docId: "2kxuu4g1-632", pageId: "2kxuu4g1-392" },
   MIMMO:   { docId: "2kxuu4g1-652", pageId: "2kxuu4g1-412" },
@@ -21,7 +20,6 @@ const DAILY_DOCS = {
   BRUNO:   { docId: "2kxuu4g1-732", pageId: "2kxuu4g1-512" },
 };
 
-// STATO PROGETTO documents (memoria persistente di ogni agente)
 const STATO_DOCS = {
   bea:     { docId: "2kxuu4g1-792", pageId: "2kxuu4g1-672" },
   mario:   { docId: "2kxuu4g1-872", pageId: "2kxuu4g1-752" },
@@ -31,7 +29,6 @@ const STATO_DOCS = {
   bruno:   { docId: "2kxuu4g1-852", pageId: "2kxuu4g1-732" },
 };
 
-// Liste ClickUp per ogni agente non-Bea
 const AGENT_LISTS = {
   mario: [
     { id: "901218950388", name: "AGENZIA 1M€" },
@@ -41,7 +38,7 @@ const AGENT_LISTS = {
   mimmo: [
     { id: "901218950391", name: "FATTURE" },
     { id: "901218950392", name: "SCADENZE" },
-    { id: "901218950393", name: "CONTABILITÀ" },
+    { id: "901218950393", name: "CONTABILITA" },
   ],
   carmine: [
     { id: "901218950382", name: "DIETA & PASTI" },
@@ -60,10 +57,10 @@ const AGENT_LISTS = {
   ],
 };
 
-// Doc aggiuntivi per agenti specifici
+// Doc aggiuntivi — format: text/md per tabelle rich
 const AGENT_EXTRA_DOCS = {
   mario: [
-    { docId: "2kxuu4g1-912", pageId: "2kxuu4g1-792", name: "LISTA 50 TARGET E-COMMERCE" },
+    { docId: "2kxuu4g1-912", pageId: "2kxuu4g1-792", name: "LISTA 50 TARGET E-COMMERCE", format: "text/md" },
   ],
 };
 
@@ -100,9 +97,9 @@ async function resetRoutineDaily(apiKey) {
   return tasks;
 }
 
-async function getDocPage(docId, pageId, apiKey) {
+async function getDocPage(docId, pageId, apiKey, format = "text/plain") {
   try {
-    const url = `${CU_V3}/workspaces/${WORKSPACE_ID}/docs/${docId}/pages/${pageId}?content_format=text/plain`;
+    const url = `${CU_V3}/workspaces/${WORKSPACE_ID}/docs/${docId}/pages/${pageId}?content_format=${encodeURIComponent(format)}`;
     const res = await fetch(url, { headers: cuHeaders(apiKey) });
     if (!res.ok) {
       const errText = await res.text();
@@ -124,7 +121,6 @@ function formatTasks(tasks) {
     .join("\n");
 }
 
-// Contesto mattutino completo per Bea
 async function buildMorningContext(apiKey) {
   const isSaturday =
     new Date().toLocaleDateString("en-US", {
@@ -150,7 +146,7 @@ async function buildMorningContext(apiKey) {
 
   return `
 === CONTESTO AGGIORNATO — ${now} (Bucarest) ===
-ISTRUZIONE OBBLIGATORIA: Il briefing mattutino DEVE includere una sezione "Aggiornamenti Assistenti" con il contenuto esatto dei Daily Update qui sotto. Se un Daily Update contiene "(errore...)" o "(vuoto)", scrivilo esplicitamente.
+ISTRUZIONE OBBLIGATORIA: Il briefing mattutino DEVE includere una sezione "Aggiornamenti Assistenti" con il contenuto esatto dei Daily Update qui sotto.
 
 [STATO PROGETTO BEA]
 ${stato}
@@ -183,7 +179,6 @@ ${bruno}
 === FINE CONTESTO ===`.trim();
 }
 
-// Contesto ClickUp per agenti non-Bea (iniettato ad ogni messaggio)
 async function buildAgentContext(agentId, apiKey) {
   const lists = AGENT_LISTS[agentId];
   const statoDoc = STATO_DOCS[agentId];
@@ -195,7 +190,7 @@ async function buildAgentContext(agentId, apiKey) {
   const [stato, ...rest] = await Promise.all([
     getDocPage(statoDoc.docId, statoDoc.pageId, apiKey),
     ...lists.map((l) => getTasksFromList(l.id, apiKey)),
-    ...extraDocs.map((d) => getDocPage(d.docId, d.pageId, apiKey)),
+    ...extraDocs.map((d) => getDocPage(d.docId, d.pageId, apiKey, d.format ?? "text/plain")),
   ]);
 
   const taskResults = rest.slice(0, lists.length);
@@ -248,17 +243,14 @@ export async function POST(request) {
 
     if (clickupKey) {
       if (isBea(body) && isMorningGreeting(body.messages)) {
-        // Bea: contesto mattutino completo
         const ctx = await buildMorningContext(clickupKey);
         injectContext(body, ctx);
       } else if (agentId && agentId !== "bea" && AGENT_LISTS[agentId]) {
-        // Altri agenti: contesto ClickUp ad ogni messaggio
         const ctx = await buildAgentContext(agentId, clickupKey);
         if (ctx) injectContext(body, ctx);
       }
     }
 
-    // Rimuovi agentId prima di mandare ad Anthropic
     delete body.agentId;
 
     const response = await fetch(ANTHROPIC_URL, {
