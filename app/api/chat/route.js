@@ -60,6 +60,13 @@ const AGENT_LISTS = {
   ],
 };
 
+// Doc aggiuntivi per agenti specifici
+const AGENT_EXTRA_DOCS = {
+  mario: [
+    { docId: "2kxuu4g1-912", pageId: "2kxuu4g1-792", name: "LISTA 50 TARGET E-COMMERCE" },
+  ],
+};
+
 function cuHeaders(apiKey) {
   return { Authorization: apiKey, "Content-Type": "application/json" };
 }
@@ -99,13 +106,13 @@ async function getDocPage(docId, pageId, apiKey) {
     const res = await fetch(url, { headers: cuHeaders(apiKey) });
     if (!res.ok) {
       const errText = await res.text();
-      console.error(`[ClickUp Docs] ${docId}/${pageId} → HTTP ${res.status}: ${errText}`);
+      console.error(`[ClickUp Docs] ${docId}/${pageId} -> HTTP ${res.status}: ${errText}`);
       return `(errore HTTP ${res.status})`;
     }
     const data = await res.json();
     return data.content ?? "(vuoto)";
   } catch (err) {
-    console.error(`[ClickUp Docs] ${docId}/${pageId} → exception: ${err.message}`);
+    console.error(`[ClickUp Docs] ${docId}/${pageId} -> exception: ${err.message}`);
     return `(eccezione: ${err.message})`;
   }
 }
@@ -143,12 +150,12 @@ async function buildMorningContext(apiKey) {
 
   return `
 === CONTESTO AGGIORNATO — ${now} (Bucarest) ===
-ISTRUZIONE OBBLIGATORIA: Il briefing mattutino DEVE includere una sezione "📬 Aggiornamenti Assistenti" con il contenuto esatto dei Daily Update qui sotto. Se un Daily Update contiene "(errore...)" o "(vuoto)", scrivilo esplicitamente.
+ISTRUZIONE OBBLIGATORIA: Il briefing mattutino DEVE includere una sezione "Aggiornamenti Assistenti" con il contenuto esatto dei Daily Update qui sotto. Se un Daily Update contiene "(errore...)" o "(vuoto)", scrivilo esplicitamente.
 
 [STATO PROGETTO BEA]
 ${stato}
 
-[ROUTINE DAILY — resettate a "da fare" ✅]
+[ROUTINE DAILY — resettate a "da fare"]
 ${formatTasks(routineDaily)}
 
 [TO DO DAILY]
@@ -157,7 +164,7 @@ ${formatTasks(todo)}
 [IN SOSPESO]
 ${formatTasks(inSospeso)}
 
-${isSaturday ? `[ROUTINE SETTIMANALE — oggi è sabato]\n${formatTasks(settimanale)}\n` : ""}
+${isSaturday ? `[ROUTINE SETTIMANALE — oggi e sabato]\n${formatTasks(settimanale)}\n` : ""}
 [MARIO — Daily Update]
 ${mario}
 
@@ -176,24 +183,15 @@ ${bruno}
 === FINE CONTESTO ===`.trim();
 }
 
-// Doc aggiuntivi per agenti specifici
-const AGENT_EXTRA_DOCS = {
-  mario: [
-    { docId: "2kxuu4g1-912", pageId: "2kxuu4g1-792", name: "LISTA 50 TARGET E-COMMERCE" },
-  ],
-};
-
-// Contesto ClickUp per agenti non-Bea (iniettato al primo messaggio)
+// Contesto ClickUp per agenti non-Bea (iniettato ad ogni messaggio)
 async function buildAgentContext(agentId, apiKey) {
   const lists = AGENT_LISTS[agentId];
   const statoDoc = STATO_DOCS[agentId];
   if (!lists || !statoDoc) return "";
 
+  const extraDocs = AGENT_EXTRA_DOCS[agentId] ?? [];
   const now = new Date().toLocaleString("it-IT", { timeZone: "Europe/Bucharest" });
 
-  const extraDocs = AGENT_EXTRA_DOCS[agentId] ?? [];
-
-  // Fetch stato progetto + tutte le liste + doc extra in parallelo
   const [stato, ...rest] = await Promise.all([
     getDocPage(statoDoc.docId, statoDoc.pageId, apiKey),
     ...lists.map((l) => getTasksFromList(l.id, apiKey)),
@@ -234,11 +232,6 @@ function isBea(body) {
   return allText.toLowerCase().includes("beatrice");
 }
 
-function isFirstMessage(messages) {
-  // È il primo messaggio se non ci sono ancora risposte dell'assistente
-  return !messages.some((m) => m.role === "assistant");
-}
-
 function injectContext(body, ctx) {
   if (typeof body.system === "string") {
     body.system = body.system + "\n\n" + ctx;
@@ -258,8 +251,8 @@ export async function POST(request) {
         // Bea: contesto mattutino completo
         const ctx = await buildMorningContext(clickupKey);
         injectContext(body, ctx);
-      } else if (agentId } else if (agentId && agentId !== "bea" && AGENT_LISTS[agentId] && isFirstMessage(body.messages)) {} else if (agentId && agentId !== "bea" && AGENT_LISTS[agentId] && isFirstMessage(body.messages)) { agentId !== "bea" } else if (agentId && agentId !== "bea" && AGENT_LISTS[agentId] && isFirstMessage(body.messages)) {} else if (agentId && agentId !== "bea" && AGENT_LISTS[agentId] && isFirstMessage(body.messages)) { AGENT_LISTS[agentId]) {
-        // Altri agenti: contesto ClickUp al primo messaggio
+      } else if (agentId && agentId !== "bea" && AGENT_LISTS[agentId]) {
+        // Altri agenti: contesto ClickUp ad ogni messaggio
         const ctx = await buildAgentContext(agentId, clickupKey);
         if (ctx) injectContext(body, ctx);
       }
