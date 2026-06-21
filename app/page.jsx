@@ -510,10 +510,28 @@ export default function App() {
             <>
               <div style={{padding:"14px 20px",borderBottom:"1px solid #1A1A2E",background:"#09090F",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                 <div style={{fontWeight:700,fontSize:15,color:"#F8FAFC"}}>🏠 Dashboard</div>
-                <button onClick={loadHomeData} style={{padding:"4px 10px",borderRadius:7,border:"1px solid #1A1A2E",background:"transparent",color:"#475569",cursor:"pointer",fontSize:11}}>{homeLoading?"⏳":"↻ Aggiorna"}</button>
+                <div style={{display:"flex",gap:8}}>
+  <button onClick={loadHomeData} style={{padding:"4px 10px",borderRadius:7,border:"1px solid #1A1A2E",background:"transparent",color:"#475569",cursor:"pointer",fontSize:11}}>{homeLoading?"⏳":"↻ Aggiorna"}</button>
+  <button onClick={()=>setShowSettings(s=>!s)} style={{padding:"4px 10px",borderRadius:7,border:`1px solid ${showSettings?"#334155":"#1A1A2E"}`,background:showSettings?"#1A1A2E":"transparent",color:"#64748B",cursor:"pointer",fontSize:11}}>⚙️</button>
+</div>
               </div>
 
-              <div style={{flex:1,overflowY:"auto",padding:"16px 16px 24px"}}>
+              {showSettings&&(
+  <div style={{padding:"14px 16px",background:"#0F0F1A",borderBottom:"1px solid #1A1A2E",flexShrink:0}}>
+    <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:10,marginBottom:12}}>
+      <div>
+        <div style={{fontSize:11,color:"#64748B",marginBottom:4,display:"flex",alignItems:"center",gap:6}}>ClickUp API Key <span style={{display:"flex",alignItems:"center",gap:3}}><span style={{width:6,height:6,borderRadius:"50%",background:cuDot,display:"inline-block"}}/><span style={{fontSize:10,color:cuDot}}>{cuLabel}</span></span></div>
+        <input type="password" value={clickupKey} onChange={e=>setClickupKey(e.target.value)} placeholder="pk_xxxxx" style={{width:"100%",padding:"6px 10px",borderRadius:6,border:"1px solid #1A1A2E",background:"#09090F",color:"#E2E8F0",fontSize:12,outline:"none"}}/>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:6}}>
+        <div style={{fontSize:11,color:"#64748B",display:"flex",justifyContent:"space-between"}}>Dimensione testo <span style={{color:"#94A3B8"}}>{fontSize}px</span></div>
+        <input type="range" min={12} max={18} step={1} value={fontSize} onChange={e=>setFontSize(Number(e.target.value))} style={{width:"100%",accentColor:"#8B5CF6",cursor:"pointer"}}/>
+      </div>
+    </div>
+    <button onClick={requestNotifications} style={{padding:"6px 12px",borderRadius:6,border:`1px solid ${notifEnabled?"#10B981":"#1A1A2E"}`,background:notifEnabled?"#10B98120":"transparent",color:notifEnabled?"#10B981":"#64748B",cursor:"pointer",fontSize:12}}>{notifEnabled?"🔔 Notifiche ON":"🔕 Abilita notifiche"}</button>
+  </div>
+)}
+<div style={{flex:1,overflowY:"auto",padding:"16px 16px 24px"}}>
 
                 {/* Saluto */}
                 <div style={{marginBottom:16}}>
