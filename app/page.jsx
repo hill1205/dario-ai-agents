@@ -80,14 +80,14 @@ function getWeatherEmoji(condition) {
   return "🌤️";
 }
 
-function TaskItem({ task, color, onToggle }) {
+function TaskItem({ task, color, onToggle, fontSize=14 }) {
   const done = task.status?.status === "completato";
   return (
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,cursor:"pointer"}} onClick={()=>onToggle(task.id)}>
       <div style={{width:18,height:18,borderRadius:4,border:`1.5px solid ${color}60`,background:done?color:"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.15s"}}>
         {done && <span style={{fontSize:11,color:"#fff",lineHeight:1}}>✓</span>}
       </div>
-      <span style={{fontSize:12,color:done?"#334155":"#94A3B8",textDecoration:done?"line-through":"none",lineHeight:1.4}}>{task.name}</span>
+      <span style={{fontSize,color:done?"#334155":"#94A3B8",textDecoration:done?"line-through":"none",lineHeight:1.4}}>{task.name}</span>
     </div>
   );
 }
@@ -117,7 +117,6 @@ export default function App() {
   const [statiProgetto, setStatiProgetto] = useState({});
   const [storageReady, setStorageReady] = useState(false);
 
-  // Dashboard state
   const [clockBucharest, setClockBucharest] = useState("--:--:--");
   const [clockRome, setClockRome] = useState("--:--");
   const [weather, setWeather] = useState(null);
@@ -131,7 +130,6 @@ export default function App() {
   const recognitionRef = useRef(null);
   const textareaRef = useRef(null);
 
-  // Persist conversations
   useEffect(()=>{
     try{
       const cr=localStorage.getItem("dario-conversations");
@@ -197,7 +195,6 @@ export default function App() {
     return ()=>clearTimeout(t);
   },[clickupKey]);
 
-  // Clock — aggiornamento ogni secondo
   useEffect(()=>{
     const tick=()=>{
       const now=new Date();
@@ -209,7 +206,6 @@ export default function App() {
     return ()=>clearInterval(id);
   },[]);
 
-  // Carica dati dashboard quando si torna alla home
   useEffect(()=>{
     if(view==="home") loadHomeData();
   },[view]);
@@ -454,6 +450,47 @@ export default function App() {
     return null;
   };
 
+  const SettingsPanel = ({mobile=false})=>(
+    <div style={{padding:"14px 16px",background:"#0F0F1A",borderBottom:"1px solid #1A1A2E",flexShrink:0}}>
+      <div style={{display:"grid",gridTemplateColumns:mobile?"1fr":"1fr 1fr",gap:10,marginBottom:12}}>
+        <div>
+          <div style={{fontSize:11,color:"#64748B",marginBottom:4,display:"flex",alignItems:"center",gap:6}}>
+            ClickUp API Key
+            <span style={{display:"flex",alignItems:"center",gap:3}}>
+              <span style={{width:6,height:6,borderRadius:"50%",background:cuDot,display:"inline-block"}}/>
+              <span style={{fontSize:10,color:cuDot}}>{cuLabel}</span>
+            </span>
+          </div>
+          <input type="password" value={clickupKey} onChange={e=>setClickupKey(e.target.value)} placeholder="pk_xxxxx" style={{width:"100%",padding:"6px 10px",borderRadius:6,border:"1px solid #1A1A2E",background:"#09090F",color:"#E2E8F0",fontSize:12,outline:"none"}}/>
+        </div>
+        {!mobile&&(
+          <div>
+            <div style={{fontSize:11,color:"#64748B",marginBottom:4}}>Google Calendar API Key</div>
+            <input type="password" value={calApiKey} onChange={e=>setCalApiKey(e.target.value)} placeholder="AIzaSy..." style={{width:"100%",padding:"6px 10px",borderRadius:6,border:"1px solid #1A1A2E",background:"#09090F",color:"#E2E8F0",fontSize:12,outline:"none"}}/>
+          </div>
+        )}
+        {!mobile&&(
+          <div>
+            <div style={{fontSize:11,color:"#64748B",marginBottom:4}}>Google Calendar ID</div>
+            <input value={calId} onChange={e=>setCalId(e.target.value)} placeholder="email@gmail.com" style={{width:"100%",padding:"6px 10px",borderRadius:6,border:"1px solid #1A1A2E",background:"#09090F",color:"#E2E8F0",fontSize:12,outline:"none"}}/>
+          </div>
+        )}
+        <div style={{display:"flex",flexDirection:"column",gap:6}}>
+          <div style={{fontSize:11,color:"#64748B",display:"flex",justifyContent:"space-between"}}>
+            Dimensione testo <span style={{color:"#94A3B8"}}>{fontSize}px</span>
+          </div>
+          <input type="range" min={12} max={18} step={1} value={fontSize} onChange={e=>setFontSize(Number(e.target.value))} style={{width:"100%",accentColor:"#8B5CF6",cursor:"pointer"}}/>
+          <div style={{display:"flex",gap:4}}>
+            {[12,13,14,15,16,17,18].map(s=>(
+              <button key={s} onClick={()=>setFontSize(s)} style={{flex:1,padding:"3px 0",borderRadius:4,border:`1px solid ${fontSize===s?"#8B5CF6":"#1A1A2E"}`,background:fontSize===s?"#8B5CF620":"transparent",color:fontSize===s?"#8B5CF6":"#475569",cursor:"pointer",fontSize:10}}>{s}</button>
+            ))}
+          </div>
+        </div>
+      </div>
+      <button onClick={requestNotifications} style={{padding:"6px 12px",borderRadius:6,border:`1px solid ${notifEnabled?"#10B981":"#1A1A2E"}`,background:notifEnabled?"#10B98120":"transparent",color:notifEnabled?"#10B981":"#64748B",cursor:"pointer",fontSize:12}}>{notifEnabled?"🔔 Notifiche ON":"🔕 Abilita notifiche"}</button>
+    </div>
+  );
+
   const agent=AGENTS[activeAgent];
   const conv=conversations[activeAgent]||[];
   const sl=saveStatusLabel();
@@ -464,19 +501,17 @@ export default function App() {
     <button onClick={onClick} disabled={disabled} style={{padding:"5px 10px",borderRadius:8,fontSize:12,cursor:disabled?"not-allowed":"pointer",border:`1px solid ${active?(ac||agent.color):"#1A1A2E"}`,background:active?`${ac||agent.color}18`:"transparent",color:active?(ac||agent.color):disabled?"#2A2A3A":"#475569",opacity:disabled?0.5:1,flexShrink:0,whiteSpace:"nowrap"}}>{label}</button>
   );
 
-  // ─── CARD generica dashboard ───
   const DCard=({children,style={}})=>(
     <div style={{background:"#0F0F1A",border:"1px solid #1A1A2E",borderRadius:14,padding:16,...style}}>{children}</div>
   );
   const DLabel=({children})=>(
-    <div style={{fontSize:10,fontWeight:700,color:"#475569",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:10}}>{children}</div>
+    <div style={{fontSize:Math.max(9,fontSize-4),fontWeight:700,color:"#475569",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:10}}>{children}</div>
   );
 
   return(
     <div style={{display:"flex",flexDirection:"column",height:"100dvh",background:"#09090F",color:"#E2E8F0",fontFamily:"system-ui,-apple-system,sans-serif",overflow:"hidden"}}>
       <div style={{display:"flex",flex:1,overflow:"hidden"}}>
 
-        {/* ── SIDEBAR DESKTOP ── */}
         {!isMobile&&(
           <div style={{width:200,background:"#0F0F1A",borderRight:"1px solid #1A1A2E",display:"flex",flexDirection:"column",padding:"16px 10px",flexShrink:0}}>
             <button onClick={()=>setView("home")} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",marginBottom:12,borderRadius:10,border:"none",background:view==="home"?"#1A1A2E":"transparent",color:view==="home"?"#F8FAFC":"#64748B",cursor:"pointer",fontSize:13,fontWeight:600,textAlign:"left"}}>🏠 Dashboard</button>
@@ -496,156 +531,120 @@ export default function App() {
               </div>
             ))}
             <div style={{marginTop:"auto",paddingTop:12,borderTop:"1px solid #1A1A2E"}}>
-              <button onClick={()=>{setShowSettings(!showSettings);setInfoTab(null);if(view==="home")setView("chat");}} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1px solid ${showSettings?"#334155":"#1A1A2E"}`,background:showSettings?"#1A1A2E":"transparent",color:"#64748B",cursor:"pointer",fontSize:12,textAlign:"left"}}>⚙️ Impostazioni</button>
+              <button onClick={()=>{setShowSettings(!showSettings);setInfoTab(null);}} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1px solid ${showSettings?"#334155":"#1A1A2E"}`,background:showSettings?"#1A1A2E":"transparent",color:"#64748B",cursor:"pointer",fontSize:12,textAlign:"left"}}>⚙️ Impostazioni</button>
             </div>
           </div>
         )}
 
         <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
 
-          {/* ══════════════════════════════════════
-              HOME — MORNING BRIEFING DASHBOARD
-          ══════════════════════════════════════ */}
           {view==="home"&&(
             <>
               <div style={{padding:"14px 20px",borderBottom:"1px solid #1A1A2E",background:"#09090F",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                 <div style={{fontWeight:700,fontSize:15,color:"#F8FAFC"}}>🏠 Dashboard</div>
                 <div style={{display:"flex",gap:8}}>
-  <button onClick={loadHomeData} style={{padding:"4px 10px",borderRadius:7,border:"1px solid #1A1A2E",background:"transparent",color:"#475569",cursor:"pointer",fontSize:11}}>{homeLoading?"⏳":"↻ Aggiorna"}</button>
-  <button onClick={()=>setShowSettings(s=>!s)} style={{padding:"4px 10px",borderRadius:7,border:`1px solid ${showSettings?"#334155":"#1A1A2E"}`,background:showSettings?"#1A1A2E":"transparent",color:"#64748B",cursor:"pointer",fontSize:11}}>⚙️</button>
-</div>
+                  <button onClick={loadHomeData} style={{padding:"4px 10px",borderRadius:7,border:"1px solid #1A1A2E",background:"transparent",color:"#475569",cursor:"pointer",fontSize:11}}>{homeLoading?"⏳":"↻ Aggiorna"}</button>
+                  <button onClick={()=>setShowSettings(s=>!s)} style={{padding:"4px 10px",borderRadius:7,border:`1px solid ${showSettings?"#8B5CF6":"#1A1A2E"}`,background:showSettings?"#8B5CF620":"transparent",color:showSettings?"#8B5CF6":"#64748B",cursor:"pointer",fontSize:11}}>⚙️</button>
+                </div>
               </div>
 
-              {showSettings&&(
-  <div style={{padding:"14px 16px",background:"#0F0F1A",borderBottom:"1px solid #1A1A2E",flexShrink:0}}>
-    <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:10,marginBottom:12}}>
-      <div>
-        <div style={{fontSize:11,color:"#64748B",marginBottom:4,display:"flex",alignItems:"center",gap:6}}>ClickUp API Key <span style={{display:"flex",alignItems:"center",gap:3}}><span style={{width:6,height:6,borderRadius:"50%",background:cuDot,display:"inline-block"}}/><span style={{fontSize:10,color:cuDot}}>{cuLabel}</span></span></div>
-        <input type="password" value={clickupKey} onChange={e=>setClickupKey(e.target.value)} placeholder="pk_xxxxx" style={{width:"100%",padding:"6px 10px",borderRadius:6,border:"1px solid #1A1A2E",background:"#09090F",color:"#E2E8F0",fontSize:12,outline:"none"}}/>
-      </div>
-      <div style={{display:"flex",flexDirection:"column",gap:6}}>
-        <div style={{fontSize:11,color:"#64748B",display:"flex",justifyContent:"space-between"}}>Dimensione testo <span style={{color:"#94A3B8"}}>{fontSize}px</span></div>
-        <input type="range" min={12} max={18} step={1} value={fontSize} onChange={e=>setFontSize(Number(e.target.value))} style={{width:"100%",accentColor:"#8B5CF6",cursor:"pointer"}}/>
-      </div>
-    </div>
-    <button onClick={requestNotifications} style={{padding:"6px 12px",borderRadius:6,border:`1px solid ${notifEnabled?"#10B981":"#1A1A2E"}`,background:notifEnabled?"#10B98120":"transparent",color:notifEnabled?"#10B981":"#64748B",cursor:"pointer",fontSize:12}}>{notifEnabled?"🔔 Notifiche ON":"🔕 Abilita notifiche"}</button>
-  </div>
-)}
-<div style={{flex:1,overflowY:"auto",padding:"16px 16px 24px"}}>
+              {showSettings&&<SettingsPanel mobile={isMobile}/>}
 
-                {/* Saluto */}
+              <div style={{flex:1,overflowY:"auto",padding:"16px 16px 24px",fontSize:fontSize}}>
+
                 <div style={{marginBottom:16}}>
-                  <div style={{fontSize:20,fontWeight:700,color:"#F8FAFC"}}>{getGreeting()}, Dario 👋</div>
-                  <div style={{color:"#475569",fontSize:12,marginTop:3}}>{new Date().toLocaleDateString("it-IT",{timeZone:"Europe/Bucharest",weekday:"long",day:"numeric",month:"long"})}</div>
+                  <div style={{fontSize:fontSize+6,fontWeight:700,color:"#F8FAFC"}}>{getGreeting()}, Dario 👋</div>
+                  <div style={{color:"#475569",fontSize:fontSize-2,marginTop:3}}>{new Date().toLocaleDateString("it-IT",{timeZone:"Europe/Bucharest",weekday:"long",day:"numeric",month:"long"})}</div>
                 </div>
 
-                {/* RIGA 1 — Orologi + Meteo */}
                 <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:10,marginBottom:10}}>
-
-                  {/* Orologi */}
                   <DCard>
                     <DLabel>🕐 Ora</DLabel>
-                    <div style={{fontSize:26,fontWeight:800,color:"#F8FAFC",letterSpacing:"0.04em",lineHeight:1}}>{clockBucharest}</div>
-                    <div style={{fontSize:10,color:"#475569",marginTop:3,marginBottom:10}}>Bucarest</div>
+                    <div style={{fontSize:fontSize+12,fontWeight:800,color:"#F8FAFC",letterSpacing:"0.04em",lineHeight:1}}>{clockBucharest}</div>
+                    <div style={{fontSize:fontSize-4,color:"#475569",marginTop:3,marginBottom:10}}>Bucarest</div>
                     <div style={{paddingTop:8,borderTop:"1px solid #1A1A2E"}}>
-                      <div style={{fontSize:16,fontWeight:600,color:"#94A3B8"}}>{clockRome}</div>
-                      <div style={{fontSize:10,color:"#334155",marginTop:2}}>Roma / Torremaggiore</div>
+                      <div style={{fontSize:fontSize+2,fontWeight:600,color:"#94A3B8"}}>{clockRome}</div>
+                      <div style={{fontSize:fontSize-4,color:"#334155",marginTop:2}}>Roma / Torremaggiore</div>
                     </div>
                   </DCard>
-
-                  {/* Meteo */}
                   <DCard>
                     <DLabel>🌍 Timișoara</DLabel>
                     {weather?(
                       <>
                         <div style={{fontSize:32,lineHeight:1,marginBottom:4}}>{getWeatherEmoji(weather.condition)}</div>
-                        <div style={{fontSize:26,fontWeight:800,color:"#F8FAFC"}}>{weather.temp}°C</div>
-                        <div style={{fontSize:11,color:"#64748B",marginTop:2,textTransform:"capitalize"}}>{weather.description}</div>
-                        <div style={{fontSize:10,color:"#334155",marginTop:4}}>💧{weather.humidity}% · 💨{weather.wind}km/h</div>
+                        <div style={{fontSize:fontSize+12,fontWeight:800,color:"#F8FAFC"}}>{weather.temp}°C</div>
+                        <div style={{fontSize:fontSize-3,color:"#64748B",marginTop:2,textTransform:"capitalize"}}>{weather.description}</div>
+                        <div style={{fontSize:fontSize-4,color:"#334155",marginTop:4}}>💧{weather.humidity}% · 💨{weather.wind}km/h</div>
                       </>
                     ):(
-                      <div style={{fontSize:12,color:"#334155"}}>{homeLoading?"Caricamento...":"–"}</div>
+                      <div style={{fontSize:fontSize-2,color:"#334155"}}>{homeLoading?"Caricamento...":"–"}</div>
                     )}
                   </DCard>
                 </div>
 
-                {/* RIGA 2 — Task + Routine */}
                 <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:10,marginBottom:10}}>
-
-                  {/* TO DO DAILY */}
                   <DCard>
                     <DLabel>✅ To Do Oggi</DLabel>
                     {homeData.todo.length===0?(
-                      <div style={{fontSize:12,color:"#334155"}}>{homeLoading?"Caricamento...":"Nessun task 🎉"}</div>
+                      <div style={{fontSize:fontSize-2,color:"#334155"}}>{homeLoading?"Caricamento...":"Nessun task 🎉"}</div>
                     ):homeData.todo.map(t=>(
-                      <TaskItem key={t.id} task={t} color="#8B5CF6" onToggle={id=>toggleTask(id,"todo")}/>
+                      <TaskItem key={t.id} task={t} color="#8B5CF6" onToggle={id=>toggleTask(id,"todo")} fontSize={fontSize}/>
                     ))}
                   </DCard>
-
-                  {/* ROUTINE DAILY */}
                   <DCard>
                     <DLabel>🔄 Routine</DLabel>
                     {homeData.routine.length===0?(
-                      <div style={{fontSize:12,color:"#334155"}}>{homeLoading?"Caricamento...":"Nessuna routine"}</div>
+                      <div style={{fontSize:fontSize-2,color:"#334155"}}>{homeLoading?"Caricamento...":"Nessuna routine"}</div>
                     ):homeData.routine.map(t=>(
-                      <TaskItem key={t.id} task={t} color="#10B981" onToggle={id=>toggleTask(id,"routine")}/>
+                      <TaskItem key={t.id} task={t} color="#10B981" onToggle={id=>toggleTask(id,"routine")} fontSize={fontSize}/>
                     ))}
                   </DCard>
                 </div>
 
-                {/* RIGA 3 — Peso + Revenue */}
                 <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:10,marginBottom:16}}>
-
-                  {/* Peso */}
                   <DCard>
                     <DLabel>💪 Progressi Fisici</DLabel>
                     {weightData?(
                       <>
-                        <div style={{fontSize:26,fontWeight:800,color:"#F97316"}}>{weightData.ultimo?.peso}<span style={{fontSize:13,fontWeight:400}}> kg</span></div>
-                        <div style={{fontSize:11,color:"#10B981",marginTop:2}}>−{weightData.persi} kg persi 🔥</div>
-                        <div style={{fontSize:10,color:"#475569",marginTop:1}}>Mancano {weightData.mancano} kg all'obiettivo</div>
-                        {/* Progress bar verso 85kg */}
+                        <div style={{fontSize:fontSize+12,fontWeight:800,color:"#F97316"}}>{weightData.ultimo?.peso}<span style={{fontSize:fontSize-1,fontWeight:400}}> kg</span></div>
+                        <div style={{fontSize:fontSize-3,color:"#10B981",marginTop:2}}>−{weightData.persi} kg persi 🔥</div>
+                        <div style={{fontSize:fontSize-4,color:"#475569",marginTop:1}}>Mancano {weightData.mancano} kg all'obiettivo</div>
                         <div style={{marginTop:8,height:3,background:"#1A1A2E",borderRadius:2}}>
                           <div style={{height:"100%",background:"#F97316",borderRadius:2,width:`${Math.min(Math.round(((121.6-(weightData.ultimo?.peso||121.6))/(121.6-85))*100),100)}%`,transition:"width 0.4s"}}/>
                         </div>
-                        <div style={{fontSize:9,color:"#334155",marginTop:3}}>Obiettivo: 85 kg</div>
-                        {/* Input nuovo peso */}
+                        <div style={{fontSize:fontSize-5,color:"#334155",marginTop:3}}>Obiettivo: 85 kg</div>
                         <div style={{marginTop:10,display:"flex",gap:6}}>
-                          <input type="number" step="0.1" placeholder="kg oggi" value={newWeight} onChange={e=>setNewWeight(e.target.value)} onKeyDown={e=>{if(e.key==="Enter") saveWeight();}} style={{flex:1,padding:"5px 8px",borderRadius:6,border:"1px solid #1A1A2E",background:"#09090F",color:"#E2E8F0",fontSize:12,outline:"none"}}/>
-                          <button onClick={saveWeight} style={{padding:"5px 10px",borderRadius:6,border:"none",background:"#F97316",color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer"}}>+</button>
+                          <input type="number" step="0.1" placeholder="kg oggi" value={newWeight} onChange={e=>setNewWeight(e.target.value)} onKeyDown={e=>{if(e.key==="Enter") saveWeight();}} style={{flex:1,padding:"5px 8px",borderRadius:6,border:"1px solid #1A1A2E",background:"#09090F",color:"#E2E8F0",fontSize:fontSize-2,outline:"none"}}/>
+                          <button onClick={saveWeight} style={{padding:"5px 10px",borderRadius:6,border:"none",background:"#F97316",color:"#fff",fontSize:fontSize-3,fontWeight:700,cursor:"pointer"}}>+</button>
                         </div>
                       </>
                     ):(
-                      <div style={{fontSize:12,color:"#334155"}}>{homeLoading?"Caricamento...":"–"}</div>
+                      <div style={{fontSize:fontSize-2,color:"#334155"}}>{homeLoading?"Caricamento...":"–"}</div>
                     )}
                   </DCard>
-
-                  {/* Revenue IAGREX */}
                   <DCard>
                     <DLabel>💶 Revenue IAGREX</DLabel>
                     {revenue?(
                       <>
-                        <div style={{fontSize:11,color:"#475569",marginBottom:4}}>{revenue.mese}</div>
-                        <div style={{fontSize:22,fontWeight:800,color:"#10B981"}}>+{(revenue.entrate_totali||0).toLocaleString("it-IT")}€</div>
-                        <div style={{fontSize:11,color:"#EF4444",marginTop:2}}>−{(revenue.uscite_totali||0).toLocaleString("it-IT")}€ uscite</div>
-                        <div style={{fontSize:11,color:"#64748B",marginTop:1}}>Saldo netto: {((revenue.entrate_totali||0)-(revenue.uscite_totali||0)).toLocaleString("it-IT")}€</div>
-                        {/* Progress bar verso 1M€ */}
+                        <div style={{fontSize:fontSize-3,color:"#475569",marginBottom:4}}>{revenue.mese}</div>
+                        <div style={{fontSize:fontSize+8,fontWeight:800,color:"#10B981"}}>+{(revenue.entrate_totali||0).toLocaleString("it-IT")}€</div>
+                        <div style={{fontSize:fontSize-3,color:"#EF4444",marginTop:2}}>−{(revenue.uscite_totali||0).toLocaleString("it-IT")}€ uscite</div>
+                        <div style={{fontSize:fontSize-3,color:"#64748B",marginTop:1}}>Saldo netto: {((revenue.entrate_totali||0)-(revenue.uscite_totali||0)).toLocaleString("it-IT")}€</div>
                         <div style={{marginTop:8,height:3,background:"#1A1A2E",borderRadius:2}}>
                           <div style={{height:"100%",background:"#10B981",borderRadius:2,width:`${Math.max(revenue.percentuale||0,1)}%`,transition:"width 0.4s"}}/>
                         </div>
-                        <div style={{fontSize:9,color:"#334155",marginTop:3}}>{revenue.percentuale}% verso 1.000.000€</div>
+                        <div style={{fontSize:fontSize-5,color:"#334155",marginTop:3}}>{revenue.percentuale}% verso 1.000.000€</div>
                       </>
                     ):(
-                      <div style={{fontSize:12,color:"#334155"}}>{homeLoading?"Caricamento...":"–"}</div>
+                      <div style={{fontSize:fontSize-2,color:"#334155"}}>{homeLoading?"Caricamento...":"–"}</div>
                     )}
                   </DCard>
                 </div>
 
-                {/* AGENTI AI */}
-                <div style={{fontSize:10,fontWeight:700,color:"#475569",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:10}}>🤖 Agenti AI</div>
+                <div style={{fontSize:fontSize-4,fontWeight:700,color:"#475569",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:10}}>🤖 Agenti AI</div>
                 {GROUPS.map(g=>(
                   <div key={g.label} style={{marginBottom:16}}>
-                    <div style={{fontSize:9,color:"#334155",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:8}}>{g.label}</div>
+                    <div style={{fontSize:fontSize-5,color:"#334155",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:8}}>{g.label}</div>
                     <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:8}}>
                       {g.ids.map(id=>{
                         const a=AGENTS[id];
@@ -655,9 +654,9 @@ export default function App() {
                           <button key={a.id} onClick={()=>goToAgent(a.id)} style={{padding:12,borderRadius:12,border:`1px solid ${a.color}30`,background:`linear-gradient(135deg,${a.color}12,${a.color}06)`,cursor:"pointer",textAlign:"left",position:"relative"}}>
                             {hasConv&&<div style={{position:"absolute",top:8,right:8,width:7,height:7,borderRadius:"50%",background:a.color,boxShadow:`0 0 5px ${a.color}`}}/>}
                             <div style={{fontSize:22,marginBottom:5,lineHeight:1}}>{a.icon}</div>
-                            <div style={{fontWeight:700,fontSize:12,color:a.color,marginBottom:1}}>{a.name}</div>
-                            <div style={{fontSize:10,color:"#475569",marginBottom:6}}>{a.role}</div>
-                            <div style={{fontSize:10,color:"#334155",lineHeight:1.4}}>{last?last.content.slice(0,45)+(last.content.length>45?"...":""):"Inizia a chattare →"}</div>
+                            <div style={{fontWeight:700,fontSize:fontSize-2,color:a.color,marginBottom:1}}>{a.name}</div>
+                            <div style={{fontSize:fontSize-4,color:"#475569",marginBottom:6}}>{a.role}</div>
+                            <div style={{fontSize:fontSize-4,color:"#334155",lineHeight:1.4}}>{last?last.content.slice(0,45)+(last.content.length>45?"...":""):"Inizia a chattare →"}</div>
                           </button>
                         );
                       })}
@@ -668,9 +667,6 @@ export default function App() {
             </>
           )}
 
-          {/* ══════════════════════════════════════
-              CHAT VIEW
-          ══════════════════════════════════════ */}
           {view==="chat"&&(
             <>
               <div style={{padding:"10px 16px",borderBottom:"1px solid #1A1A2E",background:"#09090F",flexShrink:0}}>
@@ -721,29 +717,7 @@ export default function App() {
                 </div>
               )}
 
-              {showSettings&&(
-                <div style={{padding:"14px 16px",background:"#0F0F1A",borderBottom:"1px solid #1A1A2E",flexShrink:0}}>
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
-                    <div>
-                      <div style={{fontSize:11,color:"#64748B",marginBottom:4,display:"flex",alignItems:"center",gap:6}}>ClickUp API Key <span style={{display:"flex",alignItems:"center",gap:3}}><span style={{width:6,height:6,borderRadius:"50%",background:cuDot,display:"inline-block"}}/><span style={{fontSize:10,color:cuDot}}>{cuLabel}</span></span></div>
-                      <input type="password" value={clickupKey} onChange={e=>setClickupKey(e.target.value)} placeholder="pk_xxxxx" style={{width:"100%",padding:"6px 10px",borderRadius:6,border:"1px solid #1A1A2E",background:"#09090F",color:"#E2E8F0",fontSize:12,outline:"none"}}/>
-                    </div>
-                    <div>
-                      <div style={{fontSize:11,color:"#64748B",marginBottom:4}}>Google Calendar API Key</div>
-                      <input type="password" value={calApiKey} onChange={e=>setCalApiKey(e.target.value)} placeholder="AIzaSy..." style={{width:"100%",padding:"6px 10px",borderRadius:6,border:"1px solid #1A1A2E",background:"#09090F",color:"#E2E8F0",fontSize:12,outline:"none"}}/>
-                    </div>
-                    <div>
-                      <div style={{fontSize:11,color:"#64748B",marginBottom:4}}>Google Calendar ID</div>
-                      <input value={calId} onChange={e=>setCalId(e.target.value)} placeholder="email@gmail.com" style={{width:"100%",padding:"6px 10px",borderRadius:6,border:"1px solid #1A1A2E",background:"#09090F",color:"#E2E8F0",fontSize:12,outline:"none"}}/>
-                    </div>
-                    <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                      <div style={{fontSize:11,color:"#64748B",display:"flex",justifyContent:"space-between"}}>Dimensione testo <span style={{color:"#94A3B8"}}>{fontSize}px</span></div>
-                      <input type="range" min={12} max={18} step={1} value={fontSize} onChange={e=>setFontSize(Number(e.target.value))} style={{width:"100%",accentColor:agent.color,cursor:"pointer"}}/>
-                    </div>
-                  </div>
-                  <button onClick={requestNotifications} style={{padding:"6px 12px",borderRadius:6,border:`1px solid ${notifEnabled?"#10B981":"#1A1A2E"}`,background:notifEnabled?"#10B98120":"transparent",color:notifEnabled?"#10B981":"#64748B",cursor:"pointer",fontSize:12}}>{notifEnabled?"🔔 Notifiche ON":"🔕 Abilita notifiche"}</button>
-                </div>
-              )}
+              {showSettings&&<SettingsPanel mobile={isMobile}/>}
 
               <div style={{flex:1,overflowY:"auto",padding:"16px",display:"flex",flexDirection:"column",gap:12}}>
                 {conv.length===0&&(
@@ -799,7 +773,6 @@ export default function App() {
         </div>
       </div>
 
-      {/* ── NAV MOBILE ── */}
       {isMobile&&(
         <div style={{display:"flex",background:"#0F0F1A",borderTop:"1px solid #1A1A2E",padding:"4px 2px",flexShrink:0,overflowX:"auto",alignItems:"stretch"}}>
           <button onClick={()=>setView("home")} style={{flex:1,padding:"6px 2px",borderRadius:8,border:"none",background:view==="home"?"#1A1A2E":"transparent",color:view==="home"?"#F8FAFC":"#475569",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1,minWidth:36}}>
