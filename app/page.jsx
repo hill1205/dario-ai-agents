@@ -649,7 +649,6 @@ export default function App() {
                       {g.ids.map(id=>{
                         const a=AGENTS[id];
                         const last=conversations[a.id]?.slice(-1)[0];
-                        const last=conversations[a.id]?.slice(-1)[0];
                         return(
                           <button key={a.id} onClick={()=>goToAgent(a.id)} style={{padding:12,borderRadius:12,border:`1px solid ${a.color}30`,background:`linear-gradient(135deg,${a.color}12,${a.color}06)`,cursor:"pointer",textAlign:"left",position:"relative"}}>
                             {hasUnread&&<div style={{position:"absolute",top:8,right:8,width:7,height:7,borderRadius:"50%",background:a.color,boxShadow:`0 0 5px ${a.color}`}}/>}
