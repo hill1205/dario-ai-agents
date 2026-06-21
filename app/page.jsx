@@ -97,7 +97,6 @@ export default function App() {
   const recognitionRef = useRef(null);
   const textareaRef = useRef(null);
 
-  // PERSISTENZA — carica da localStorage
   useEffect(()=>{
     try{
       const cr = localStorage.getItem("dario-conversations");
@@ -125,7 +124,6 @@ export default function App() {
     setStorageReady(true);
   },[]);
 
-  // PERSISTENZA — salva conversazioni
   useEffect(()=>{
     if(!storageReady) return;
     try{
@@ -136,7 +134,6 @@ export default function App() {
     }catch(e){}
   },[conversations, storageReady]);
 
-  // PERSISTENZA — salva impostazioni
   useEffect(()=>{
     if(!storageReady) return;
     try{
@@ -157,7 +154,6 @@ export default function App() {
     messagesEndRef.current?.scrollIntoView({behavior:"smooth"});
   },[conversations,activeAgent,isLoading]);
 
-  // TEST CONNESSIONE CLICKUP
   useEffect(()=>{
     if(!clickupKey){setClickupStatus(null);return;}
     setClickupStatus("testing");
@@ -288,7 +284,7 @@ export default function App() {
           model:"claude-sonnet-4-6",max_tokens:1000,
           system:[{type:"text",text:AGENTS[currentAgent].systemPrompt,cache_control:{type:"ephemeral"}}],
           messages: msgs,
-agentId: currentAgent
+          agentId: currentAgent
         })
       });
       const data=await res.json();
@@ -410,12 +406,13 @@ agentId: currentAgent
       padding:"5px 10px",borderRadius:8,fontSize:12,cursor:disabled?"not-allowed":"pointer",
       border:`1px solid ${active?(ac||agent.color):"#1A1A2E"}`,
       background:active?`${ac||agent.color}18`:"transparent",
-      color:active?(ac||agent.color):disabled?"#2A2A3A":"#475569",opacity:disabled?0.5:1
+      color:active?(ac||agent.color):disabled?"#2A2A3A":"#475569",opacity:disabled?0.5:1,
+      flexShrink:0,whiteSpace:"nowrap"
     }}>{label}</button>
   );
 
   return(
-    <div style={{display:"flex",flexDirection:"column",height:"100vh",background:"#09090F",color:"#E2E8F0",fontFamily:"system-ui,-apple-system,sans-serif",overflow:"hidden"}}>
+    <div style={{display:"flex",flexDirection:"column",height:"100dvh",background:"#09090F",color:"#E2E8F0",fontFamily:"system-ui,-apple-system,sans-serif",overflow:"hidden"}}>
       <div style={{display:"flex",flex:1,overflow:"hidden"}}>
         {!isMobile&&(
           <div style={{width:200,background:"#0F0F1A",borderRight:"1px solid #1A1A2E",display:"flex",flexDirection:"column",padding:"16px 10px",flexShrink:0}}>
@@ -472,20 +469,45 @@ agentId: currentAgent
           )}
           {view==="chat"&&(
             <>
-              <div style={{padding:"12px 16px",borderBottom:"1px solid #1A1A2E",display:"flex",alignItems:"center",gap:10,background:"#09090F",flexShrink:0,flexWrap:"wrap"}}>
-                {isMobile&&<button onClick={()=>setView("home")} style={{padding:"5px 9px",borderRadius:8,border:"1px solid #1A1A2E",background:"transparent",color:"#64748B",cursor:"pointer",fontSize:13}}>←</button>}
-                <div style={{width:34,height:34,borderRadius:"50%",background:`${agent.color}20`,border:`2px solid ${agent.color}40`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>{agent.icon}</div>
-                <div><div style={{fontWeight:700,fontSize:14,color:agent.color}}>{agent.name}</div><div style={{fontSize:11,color:"#475569"}}>{agent.role}</div></div>
-                <div style={{marginLeft:"auto",display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
-                  {sl&&<span style={{fontSize:11,color:sl.color,fontStyle:"italic"}}>{sl.text}</span>}
-                  {!sl&&statusMsg&&<span style={{fontSize:11,color:"#64748B",fontStyle:"italic"}}>{statusMsg}</span>}
-                  <HBtn label="📋 Info" active={infoTab==="info"} onClick={()=>toggleInfo("info")}/>
-                  <HBtn label="🧠 Ricordi" active={infoTab==="memories"} onClick={()=>toggleInfo("memories")} ac="#F59E0B"/>
-                  <HBtn label={voiceEnabled?"🔊":"🔇"} active={voiceEnabled} onClick={()=>{setVoiceEnabled(v=>!v);if(voiceEnabled)window.speechSynthesis.cancel();}}/>
-                  <HBtn label="📥" active={false} onClick={exportChat}/>
-                  <HBtn label="🗑" active={false} onClick={clearChat}/>
+              {/* ===== HEADER — FIX MOBILE: due righe su mobile ===== */}
+              <div style={{padding:"10px 16px",borderBottom:"1px solid #1A1A2E",background:"#09090F",flexShrink:0}}>
+                {/* Riga 1: freccia + icona + nome (sempre visibile) */}
+                <div style={{display:"flex",alignItems:"center",gap:10}}>
+                  {isMobile&&(
+                    <button onClick={()=>setView("home")} style={{padding:"5px 9px",borderRadius:8,border:"1px solid #1A1A2E",background:"transparent",color:"#64748B",cursor:"pointer",fontSize:13,flexShrink:0}}>←</button>
+                  )}
+                  <div style={{width:34,height:34,borderRadius:"50%",background:`${agent.color}20`,border:`2px solid ${agent.color}40`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>{agent.icon}</div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontWeight:700,fontSize:14,color:agent.color,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{agent.name}</div>
+                    <div style={{fontSize:11,color:"#475569"}}>{agent.role}</div>
+                  </div>
+                  {/* Pulsanti solo su desktop nella riga 1 */}
+                  {!isMobile&&(
+                    <div style={{marginLeft:"auto",display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                      {sl&&<span style={{fontSize:11,color:sl.color,fontStyle:"italic"}}>{sl.text}</span>}
+                      {!sl&&statusMsg&&<span style={{fontSize:11,color:"#64748B",fontStyle:"italic"}}>{statusMsg}</span>}
+                      <HBtn label="📋 Info" active={infoTab==="info"} onClick={()=>toggleInfo("info")}/>
+                      <HBtn label="🧠 Ricordi" active={infoTab==="memories"} onClick={()=>toggleInfo("memories")} ac="#F59E0B"/>
+                      <HBtn label={voiceEnabled?"🔊":"🔇"} active={voiceEnabled} onClick={()=>{setVoiceEnabled(v=>!v);if(voiceEnabled)window.speechSynthesis.cancel();}}/>
+                      <HBtn label="📥" active={false} onClick={exportChat}/>
+                      <HBtn label="🗑" active={false} onClick={clearChat}/>
+                    </div>
+                  )}
                 </div>
+                {/* Riga 2: pulsanti solo su mobile */}
+                {isMobile&&(
+                  <div style={{display:"flex",gap:6,alignItems:"center",marginTop:8,overflowX:"auto",paddingBottom:2}}>
+                    {sl&&<span style={{fontSize:11,color:sl.color,fontStyle:"italic",flexShrink:0}}>{sl.text}</span>}
+                    {!sl&&statusMsg&&<span style={{fontSize:11,color:"#64748B",fontStyle:"italic",flexShrink:0}}>{statusMsg}</span>}
+                    <HBtn label="📋 Info" active={infoTab==="info"} onClick={()=>toggleInfo("info")}/>
+                    <HBtn label="🧠 Ricordi" active={infoTab==="memories"} onClick={()=>toggleInfo("memories")} ac="#F59E0B"/>
+                    <HBtn label={voiceEnabled?"🔊":"🔇"} active={voiceEnabled} onClick={()=>{setVoiceEnabled(v=>!v);if(voiceEnabled)window.speechSynthesis.cancel();}}/>
+                    <HBtn label="📥" active={false} onClick={exportChat}/>
+                    <HBtn label="🗑" active={false} onClick={clearChat}/>
+                  </div>
+                )}
               </div>
+              {/* ===== FINE HEADER ===== */}
               {infoTab&&(
                 <div style={{background:"#0F0F1A",borderBottom:"1px solid #1A1A2E",flexShrink:0}}>
                   <div style={{display:"flex",borderBottom:"1px solid #1A1A2E"}}>
