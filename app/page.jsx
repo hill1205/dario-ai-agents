@@ -518,14 +518,14 @@ export default function App() {
             {GROUPS.map(g=>(
               <div key={g.label} style={{marginBottom:8}}>
                 <div style={{fontSize:9,color:"#334155",letterSpacing:"0.1em",textTransform:"uppercase",padding:"0 8px",marginBottom:4}}>{g.label}</div>
-                {g.ids.map(id=>{const a=AGENTS[id];const hasConv=conversations[a.id]?.length>0;return(
+                {g.ids.map(id=>{const a=AGENTS[id];const lastMsg=conversations[a.id]?.slice(-1)[0];const hasUnread=lastMsg?.role==="assistant";return(
                   <button key={a.id} onClick={()=>goToAgent(a.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",borderRadius:10,border:"none",marginBottom:2,width:"100%",textAlign:"left",background:view==="chat"&&activeAgent===a.id?`${a.color}18`:"transparent",borderLeft:`3px solid ${view==="chat"&&activeAgent===a.id?a.color:"transparent"}`,color:view==="chat"&&activeAgent===a.id?a.color:"#64748B",cursor:"pointer"}}>
                     <span style={{fontSize:17,flexShrink:0,lineHeight:1}}>{a.icon}</span>
                     <div style={{flex:1}}>
                       <div style={{fontWeight:600,fontSize:13,lineHeight:1.2}}>{a.name}</div>
                       <div style={{fontSize:10,opacity:0.7}}>{a.role}</div>
                     </div>
-                    {hasConv&&<div style={{width:6,height:6,borderRadius:"50%",background:a.color,flexShrink:0}}/>}
+                    {hasUnread&&<div style={{width:6,height:6,borderRadius:"50%",background:a.color,flexShrink:0}}/>}
                   </button>
                 );})}
               </div>
@@ -649,10 +649,10 @@ export default function App() {
                       {g.ids.map(id=>{
                         const a=AGENTS[id];
                         const last=conversations[a.id]?.slice(-1)[0];
-                        const hasConv=conversations[a.id]?.length>0;
+                        const last=conversations[a.id]?.slice(-1)[0];
                         return(
                           <button key={a.id} onClick={()=>goToAgent(a.id)} style={{padding:12,borderRadius:12,border:`1px solid ${a.color}30`,background:`linear-gradient(135deg,${a.color}12,${a.color}06)`,cursor:"pointer",textAlign:"left",position:"relative"}}>
-                            {hasConv&&<div style={{position:"absolute",top:8,right:8,width:7,height:7,borderRadius:"50%",background:a.color,boxShadow:`0 0 5px ${a.color}`}}/>}
+                            {hasUnread&&<div style={{position:"absolute",top:8,right:8,width:7,height:7,borderRadius:"50%",background:a.color,boxShadow:`0 0 5px ${a.color}`}}/>}
                             <div style={{fontSize:22,marginBottom:5,lineHeight:1}}>{a.icon}</div>
                             <div style={{fontWeight:700,fontSize:fontSize-2,color:a.color,marginBottom:1}}>{a.name}</div>
                             <div style={{fontSize:fontSize-4,color:"#475569",marginBottom:6}}>{a.role}</div>
@@ -785,7 +785,7 @@ export default function App() {
                 <button key={a.id} onClick={()=>goToAgent(a.id)} style={{flex:1,padding:"6px 2px",borderRadius:8,border:"none",background:view==="chat"&&activeAgent===a.id?`${a.color}20`:"transparent",color:view==="chat"&&activeAgent===a.id?a.color:"#475569",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1,minWidth:36,position:"relative"}}>
                   <span style={{fontSize:18}}>{a.icon}</span>
                   <span style={{fontSize:8}}>{a.name}</span>
-                  {conversations[a.id]?.length>0&&<div style={{position:"absolute",top:4,right:6,width:5,height:5,borderRadius:"50%",background:a.color}}/>}
+                 {conversations[a.id]?.slice(-1)[0]?.role==="assistant"&&<div style={{position:"absolute",top:4,right:6,width:5,height:5,borderRadius:"50%",background:a.color}}/>}
                 </button>
               );})}
             </div>
