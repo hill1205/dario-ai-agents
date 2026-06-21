@@ -12,13 +12,52 @@ const LISTS = {
   IN_SOSPESO:          "901218950377",
 };
 
-const DOCS = {
-  MARIO:     { docId: "2kxuu4g1-632", pageId: "2kxuu4g1-392" },
-  MIMMO:     { docId: "2kxuu4g1-652", pageId: "2kxuu4g1-412" },
-  CARMINE:   { docId: "2kxuu4g1-672", pageId: "2kxuu4g1-432" },
-  VLAD:      { docId: "2kxuu4g1-692", pageId: "2kxuu4g1-452" },
-  BRUNO:     { docId: "2kxuu4g1-732", pageId: "2kxuu4g1-512" },
-  STATO_BEA: { docId: "2kxuu4g1-792", pageId: "2kxuu4g1-672" },
+// Daily Update documents (letti da Bea nel briefing mattutino)
+const DAILY_DOCS = {
+  MARIO:   { docId: "2kxuu4g1-632", pageId: "2kxuu4g1-392" },
+  MIMMO:   { docId: "2kxuu4g1-652", pageId: "2kxuu4g1-412" },
+  CARMINE: { docId: "2kxuu4g1-672", pageId: "2kxuu4g1-432" },
+  VLAD:    { docId: "2kxuu4g1-692", pageId: "2kxuu4g1-452" },
+  BRUNO:   { docId: "2kxuu4g1-732", pageId: "2kxuu4g1-512" },
+};
+
+// STATO PROGETTO documents (memoria persistente di ogni agente)
+const STATO_DOCS = {
+  bea:     { docId: "2kxuu4g1-792", pageId: "2kxuu4g1-672" },
+  mario:   { docId: "2kxuu4g1-872", pageId: "2kxuu4g1-752" },
+  mimmo:   { docId: "2kxuu4g1-892", pageId: "2kxuu4g1-772" },
+  carmine: { docId: "2kxuu4g1-832", pageId: "2kxuu4g1-712" },
+  vlad:    { docId: "2kxuu4g1-812", pageId: "2kxuu4g1-692" },
+  bruno:   { docId: "2kxuu4g1-852", pageId: "2kxuu4g1-732" },
+};
+
+// Liste ClickUp per ogni agente non-Bea
+const AGENT_LISTS = {
+  mario: [
+    { id: "901218950388", name: "AGENZIA 1M€" },
+    { id: "901218950389", name: "CLIENTI" },
+    { id: "901218950390", name: "LEADS" },
+  ],
+  mimmo: [
+    { id: "901218950391", name: "FATTURE" },
+    { id: "901218950392", name: "SCADENZE" },
+    { id: "901218950393", name: "CONTABILITÀ" },
+  ],
+  carmine: [
+    { id: "901218950382", name: "DIETA & PASTI" },
+    { id: "901218950383", name: "ALLENAMENTI" },
+    { id: "901218950384", name: "PROGRESSI" },
+  ],
+  vlad: [
+    { id: "901218950378", name: "PRATICHE ATTIVE" },
+    { id: "901218950379", name: "DOCUMENTI" },
+    { id: "901218950381", name: "SCADENZE" },
+  ],
+  bruno: [
+    { id: "901218950385", name: "ENTRATE & USCITE" },
+    { id: "901218950386", name: "OBIETTIVI FINANZIARI" },
+    { id: "901218950387", name: "INVESTIMENTI" },
+  ],
 };
 
 function cuHeaders(apiKey) {
@@ -26,14 +65,18 @@ function cuHeaders(apiKey) {
 }
 
 async function getTasksFromList(listId, apiKey) {
-  const q = ["da fare", "in corso", "aperto"]
-    .map((s) => `statuses[]=${encodeURIComponent(s)}`)
-    .join("&");
-  const res = await fetch(`${CU_V2}/list/${listId}/task?${q}&include_closed=false`, {
-    headers: cuHeaders(apiKey),
-  });
-  const data = await res.json();
-  return data.tasks ?? [];
+  try {
+    const q = ["da fare", "in corso", "aperto"]
+      .map((s) => `statuses[]=${encodeURIComponent(s)}`)
+      .join("&");
+    const res = await fetch(`${CU_V2}/list/${listId}/task?${q}&include_closed=false`, {
+      headers: cuHeaders(apiKey),
+    });
+    const data = await res.json();
+    return data.tasks ?? [];
+  } catch (err) {
+    return [];
+  }
 }
 
 async function resetRoutineDaily(apiKey) {
@@ -70,10 +113,11 @@ async function getDocPage(docId, pageId, apiKey) {
 function formatTasks(tasks) {
   if (!tasks.length) return "(nessuna)";
   return tasks
-    .map((t) => `- [${t.status}] ${t.name}${t.priority === "high" ? " 🔴" : ""}`)
+    .map((t) => `- [${t.status?.status ?? t.status ?? "?"}] ${t.name}${t.priority === "high" ? " 🔴" : ""}`)
     .join("\n");
 }
 
+// Contesto mattutino completo per Bea
 async function buildMorningContext(apiKey) {
   const isSaturday =
     new Date().toLocaleDateString("en-US", {
@@ -87,12 +131,12 @@ async function buildMorningContext(apiKey) {
       resetRoutineDaily(apiKey),
       getTasksFromList(LISTS.IN_SOSPESO, apiKey),
       isSaturday ? getTasksFromList(LISTS.ROUTINE_SETTIMANALE, apiKey) : Promise.resolve([]),
-      getDocPage(DOCS.MARIO.docId,     DOCS.MARIO.pageId,     apiKey),
-      getDocPage(DOCS.MIMMO.docId,     DOCS.MIMMO.pageId,     apiKey),
-      getDocPage(DOCS.CARMINE.docId,   DOCS.CARMINE.pageId,   apiKey),
-      getDocPage(DOCS.VLAD.docId,      DOCS.VLAD.pageId,      apiKey),
-      getDocPage(DOCS.BRUNO.docId,     DOCS.BRUNO.pageId,     apiKey),
-      getDocPage(DOCS.STATO_BEA.docId, DOCS.STATO_BEA.pageId, apiKey),
+      getDocPage(DAILY_DOCS.MARIO.docId,   DAILY_DOCS.MARIO.pageId,   apiKey),
+      getDocPage(DAILY_DOCS.MIMMO.docId,   DAILY_DOCS.MIMMO.pageId,   apiKey),
+      getDocPage(DAILY_DOCS.CARMINE.docId, DAILY_DOCS.CARMINE.pageId, apiKey),
+      getDocPage(DAILY_DOCS.VLAD.docId,    DAILY_DOCS.VLAD.pageId,    apiKey),
+      getDocPage(DAILY_DOCS.BRUNO.docId,   DAILY_DOCS.BRUNO.pageId,   apiKey),
+      getDocPage(STATO_DOCS.bea.docId,     STATO_DOCS.bea.pageId,     apiKey),
     ]);
 
   const now = new Date().toLocaleString("it-IT", { timeZone: "Europe/Bucharest" });
@@ -132,20 +176,56 @@ ${bruno}
 === FINE CONTESTO ===`.trim();
 }
 
+// Doc aggiuntivi per agenti specifici
+const AGENT_EXTRA_DOCS = {
+  mario: [
+    { docId: "2kxuu4g1-912", pageId: "2kxuu4g1-792", name: "LISTA 50 TARGET E-COMMERCE" },
+  ],
+};
+
+// Contesto ClickUp per agenti non-Bea (iniettato al primo messaggio)
+async function buildAgentContext(agentId, apiKey) {
+  const lists = AGENT_LISTS[agentId];
+  const statoDoc = STATO_DOCS[agentId];
+  if (!lists || !statoDoc) return "";
+
+  const now = new Date().toLocaleString("it-IT", { timeZone: "Europe/Bucharest" });
+
+  const extraDocs = AGENT_EXTRA_DOCS[agentId] ?? [];
+
+  // Fetch stato progetto + tutte le liste + doc extra in parallelo
+  const [stato, ...rest] = await Promise.all([
+    getDocPage(statoDoc.docId, statoDoc.pageId, apiKey),
+    ...lists.map((l) => getTasksFromList(l.id, apiKey)),
+    ...extraDocs.map((d) => getDocPage(d.docId, d.pageId, apiKey)),
+  ]);
+
+  const taskResults = rest.slice(0, lists.length);
+  const extraDocResults = rest.slice(lists.length);
+
+  let ctx = `=== CONTESTO CLICKUP — ${now} (Bucarest) ===\n\n`;
+  ctx += `[STATO PROGETTO — ultima sessione]\n${stato}\n\n`;
+  lists.forEach((list, i) => {
+    ctx += `[${list.name}]\n${formatTasks(taskResults[i])}\n\n`;
+  });
+  extraDocs.forEach((doc, i) => {
+    ctx += `[${doc.name}]\n${extraDocResults[i]}\n\n`;
+  });
+  ctx += "=== FINE CONTESTO ===";
+  return ctx;
+}
+
 function isMorningGreeting(messages) {
   const last = [...messages].reverse().find((m) => m.role === "user");
   if (!last) return false;
   const text = (
     typeof last.content === "string" ? last.content : last.content?.[0]?.text ?? ""
   ).toLowerCase().trim();
-  // usa includes invece di startsWith per gestire emoji prima del testo (es. "☀️ Buongiorno Bea")
   return ["buongiorno", "buon giorno", "ciao bea", "morning"].some((g) => text.includes(g));
 }
 
 function isBea(body) {
-  // Controlla agentId esplicito
   if (body.agentId) return body.agentId === "bea";
-  // Fallback: cerca in tutto il system prompt (stringa o array)
   const system = body.system;
   if (!system) return false;
   const allText = Array.isArray(system)
@@ -154,17 +234,34 @@ function isBea(body) {
   return allText.toLowerCase().includes("beatrice");
 }
 
+function isFirstMessage(messages) {
+  // È il primo messaggio se non ci sono ancora risposte dell'assistente
+  return !messages.some((m) => m.role === "assistant");
+}
+
+function injectContext(body, ctx) {
+  if (typeof body.system === "string") {
+    body.system = body.system + "\n\n" + ctx;
+  } else if (Array.isArray(body.system)) {
+    body.system = [...body.system, { type: "text", text: ctx }];
+  }
+}
+
 export async function POST(request) {
   try {
     const body = await request.json();
     const clickupKey = process.env.CLICKUP_API_KEY;
+    const agentId = body.agentId;
 
-    if (clickupKey && isBea(body) && isMorningGreeting(body.messages)) {
-      const ctx = await buildMorningContext(clickupKey);
-      if (typeof body.system === "string") {
-        body.system = body.system + "\n\n" + ctx;
-      } else if (Array.isArray(body.system)) {
-        body.system = [...body.system, { type: "text", text: ctx }];
+    if (clickupKey) {
+      if (isBea(body) && isMorningGreeting(body.messages)) {
+        // Bea: contesto mattutino completo
+        const ctx = await buildMorningContext(clickupKey);
+        injectContext(body, ctx);
+      } else if (agentId && agentId !== "bea" && AGENT_LISTS[agentId] && isFirstMessage(body.messages)) {
+        // Altri agenti: contesto ClickUp al primo messaggio
+        const ctx = await buildAgentContext(agentId, clickupKey);
+        if (ctx) injectContext(body, ctx);
       }
     }
 
