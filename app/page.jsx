@@ -450,7 +450,25 @@ export default function App() {
     return null;
   };
 
-  const SettingsPanel = ({mobile=false})=>(
+  const agent=AGENTS[activeAgent];
+  const conv=conversations[activeAgent]||[];
+  const sl=saveStatusLabel();
+  const cuDot=clickupStatus==="ok"?"#10B981":clickupStatus==="error"?"#EF4444":clickupStatus==="testing"?"#F59E0B":"#334155";
+  const cuLabel=clickupStatus==="ok"?"Connesso":clickupStatus==="error"?"Errore":clickupStatus==="testing"?"Test...":"Non configurato";
+
+  const HBtn=({label,active,onClick,ac,disabled=false})=>(
+    <button onClick={onClick} disabled={disabled} style={{padding:"5px 10px",borderRadius:8,fontSize:12,cursor:disabled?"not-allowed":"pointer",border:`1px solid ${active?(ac||agent.color):"#1A1A2E"}`,background:active?`${ac||agent.color}18`:"transparent",color:active?(ac||agent.color):disabled?"#2A2A3A":"#475569",opacity:disabled?0.5:1,flexShrink:0,whiteSpace:"nowrap"}}>{label}</button>
+  );
+
+  const DCard=({children,style={}})=>(
+    <div style={{background:"#0F0F1A",border:"1px solid #1A1A2E",borderRadius:14,padding:16,...style}}>{children}</div>
+  );
+
+  const DLabel=({children})=>(
+    <div style={{fontSize:Math.max(9,fontSize-4),fontWeight:700,color:"#475569",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:10}}>{children}</div>
+  );
+
+  const SettingsPanel=({mobile=false})=>(
     <div style={{padding:"14px 16px",background:"#0F0F1A",borderBottom:"1px solid #1A1A2E",flexShrink:0}}>
       <div style={{display:"grid",gridTemplateColumns:mobile?"1fr":"1fr 1fr",gap:10,marginBottom:12}}>
         <div>
@@ -489,23 +507,6 @@ export default function App() {
       </div>
       <button onClick={requestNotifications} style={{padding:"6px 12px",borderRadius:6,border:`1px solid ${notifEnabled?"#10B981":"#1A1A2E"}`,background:notifEnabled?"#10B98120":"transparent",color:notifEnabled?"#10B981":"#64748B",cursor:"pointer",fontSize:12}}>{notifEnabled?"🔔 Notifiche ON":"🔕 Abilita notifiche"}</button>
     </div>
-  );
-
-  const agent=AGENTS[activeAgent];
-  const conv=conversations[activeAgent]||[];
-  const sl=saveStatusLabel();
-  const cuDot=clickupStatus==="ok"?"#10B981":clickupStatus==="error"?"#EF4444":clickupStatus==="testing"?"#F59E0B":"#334155";
-  const cuLabel=clickupStatus==="ok"?"Connesso":clickupStatus==="error"?"Errore":clickupStatus==="testing"?"Test...":"Non configurato";
-
-  const HBtn=({label,active,onClick,ac,disabled=false})=>(
-    <button onClick={onClick} disabled={disabled} style={{padding:"5px 10px",borderRadius:8,fontSize:12,cursor:disabled?"not-allowed":"pointer",border:`1px solid ${active?(ac||agent.color):"#1A1A2E"}`,background:active?`${ac||agent.color}18`:"transparent",color:active?(ac||agent.color):disabled?"#2A2A3A":"#475569",opacity:disabled?0.5:1,flexShrink:0,whiteSpace:"nowrap"}}>{label}</button>
-  );
-
-  const DCard=({children,style={}})=>(
-    <div style={{background:"#0F0F1A",border:"1px solid #1A1A2E",borderRadius:14,padding:16,...style}}>{children}</div>
-  );
-  const DLabel=({children})=>(
-    <div style={{fontSize:Math.max(9,fontSize-4),fontWeight:700,color:"#475569",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:10}}>{children}</div>
   );
 
   return(
@@ -551,7 +552,6 @@ export default function App() {
               {showSettings&&<SettingsPanel mobile={isMobile}/>}
 
               <div style={{flex:1,overflowY:"auto",padding:"16px 16px 24px",fontSize:fontSize}}>
-
                 <div style={{marginBottom:16}}>
                   <div style={{fontSize:fontSize+6,fontWeight:700,color:"#F8FAFC"}}>{getGreeting()}, Dario 👋</div>
                   <div style={{color:"#475569",fontSize:fontSize-2,marginTop:3}}>{new Date().toLocaleDateString("it-IT",{timeZone:"Europe/Bucharest",weekday:"long",day:"numeric",month:"long"})}</div>
@@ -649,6 +649,7 @@ export default function App() {
                       {g.ids.map(id=>{
                         const a=AGENTS[id];
                         const last=conversations[a.id]?.slice(-1)[0];
+                        const hasUnread=last?.role==="assistant";
                         return(
                           <button key={a.id} onClick={()=>goToAgent(a.id)} style={{padding:12,borderRadius:12,border:`1px solid ${a.color}30`,background:`linear-gradient(135deg,${a.color}12,${a.color}06)`,cursor:"pointer",textAlign:"left",position:"relative"}}>
                             {hasUnread&&<div style={{position:"absolute",top:8,right:8,width:7,height:7,borderRadius:"50%",background:a.color,boxShadow:`0 0 5px ${a.color}`}}/>}
@@ -784,7 +785,7 @@ export default function App() {
                 <button key={a.id} onClick={()=>goToAgent(a.id)} style={{flex:1,padding:"6px 2px",borderRadius:8,border:"none",background:view==="chat"&&activeAgent===a.id?`${a.color}20`:"transparent",color:view==="chat"&&activeAgent===a.id?a.color:"#475569",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1,minWidth:36,position:"relative"}}>
                   <span style={{fontSize:18}}>{a.icon}</span>
                   <span style={{fontSize:8}}>{a.name}</span>
-                 {conversations[a.id]?.slice(-1)[0]?.role==="assistant"&&<div style={{position:"absolute",top:4,right:6,width:5,height:5,borderRadius:"50%",background:a.color}}/>}
+                  {conversations[a.id]?.slice(-1)[0]?.role==="assistant"&&<div style={{position:"absolute",top:4,right:6,width:5,height:5,borderRadius:"50%",background:a.color}}/>}
                 </button>
               );})}
             </div>
