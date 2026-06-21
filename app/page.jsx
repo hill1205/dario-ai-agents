@@ -116,6 +116,7 @@ export default function App() {
   const [clickupStatus, setClickupStatus] = useState(null);
   const [statiProgetto, setStatiProgetto] = useState({});
   const [storageReady, setStorageReady] = useState(false);
+  const [readStatus, setReadStatus] = useState({});
 
   const [clockBucharest, setClockBucharest] = useState("--:--:--");
   const [clockRome, setClockRome] = useState("--:--");
@@ -152,6 +153,7 @@ export default function App() {
         if(s.fontSize)   setFontSize(s.fontSize);
         if(s.voiceEnabled!==undefined) setVoiceEnabled(s.voiceEnabled);
         if(s.notifEnabled!==undefined) setNotifEnabled(s.notifEnabled);
+        if(s.readStatus)  setReadStatus(s.readStatus);
       }
     }catch(e){}
     setStorageReady(true);
@@ -168,9 +170,9 @@ export default function App() {
   useEffect(()=>{
     if(!storageReady) return;
     try{
-      localStorage.setItem("dario-settings",JSON.stringify({clickupKey,calApiKey,calId,fontSize,voiceEnabled,notifEnabled}));
+      localStorage.setItem("dario-settings",JSON.stringify({clickupKey,calApiKey,calId,fontSize,voiceEnabled,notifEnabled,readStatus}));
     }catch(e){}
-  },[clickupKey,calApiKey,calId,fontSize,voiceEnabled,notifEnabled,storageReady]);
+  },[clickupKey,calApiKey,calId,fontSize,voiceEnabled,notifEnabled,readStatus,storageReady]);
 
   useEffect(()=>{
     const check=()=>setIsMobile(window.innerWidth<640);
@@ -269,6 +271,7 @@ export default function App() {
     setView("chat");
     setInfoTab(null);
     setShowSettings(false);
+    setReadStatus(prev=>({...prev,[id]:conversations[id]?.length||0}));
     if(AGENTS[id].statoProgetto&&!statiProgetto[id]&&clickupKey){
       const content=await fetchStatoProgetto(id);
       if(content) setStatiProgetto(prev=>({...prev,[id]:content}));
@@ -450,6 +453,11 @@ export default function App() {
     return null;
   };
 
+  const isUnread=(id)=>{
+    const msgs=conversations[id]||[];
+    return msgs.length>(readStatus[id]||0)&&msgs.slice(-1)[0]?.role==="assistant";
+  };
+
   const agent=AGENTS[activeAgent];
   const conv=conversations[activeAgent]||[];
   const sl=saveStatusLabel();
@@ -519,14 +527,14 @@ export default function App() {
             {GROUPS.map(g=>(
               <div key={g.label} style={{marginBottom:8}}>
                 <div style={{fontSize:9,color:"#334155",letterSpacing:"0.1em",textTransform:"uppercase",padding:"0 8px",marginBottom:4}}>{g.label}</div>
-                {g.ids.map(id=>{const a=AGENTS[id];const lastMsg=conversations[a.id]?.slice(-1)[0];const hasUnread=lastMsg?.role==="assistant";return(
+                {g.ids.map(id=>{const a=AGENTS[id];return(
                   <button key={a.id} onClick={()=>goToAgent(a.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",borderRadius:10,border:"none",marginBottom:2,width:"100%",textAlign:"left",background:view==="chat"&&activeAgent===a.id?`${a.color}18`:"transparent",borderLeft:`3px solid ${view==="chat"&&activeAgent===a.id?a.color:"transparent"}`,color:view==="chat"&&activeAgent===a.id?a.color:"#64748B",cursor:"pointer"}}>
                     <span style={{fontSize:17,flexShrink:0,lineHeight:1}}>{a.icon}</span>
                     <div style={{flex:1}}>
                       <div style={{fontWeight:600,fontSize:13,lineHeight:1.2}}>{a.name}</div>
                       <div style={{fontSize:10,opacity:0.7}}>{a.role}</div>
                     </div>
-                    {hasUnread&&<div style={{width:6,height:6,borderRadius:"50%",background:a.color,flexShrink:0}}/>}
+                    {isUnread(a.id)&&<div style={{width:6,height:6,borderRadius:"50%",background:a.color,flexShrink:0}}/>}
                   </button>
                 );})}
               </div>
@@ -649,10 +657,9 @@ export default function App() {
                       {g.ids.map(id=>{
                         const a=AGENTS[id];
                         const last=conversations[a.id]?.slice(-1)[0];
-                        const hasUnread=last?.role==="assistant";
                         return(
                           <button key={a.id} onClick={()=>goToAgent(a.id)} style={{padding:12,borderRadius:12,border:`1px solid ${a.color}30`,background:`linear-gradient(135deg,${a.color}12,${a.color}06)`,cursor:"pointer",textAlign:"left",position:"relative"}}>
-                            {hasUnread&&<div style={{position:"absolute",top:8,right:8,width:7,height:7,borderRadius:"50%",background:a.color,boxShadow:`0 0 5px ${a.color}`}}/>}
+                            {isUnread(a.id)&&<div style={{position:"absolute",top:8,right:8,width:7,height:7,borderRadius:"50%",background:a.color,boxShadow:`0 0 5px ${a.color}`}}/>}
                             <div style={{fontSize:22,marginBottom:5,lineHeight:1}}>{a.icon}</div>
                             <div style={{fontWeight:700,fontSize:fontSize-2,color:a.color,marginBottom:1}}>{a.name}</div>
                             <div style={{fontSize:fontSize-4,color:"#475569",marginBottom:6}}>{a.role}</div>
@@ -785,7 +792,7 @@ export default function App() {
                 <button key={a.id} onClick={()=>goToAgent(a.id)} style={{flex:1,padding:"6px 2px",borderRadius:8,border:"none",background:view==="chat"&&activeAgent===a.id?`${a.color}20`:"transparent",color:view==="chat"&&activeAgent===a.id?a.color:"#475569",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1,minWidth:36,position:"relative"}}>
                   <span style={{fontSize:18}}>{a.icon}</span>
                   <span style={{fontSize:8}}>{a.name}</span>
-                  {conversations[a.id]?.slice(-1)[0]?.role==="assistant"&&<div style={{position:"absolute",top:4,right:6,width:5,height:5,borderRadius:"50%",background:a.color}}/>}
+                  {isUnread(a.id)&&<div style={{position:"absolute",top:4,right:6,width:5,height:5,borderRadius:"50%",background:a.color}}/>}
                 </button>
               );})}
             </div>
