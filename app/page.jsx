@@ -16,7 +16,7 @@ const AGENTS = {
     quickReplies:["📈 Stato IAGREX","🎯 Priorità settimana","🔍 Nuovi lead?","💡 Idee strategia"],
     info:`RUOLO\nAssistente strategico per IAGREX SRL.\n\nIAGREX SRL\n• Meta Ads + Shopify — Obiettivo: 1M€/anno\n• Reddito attuale: ~1.000€/mese (da scalare)\n\nCLICKUP: AGENZIA 1M€ 901218950388 | CLIENTI 901218950389 | LEADS 901218950390\nSTATO PROGETTO: doc 2kxuu4g1-872 / page 2kxuu4g1-752`,
     memories:`IAGREX SRL\n• Agenzia performance marketing Romania\n• Modello attuale: 3 clienti, ~1.000€/mese (da scalare)\n• Servizi: Meta Ads + Shopify\n\nHOC: 3.500€/mese — NON priorità strategica\n\nDARIO\n• Creativo, rischia di pensare troppo\n• Ha bisogno di step concreti con scadenze`,
-    systemPrompt:`Sei Mario, assistente strategico di Dario per IAGREX SRL.\n\nIAGREX SRL: agenzia performance marketing Romania — Meta Ads + Shopify — obiettivo 1M€/anno — attuale ~1.000€/mese. HOC 3.500€/mese NON è focus strategico.\n\nDARIO: imprenditore a Timișoara, Torremaggiore (tutto attaccato). Creativo ma pensa troppo — aiutalo ad agire.\n\nRUOLO: Strategia crescita, clienti, offerta, lead generation, pipeline.\n\nREGOLE: Italiano, diretto, step concreti immediati. Timezone: Europe/Bucharest.\n\nSTILE: Con Dario risposte brevi e dirette, max 3-4 frasi. Quando prepari contenuti per terzi (email, messaggi, offerte, documenti, script) cura tono, lunghezza e professionalità al massimo — niente tagli.`
+    systemPrompt:`Sei Mario, assistente strategico di Dario per IAGREX SRL.\n\nIAGREX SRL: agenzia performance marketing Romania — Meta Ads + Shopify — obiettivo 1M€/anno — attuale ~1.000€/mese. HOC 3.500€/mese NON è focus strategico.\n\nDARIO: imprenditore a Timișoara, Torremaggiore (tutto attaccato). Creativo ma pensa troppo — aiutalo ad agire.\n\nRUOLO: Strategia crescita, clienti, offerta, lead generation, pipeline.\n\nREGOLE: Italiano, diretto, step concreti immediati. Timezone: Europe/Bucharest.\n\nSTILE: Con Dario risposte brevi e dirette, max 3-4 frasi. Quando prepari contenuti per terzi cura tono, lunghezza e professionalità al massimo.`
   },
   mimmo: {
     id:"mimmo",name:"Mimmo",role:"Contabilità IAGREX",icon:"📋",color:"#10B981",
@@ -24,7 +24,7 @@ const AGENTS = {
     quickReplies:["📅 Scadenze prossime","🧾 Stato fatture","📝 Presenze sabato","💶 Situazione contabile"],
     info:`RUOLO\nContabilità e finanza aziendale di IAGREX SRL.\n\nCONTESTO\n• Dario: amministratore e dipendente IAGREX SRL\n• Busta paga: fine mese — Presenze: ogni sabato\n• Keez Romania (solo "Simona")\n\nCLICKUP: FATTURE 901218950391 | SCADENZE 901218950392 | CONTABILITÀ 901218950393\nSTATO PROGETTO: doc 2kxuu4g1-892 / page 2kxuu4g1-772`,
     memories:`IAGREX SRL — CONTABILITÀ\n• Dario: amministratore e dipendente\n• Busta paga fine mese — Presenze ogni sabato\n• Keez Romania — solo "Simona" per nome`,
-    systemPrompt:`Sei Mimmo, assistente contabile di Dario per IAGREX SRL.\n\nCONTESTO: Dario amministratore e dipendente IAGREX SRL Romania. Busta paga fine mese, presenze ogni sabato. Keez Romania, referente: Simona.\n\nRUOLO: Fatture, scadenze fiscali, contabilità, presenze, Keez.\n\nREGOLE: Italiano, preciso, metodico. Scadenze sempre in anticipo. Keez: solo "Simona". Timezone: Europe/Bucharest.\n\nSTILE: Con Dario risposte brevi e dirette, max 3-4 frasi. Quando prepari contenuti per terzi (email, messaggi, offerte, documenti, script) cura tono, lunghezza e professionalità al massimo — niente tagli.`
+    systemPrompt:`Sei Mimmo, assistente contabile di Dario per IAGREX SRL.\n\nCONTESTO: Dario amministratore e dipendente IAGREX SRL Romania. Busta paga fine mese, presenze ogni sabato. Keez Romania, referente: Simona.\n\nRUOLO: Fatture, scadenze fiscali, contabilità, presenze, Keez.\n\nREGOLE: Italiano, preciso, metodico. Scadenze sempre in anticipo. Keez: solo "Simona". Timezone: Europe/Bucharest.\n\nSTILE: Con Dario risposte brevi e dirette, max 3-4 frasi. Quando prepari contenuti per terzi cura tono, lunghezza e professionalità al massimo.`
   },
   carmine: {
     id:"carmine",name:"Carmine",role:"Dieta & Palestra",icon:"💪",color:"#F97316",
@@ -32,7 +32,7 @@ const AGENTS = {
     quickReplies:["⚖️ Registro peso","🥗 Cosa mangio oggi?","💪 Allenamento oggi","📊 I miei progressi"],
     info:`RUOLO\nAlimentazione, allenamento e benessere fisico.\n\nPROFILO DARIO\n• 179 cm — feb 2026: 121,5 kg → ora ~103 kg (-18,5 kg!) ✅\n• PT: 3x settimana — Obiettivo: peso forma + muscoli\n\nCLICKUP: DIETA & PASTI 901218950382 | ALLENAMENTI 901218950383 | PROGRESSI 901218950384\nSTATO PROGETTO: doc 2kxuu4g1-832 / page 2kxuu4g1-712`,
     memories:`FISICO\n• 179 cm — feb 2026: 121,5 kg → ora ~103 kg (-18,5 kg 🎉)\n• PT 3 volte a settimana\n• Obiettivo: peso forma con muscoli visibili\n• Ha lottato col sovrappeso dall'infanzia — empatia fondamentale`,
-    systemPrompt:`Sei Carmine, assistente di Dario per dieta, allenamento e benessere.\n\nFISICO: 179 cm — feb 2026: 121,5 kg → ~103 kg (-18,5 kg!). PT 3x settimana. Obiettivo: peso forma + muscoli. Ha lottato col sovrappeso dall'infanzia.\n\nRUOLO: Piani pasti, allenamenti, tracking progressi, motivazione, consigli pratici.\n\nREGOLE: Italiano, empatico, incoraggiante, mai giudicante. Concreto: numeri, piani reali. Celebra ogni progresso. Timezone: Europe/Bucharest.\n\nSTILE: Con Dario risposte brevi e dirette, max 3-4 frasi. Quando prepari contenuti per terzi (email, messaggi, offerte, documenti, script) cura tono, lunghezza e professionalità al massimo — niente tagli.`
+    systemPrompt:`Sei Carmine, assistente di Dario per dieta, allenamento e benessere.\n\nFISICO: 179 cm — feb 2026: 121,5 kg → ~103 kg (-18,5 kg!). PT 3x settimana. Obiettivo: peso forma + muscoli. Ha lottato col sovrappeso dall'infanzia.\n\nRUOLO: Piani pasti, allenamenti, tracking progressi, motivazione, consigli pratici.\n\nREGOLE: Italiano, empatico, incoraggiante, mai giudicante. Concreto: numeri, piani reali. Celebra ogni progresso. Timezone: Europe/Bucharest.\n\nSTILE: Con Dario risposte brevi e dirette, max 3-4 frasi. Quando prepari contenuti per terzi cura tono, lunghezza e professionalità al massimo.`
   },
   vlad: {
     id:"vlad",name:"Vlad",role:"Burocrazia Romania",icon:"📜",color:"#EF4444",
@@ -40,7 +40,7 @@ const AGENTS = {
     quickReplies:["📋 Scadenze Romania","📁 Stato pratiche","❓ Come si fa...","📄 Documento necessario"],
     info:`RUOLO\nBurocrazia e vita pratica in Romania.\n\nCONTESTO\n• Dario: italiano a Timișoara da sett.2025\n• IAGREX SRL: amministratore e dipendente\n• Keez Romania (solo "Simona")\n\nCLICKUP: PRATICHE ATTIVE 901218950378 | DOCUMENTI 901218950379 | SCADENZE 901218950381\nSTATO PROGETTO: doc 2kxuu4g1-812 / page 2kxuu4g1-692`,
     memories:`SITUAZIONE IN ROMANIA\n• Residente a Timișoara da settembre 2025\n• IAGREX SRL: amministratore e dipendente\n• Non parla rumeno fluentemente\n• Keez Romania — solo "Simona" per nome`,
-    systemPrompt:`Sei Vlad, assistente di Dario per burocrazia e vita pratica in Romania.\n\nDARIO: Italiano (Torremaggiore Puglia — tutto attaccato) a Timișoara da sett.2025. IAGREX SRL: amministratore e dipendente. Keez Romania, referente: Simona. Non parla rumeno fluentemente.\n\nRUOLO: Pratiche burocratiche, residenza, permessi, scadenze legali personali, vita pratica Timișoara, traduzione documenti.\n\nREGOLE: Italiano, preciso, scadenze sempre in anticipo. Spiega sempre il contesto. Keez: solo "Simona". Timezone: Europe/Bucharest.\n\nSTILE: Con Dario risposte brevi e dirette, max 3-4 frasi. Quando prepari contenuti per terzi (email, messaggi, offerte, documenti, script) cura tono, lunghezza e professionalità al massimo — niente tagli.`
+    systemPrompt:`Sei Vlad, assistente di Dario per burocrazia e vita pratica in Romania.\n\nDARIO: Italiano (Torremaggiore Puglia — tutto attaccato) a Timișoara da sett.2025. IAGREX SRL: amministratore e dipendente. Keez Romania, referente: Simona. Non parla rumeno fluentemente.\n\nRUOLO: Pratiche burocratiche, residenza, permessi, scadenze legali personali, vita pratica Timișoara, traduzione documenti.\n\nREGOLE: Italiano, preciso, scadenze sempre in anticipo. Spiega sempre il contesto. Keez: solo "Simona". Timezone: Europe/Bucharest.\n\nSTILE: Con Dario risposte brevi e dirette, max 3-4 frasi. Quando prepari contenuti per terzi cura tono, lunghezza e professionalità al massimo.`
   },
   virgilio: {
     id:"virgilio",name:"Virgilio",role:"Supporto Emotivo",icon:"🌙",color:"#A855F7",
@@ -48,7 +48,7 @@ const AGENTS = {
     quickReplies:["💭 Come sto oggi","Ho bisogno di parlare","🌙 Fine giornata","Voglio riflettere su qualcosa"],
     info:`RUOLO\nSpazio sicuro di ascolto, riflessione e supporto emotivo quotidiano.\n\nIMPORTANTE\n• Virgilio è un agente AI, non un professionista clinico\n• Per questioni cliniche → incoraggia il professionista\n\nAPPROCCIO\n• Ascolta prima — Valida le emozioni — Non dà consigli non richiesti\n• Tono: caldo, empatico, mai giudicante`,
     memories:`STORIA EMOTIVA\n• Ha perso sua mamma il 27 giugno 2020\n  → Anniversario ogni 27 giugno — ricordare con delicatezza\n• Padre: ha avuto tumore alla prostata\n• Lotta col sovrappeso dall'infanzia (ora percorso positivo)\n• Difficoltà economiche fino allo scorso anno\n• Psicoterapia conclusa con Vito (Pescara)\n• Vive solo a Timișoara — lontano da famiglia e amici\n• Sara: amica stretta, si sentono ~1x mese`,
-    systemPrompt:`Sei Virgilio, assistente di supporto emotivo di Dario Angeloro.\n\nIMPORTANTE: Sei un agente AI, non un professionista della salute mentale. Per questioni cliniche, incoraggia delicatamente il supporto professionale.\n\nCHI È DARIO: Ha perso sua mamma il 27 giugno 2020 (ricordaglielo con delicatezza ogni 27 giugno). Lotta col sovrappeso dall'infanzia (ora percorso positivo). Difficoltà economiche fino allo scorso anno. Psicoterapia conclusa con Vito. Vive solo a Timișoara.\n\nRUOLO: Spazio sicuro di ascolto e riflessione.\n\nREGOLE: Ascolta prima di rispondere. Non dare consigli non richiesti. Valida le emozioni senza amplificarle. Caldo, empatico, mai giudicante. Italiano.\n\nSTILE: Con Dario risposte brevi e dirette, max 3-4 frasi. Quando prepari contenuti per terzi (email, messaggi, offerte, documenti, script) cura tono, lunghezza e professionalità al massimo — niente tagli.`
+    systemPrompt:`Sei Virgilio, assistente di supporto emotivo di Dario Angeloro.\n\nIMPORTANTE: Sei un agente AI, non un professionista della salute mentale. Per questioni cliniche, incoraggia delicatamente il supporto professionale.\n\nCHI È DARIO: Ha perso sua mamma il 27 giugno 2020 (ricordaglielo con delicatezza ogni 27 giugno). Lotta col sovrappeso dall'infanzia (ora percorso positivo). Difficoltà economiche fino allo scorso anno. Psicoterapia conclusa con Vito. Vive solo a Timișoara.\n\nRUOLO: Spazio sicuro di ascolto e riflessione.\n\nREGOLE: Ascolta prima di rispondere. Non dare consigli non richiesti. Valida le emozioni senza amplificarle. Caldo, empatico, mai giudicante. Italiano.\n\nSTILE: Con Dario risposte brevi e dirette, max 3-4 frasi.`
   },
   bruno: {
     id:"bruno",name:"Bruno",role:"Finanze Personali",icon:"💰",color:"#F59E0B",
@@ -56,7 +56,7 @@ const AGENTS = {
     quickReplies:["💰 Situazione conti","📊 Spese questo mese","🎯 Obiettivi finanziari","💹 Investimenti"],
     info:`RUOLO\nGestione delle finanze personali di Dario.\n\nI 6 CONTI\n1. BdM Banca + 2 carte — 2. Trade Republic\n3. Revolut — 4. PostePay Evolution\n5. HYPE / Banca Sella — 6. UniCredit Romania\n\nCLICKUP: ENTRATE & USCITE 901218950385 | OBIETTIVI 901218950386 | INVESTIMENTI 901218950387\nSTATO PROGETTO: doc 2kxuu4g1-852 / page 2kxuu4g1-732\n\nPRIVACY: Dettagli sensibili → solo in chat. ClickUp → solo totali aggregati.`,
     memories:`I 6 CONTI\n1. BdM Banca — principale, 2 carte\n2. Trade Republic — investimenti e risparmio\n3. Revolut — pagamenti quotidiani\n4. PostePay Evolution — italiano\n5. HYPE / Banca Sella — digitale italiano\n6. UniCredit Romania\n\nREDDITO: ~4.500€/mese (HOC 3.500 + IAGREX ~1.000)\n\nDETTAGLI SENSIBILI: SOLO in chat, mai su ClickUp`,
-    systemPrompt:`Sei Bruno, assistente per le finanze personali di Dario.\n\nI 6 CONTI: 1.BdM Banca+2carte 2.Trade Republic 3.Revolut 4.PostePay Evolution 5.HYPE/Banca Sella 6.UniCredit Romania\n\nPRIVACY: Dettagli sensibili (numeri, saldi precisi) SOLO in chat. ClickUp: solo totali aggregati.\n\nCONTESTO: Reddito ~4.500€/mese. Ha vissuto difficoltà economiche — gestione attenta.\n\nRUOLO: Traccia entrate/uscite, obiettivi risparmio, investimenti, ottimizza i 6 conti.\n\nREGOLE: Italiano, preciso, ottimizzazioni concrete. Timezone: Europe/Bucharest.\n\nSTILE: Con Dario risposte brevi e dirette, max 3-4 frasi. Quando prepari contenuti per terzi (email, messaggi, offerte, documenti, script) cura tono, lunghezza e professionalità al massimo — niente tagli.`
+    systemPrompt:`Sei Bruno, assistente per le finanze personali di Dario.\n\nI 6 CONTI: 1.BdM Banca+2carte 2.Trade Republic 3.Revolut 4.PostePay Evolution 5.HYPE/Banca Sella 6.UniCredit Romania\n\nPRIVACY: Dettagli sensibili (numeri, saldi precisi) SOLO in chat. ClickUp: solo totali aggregati.\n\nCONTESTO: Reddito ~4.500€/mese. Ha vissuto difficoltà economiche — gestione attenta.\n\nRUOLO: Traccia entrate/uscite, obiettivi risparmio, investimenti, ottimizza i 6 conti.\n\nREGOLE: Italiano, preciso, ottimizzazioni concrete. Timezone: Europe/Bucharest.\n\nSTILE: Con Dario risposte brevi e dirette, max 3-4 frasi. Quando prepari contenuti per terzi cura tono, lunghezza e professionalità al massimo.`
   }
 };
 
@@ -67,6 +67,30 @@ const GROUPS = [
 ];
 
 const DONE_STATUSES = ["complete","completed","done","chiuso","closed","fatto","completato"];
+
+function getWeatherEmoji(condition) {
+  const c = (condition || "").toLowerCase();
+  if (c.includes("thunder")) return "⛈️";
+  if (c.includes("snow")) return "❄️";
+  if (c.includes("rain")) return "🌧️";
+  if (c.includes("drizzle")) return "🌦️";
+  if (c.includes("mist") || c.includes("fog") || c.includes("haze")) return "🌫️";
+  if (c.includes("cloud")) return "☁️";
+  if (c.includes("clear")) return "☀️";
+  return "🌤️";
+}
+
+function TaskItem({ task, color, onToggle }) {
+  const done = task.status?.status === "completato";
+  return (
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,cursor:"pointer"}} onClick={()=>onToggle(task.id)}>
+      <div style={{width:18,height:18,borderRadius:4,border:`1.5px solid ${color}60`,background:done?color:"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.15s"}}>
+        {done && <span style={{fontSize:11,color:"#fff",lineHeight:1}}>✓</span>}
+      </div>
+      <span style={{fontSize:12,color:done?"#334155":"#94A3B8",textDecoration:done?"line-through":"none",lineHeight:1.4}}>{task.name}</span>
+    </div>
+  );
+}
 
 export default function App() {
   const [view, setView] = useState("home");
@@ -93,24 +117,35 @@ export default function App() {
   const [statiProgetto, setStatiProgetto] = useState({});
   const [storageReady, setStorageReady] = useState(false);
 
+  // Dashboard state
+  const [clockBucharest, setClockBucharest] = useState("--:--:--");
+  const [clockRome, setClockRome] = useState("--:--");
+  const [weather, setWeather] = useState(null);
+  const [homeData, setHomeData] = useState({todo:[],routine:[],sospeso:[]});
+  const [revenue, setRevenue] = useState(null);
+  const [weightData, setWeightData] = useState(null);
+  const [homeLoading, setHomeLoading] = useState(false);
+  const [newWeight, setNewWeight] = useState("");
+
   const messagesEndRef = useRef(null);
   const recognitionRef = useRef(null);
   const textareaRef = useRef(null);
 
+  // Persist conversations
   useEffect(()=>{
     try{
-      const cr = localStorage.getItem("dario-conversations");
+      const cr=localStorage.getItem("dario-conversations");
       if(cr){
-        const saved = JSON.parse(cr);
+        const saved=JSON.parse(cr);
         setConversations(prev=>{
           const m={...prev};
-          Object.keys(saved).forEach(k=>{ if(m[k]!==undefined) m[k]=saved[k]; });
+          Object.keys(saved).forEach(k=>{if(m[k]!==undefined) m[k]=saved[k];});
           return m;
         });
       }
     }catch(e){}
     try{
-      const sr = localStorage.getItem("dario-settings");
+      const sr=localStorage.getItem("dario-settings");
       if(sr){
         const s=JSON.parse(sr);
         if(s.clickupKey) setClickupKey(s.clickupKey);
@@ -127,19 +162,15 @@ export default function App() {
   useEffect(()=>{
     if(!storageReady) return;
     try{
-      const toStore = Object.fromEntries(
-        Object.entries(conversations).map(([k,v])=>[k,v.slice(-30)])
-      );
-      localStorage.setItem("dario-conversations", JSON.stringify(toStore));
+      const toStore=Object.fromEntries(Object.entries(conversations).map(([k,v])=>[k,v.slice(-30)]));
+      localStorage.setItem("dario-conversations",JSON.stringify(toStore));
     }catch(e){}
-  },[conversations, storageReady]);
+  },[conversations,storageReady]);
 
   useEffect(()=>{
     if(!storageReady) return;
     try{
-      localStorage.setItem("dario-settings", JSON.stringify(
-        {clickupKey,calApiKey,calId,fontSize,voiceEnabled,notifEnabled}
-      ));
+      localStorage.setItem("dario-settings",JSON.stringify({clickupKey,calApiKey,calId,fontSize,voiceEnabled,notifEnabled}));
     }catch(e){}
   },[clickupKey,calApiKey,calId,fontSize,voiceEnabled,notifEnabled,storageReady]);
 
@@ -166,21 +197,78 @@ export default function App() {
     return ()=>clearTimeout(t);
   },[clickupKey]);
 
-  const fetchStatoProgetto = async (agentId)=>{
+  // Clock — aggiornamento ogni secondo
+  useEffect(()=>{
+    const tick=()=>{
+      const now=new Date();
+      setClockBucharest(now.toLocaleTimeString("it-IT",{timeZone:"Europe/Bucharest",hour:"2-digit",minute:"2-digit",second:"2-digit"}));
+      setClockRome(now.toLocaleTimeString("it-IT",{timeZone:"Europe/Rome",hour:"2-digit",minute:"2-digit"}));
+    };
+    tick();
+    const id=setInterval(tick,1000);
+    return ()=>clearInterval(id);
+  },[]);
+
+  // Carica dati dashboard quando si torna alla home
+  useEffect(()=>{
+    if(view==="home") loadHomeData();
+  },[view]);
+
+  const loadHomeData=async()=>{
+    setHomeLoading(true);
+    try{
+      const [wRes,tRes,rRes,wgRes]=await Promise.all([
+        fetch("/api/weather").then(r=>r.json()).catch(()=>null),
+        fetch("/api/tasks").then(r=>r.json()).catch(()=>({todo:[],routine:[],sospeso:[]})),
+        fetch("/api/revenue").then(r=>r.json()).catch(()=>null),
+        fetch("/api/weight").then(r=>r.json()).catch(()=>null),
+      ]);
+      if(wRes&&!wRes.error) setWeather(wRes);
+      if(tRes) setHomeData(tRes);
+      if(rRes&&!rRes.error) setRevenue(rRes);
+      if(wgRes&&!wgRes.error) setWeightData(wgRes);
+    }catch(e){console.error("Dashboard error:",e);}
+    setHomeLoading(false);
+  };
+
+  const toggleTask=async(taskId,type)=>{
+    const task=homeData[type]?.find(t=>t.id===taskId);
+    if(!task) return;
+    const cur=task.status?.status||"da fare";
+    const next=cur==="completato"?"da fare":"completato";
+    setHomeData(prev=>({...prev,[type]:prev[type].map(t=>t.id===taskId?{...t,status:{...t.status,status:next}}:t)}));
+    try{
+      await fetch("/api/update-task",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({taskId,status:next})});
+    }catch(e){loadHomeData();}
+  };
+
+  const saveWeight=async()=>{
+    const p=parseFloat(newWeight);
+    if(!newWeight||isNaN(p)) return;
+    const today=new Date().toISOString().slice(0,10);
+    try{
+      const res=await fetch("/api/weight",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({data:today,peso:p})});
+      const data=await res.json();
+      if(data.success){
+        const last=data.entries[data.entries.length-1];
+        setWeightData(prev=>({...prev,entries:data.entries,ultimo:last,persi:Math.round((121.6-last.peso)*10)/10,mancano:Math.round((last.peso-85)*10)/10}));
+        setNewWeight("");
+      }
+    }catch(e){console.error(e);}
+  };
+
+  const fetchStatoProgetto=async(agentId)=>{
     const a=AGENTS[agentId];
     if(!a.statoProgetto||!clickupKey) return "";
     try{
-      const res=await fetch(
-        `/api/clickup-doc?docId=${a.statoProgetto.doc}&pageId=${a.statoProgetto.page}`,
-        {headers:{"x-clickup-key":clickupKey}}
-      );
+      const res=await fetch(`/api/clickup-doc?docId=${a.statoProgetto.doc}&pageId=${a.statoProgetto.page}`,{headers:{"x-clickup-key":clickupKey}});
       if(!res.ok) return "";
       const data=await res.json();
       return data.content||data.content_editable||"";
     }catch(e){return "";}
   };
 
-  const goToAgent = async (id)=>{
+  const goToAgent=async(id)=>{
     setActiveAgent(id);
     setView("chat");
     setInfoTab(null);
@@ -198,7 +286,7 @@ export default function App() {
     }
   };
 
-  const fetchClickUpContext = async ()=>{
+  const fetchClickUpContext=async()=>{
     if(!clickupKey) return "";
     const lists=[
       {id:"901218950374",name:"TO DO DAILY"},
@@ -212,9 +300,7 @@ export default function App() {
         const res=await fetch(`/api/clickup?listId=${list.id}`,{headers:{"x-clickup-key":clickupKey}});
         if(!res.ok) throw new Error(`HTTP ${res.status}`);
         const data=await res.json();
-        const tasks=(data.tasks||[])
-          .filter(t=>!DONE_STATUSES.includes((t.status?.status||"").toLowerCase()))
-          .map(t=>`  - ${t.name} [${t.status?.status||"aperto"}]`);
+        const tasks=(data.tasks||[]).filter(t=>!DONE_STATUSES.includes((t.status?.status||"").toLowerCase())).map(t=>`  - ${t.name} [${t.status?.status||"aperto"}]`);
         ctx+=`\n${list.name} (${tasks.length}):\n`;
         tasks.length?ctx+=tasks.join("\n")+"\n":ctx+="  → Nessun task\n";
       }catch(e){ctx+=`\n${list.name}: ERRORE → ${e.message}\n`;}
@@ -224,26 +310,21 @@ export default function App() {
     return ctx;
   };
 
-  const fetchCalendarContext = async ()=>{
+  const fetchCalendarContext=async()=>{
     if(!calApiKey||!calId) return "";
     setStatusMsg("Fetching calendario...");
     try{
       const now=new Date();
       const tMin=new Date(now.getFullYear(),now.getMonth(),now.getDate()).toISOString();
       const tMax=new Date(now.getFullYear(),now.getMonth(),now.getDate()+1).toISOString();
-      const res=await fetch(
-        `/api/calendar?calendarId=${encodeURIComponent(calId)}&timeMin=${encodeURIComponent(tMin)}&timeMax=${encodeURIComponent(tMax)}`,
-        {headers:{"x-calendar-key":calApiKey}}
-      );
+      const res=await fetch(`/api/calendar?calendarId=${encodeURIComponent(calId)}&timeMin=${encodeURIComponent(tMin)}&timeMax=${encodeURIComponent(tMax)}`,{headers:{"x-calendar-key":calApiKey}});
       if(!res.ok) throw new Error(`HTTP ${res.status}`);
       const data=await res.json();
       const events=data.items||[];
       if(!events.length) return "=== CALENDARIO: Nessun evento oggi ===\n\n";
       let ctx="=== CALENDARIO OGGI ===\n";
       events.forEach(e=>{
-        const start=e.start.dateTime
-          ?new Date(e.start.dateTime).toLocaleTimeString("it-IT",{timeZone:"Europe/Bucharest",hour:"2-digit",minute:"2-digit"})
-          :"tutto il giorno";
+        const start=e.start.dateTime?new Date(e.start.dateTime).toLocaleTimeString("it-IT",{timeZone:"Europe/Bucharest",hour:"2-digit",minute:"2-digit"}):"tutto il giorno";
         ctx+=`• ${start} — ${e.summary||"Evento"}\n`;
       });
       ctx+="=== FINE CALENDARIO ===\n\n";
@@ -252,7 +333,7 @@ export default function App() {
     }catch(e){setStatusMsg("");return `=== CALENDARIO: Errore → ${e.message} ===\n\n`;}
   };
 
-  const sendMessageFn = async (agentId, overrideText)=>{
+  const sendMessageFn=async(agentId,overrideText)=>{
     const currentAgent=agentId||activeAgent;
     const text=(overrideText!==undefined?overrideText:input).trim();
     if(!text||isLoading) return;
@@ -280,12 +361,7 @@ export default function App() {
       setStatusMsg("Risposta in arrivo...");
       const res=await fetch("/api/chat",{
         method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({
-          model:"claude-sonnet-4-6",max_tokens:1000,
-          system:[{type:"text",text:AGENTS[currentAgent].systemPrompt,cache_control:{type:"ephemeral"}}],
-          messages: msgs,
-          agentId: currentAgent
-        })
+        body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:1000,system:[{type:"text",text:AGENTS[currentAgent].systemPrompt,cache_control:{type:"ephemeral"}}],messages:msgs,agentId:currentAgent})
       });
       const data=await res.json();
       const reply=data.content?.[0]?.text||"Errore.";
@@ -313,21 +389,13 @@ export default function App() {
     try{
       const res=await fetch("/api/chat",{
         method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({
-          model:"claude-sonnet-4-6",max_tokens:800,
-          system:[{type:"text",text:`Sei un assistente che analizza sessioni di lavoro e genera aggiornamenti concisi per documenti di stato. Rispondi SOLO con il testo in italiano, senza preamboli.`,cache_control:{type:"ephemeral"}}],
-          messages:[{role:"user",content:`Data: ${now}\nAgente: ${a.name} — ${a.role}\n\nAnalizza questa conversazione e genera un aggiornamento per il documento STATO PROGETTO:\n\n## SESSIONE ${now}\n\n**Argomenti trattati:**\n**Decisioni prese:**\n**In sospeso / Prossimi step:**\n**Contesto per la prossima sessione:**\n\nCONVERSAZIONE:\n${convText}`}]
-        })
+        body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:800,system:[{type:"text",text:`Sei un assistente che analizza sessioni di lavoro e genera aggiornamenti concisi per documenti di stato. Rispondi SOLO con il testo in italiano, senza preamboli.`,cache_control:{type:"ephemeral"}}],messages:[{role:"user",content:`Data: ${now}\nAgente: ${a.name} — ${a.role}\n\nAnalizza questa conversazione e genera un aggiornamento per il documento STATO PROGETTO:\n\n## SESSIONE ${now}\n\n**Argomenti trattati:**\n**Decisioni prese:**\n**In sospeso / Prossimi step:**\n**Contesto per la prossima sessione:**\n\nCONVERSAZIONE:\n${convText}`}]})
       });
       const data=await res.json();
       const summary=data.content?.[0]?.text||"Errore generazione.";
       setSaveStatus("saving");
       const {doc,page}=a.statoProgetto;
-      const cuRes=await fetch(`/api/clickup-doc?docId=${doc}&pageId=${page}`,{
-        method:"PUT",
-        headers:{"x-clickup-key":clickupKey,"Content-Type":"application/json"},
-        body:JSON.stringify({content:summary,content_format:"text/plain"})
-      });
+      const cuRes=await fetch(`/api/clickup-doc?docId=${doc}&pageId=${page}`,{method:"PUT",headers:{"x-clickup-key":clickupKey,"Content-Type":"application/json"},body:JSON.stringify({content:summary,content_format:"text/plain"})});
       if(!cuRes.ok) throw new Error(`ClickUp HTTP ${cuRes.status}`);
       setSaveStatus("success");
       setTimeout(()=>setSaveStatus(null),4000);
@@ -337,23 +405,13 @@ export default function App() {
     }
   };
 
-  const speak=text=>{
-    window.speechSynthesis.cancel();
-    const u=new SpeechSynthesisUtterance(text.slice(0,600));
-    u.lang="it-IT";window.speechSynthesis.speak(u);
-  };
+  const speak=text=>{window.speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text.slice(0,600));u.lang="it-IT";window.speechSynthesis.speak(u);};
 
   const toggleListen=()=>{
     if(isListening){recognitionRef.current?.stop();return;}
     const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
     if(!SR){alert("Usa Chrome per il riconoscimento vocale.");return;}
-    const r=new SR();
-    r.lang="it-IT";
-    r.onstart=()=>setIsListening(true);
-    r.onend=()=>setIsListening(false);
-    r.onresult=e=>setInput(e.results[0][0].transcript);
-    r.onerror=()=>setIsListening(false);
-    recognitionRef.current=r;r.start();
+    const r=new SR();r.lang="it-IT";r.onstart=()=>setIsListening(true);r.onend=()=>setIsListening(false);r.onresult=e=>setInput(e.results[0][0].transcript);r.onerror=()=>setIsListening(false);recognitionRef.current=r;r.start();
   };
 
   const clearChat=()=>setConversations(prev=>({...prev,[activeAgent]:[]}));
@@ -366,8 +424,7 @@ export default function App() {
     const blob=new Blob([text],{type:"text/plain;charset=utf-8"});
     const url=URL.createObjectURL(blob);
     const el=document.createElement("a");
-    el.href=url;el.download=`${a.name}_${new Date().toISOString().slice(0,10)}.txt`;
-    el.click();URL.revokeObjectURL(url);
+    el.href=url;el.download=`${a.name}_${new Date().toISOString().slice(0,10)}.txt`;el.click();URL.revokeObjectURL(url);
   };
 
   const requestNotifications=async()=>{
@@ -383,10 +440,12 @@ export default function App() {
   };
 
   const toggleInfo=tab=>{setInfoTab(p=>p===tab?null:tab);setShowSettings(false);};
+
   const getGreeting=()=>{
     const h=parseInt(new Date().toLocaleString("en-US",{timeZone:"Europe/Bucharest",hour:"numeric",hour12:false}));
     return h<12?"Buongiorno":h<18?"Buon pomeriggio":"Buonasera";
   };
+
   const saveStatusLabel=()=>{
     if(saveStatus==="generating") return {text:"⏳ Generando sommario...",color:"#F59E0B"};
     if(saveStatus==="saving")    return {text:"☁️ Salvando su ClickUp...",color:"#3B82F6"};
@@ -402,18 +461,22 @@ export default function App() {
   const cuLabel=clickupStatus==="ok"?"Connesso":clickupStatus==="error"?"Errore":clickupStatus==="testing"?"Test...":"Non configurato";
 
   const HBtn=({label,active,onClick,ac,disabled=false})=>(
-    <button onClick={onClick} disabled={disabled} style={{
-      padding:"5px 10px",borderRadius:8,fontSize:12,cursor:disabled?"not-allowed":"pointer",
-      border:`1px solid ${active?(ac||agent.color):"#1A1A2E"}`,
-      background:active?`${ac||agent.color}18`:"transparent",
-      color:active?(ac||agent.color):disabled?"#2A2A3A":"#475569",opacity:disabled?0.5:1,
-      flexShrink:0,whiteSpace:"nowrap"
-    }}>{label}</button>
+    <button onClick={onClick} disabled={disabled} style={{padding:"5px 10px",borderRadius:8,fontSize:12,cursor:disabled?"not-allowed":"pointer",border:`1px solid ${active?(ac||agent.color):"#1A1A2E"}`,background:active?`${ac||agent.color}18`:"transparent",color:active?(ac||agent.color):disabled?"#2A2A3A":"#475569",opacity:disabled?0.5:1,flexShrink:0,whiteSpace:"nowrap"}}>{label}</button>
+  );
+
+  // ─── CARD generica dashboard ───
+  const DCard=({children,style={}})=>(
+    <div style={{background:"#0F0F1A",border:"1px solid #1A1A2E",borderRadius:14,padding:16,...style}}>{children}</div>
+  );
+  const DLabel=({children})=>(
+    <div style={{fontSize:10,fontWeight:700,color:"#475569",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:10}}>{children}</div>
   );
 
   return(
     <div style={{display:"flex",flexDirection:"column",height:"100dvh",background:"#09090F",color:"#E2E8F0",fontFamily:"system-ui,-apple-system,sans-serif",overflow:"hidden"}}>
       <div style={{display:"flex",flex:1,overflow:"hidden"}}>
+
+        {/* ── SIDEBAR DESKTOP ── */}
         {!isMobile&&(
           <div style={{width:200,background:"#0F0F1A",borderRight:"1px solid #1A1A2E",display:"flex",flexDirection:"column",padding:"16px 10px",flexShrink:0}}>
             <button onClick={()=>setView("home")} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",marginBottom:12,borderRadius:10,border:"none",background:view==="home"?"#1A1A2E":"transparent",color:view==="home"?"#F8FAFC":"#64748B",cursor:"pointer",fontSize:13,fontWeight:600,textAlign:"left"}}>🏠 Dashboard</button>
@@ -437,41 +500,162 @@ export default function App() {
             </div>
           </div>
         )}
+
         <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+
+          {/* ══════════════════════════════════════
+              HOME — MORNING BRIEFING DASHBOARD
+          ══════════════════════════════════════ */}
           {view==="home"&&(
             <>
-              <div style={{padding:"14px 20px",borderBottom:"1px solid #1A1A2E",background:"#09090F",flexShrink:0}}>
+              <div style={{padding:"14px 20px",borderBottom:"1px solid #1A1A2E",background:"#09090F",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                 <div style={{fontWeight:700,fontSize:15,color:"#F8FAFC"}}>🏠 Dashboard</div>
+                <button onClick={loadHomeData} style={{padding:"4px 10px",borderRadius:7,border:"1px solid #1A1A2E",background:"transparent",color:"#475569",cursor:"pointer",fontSize:11}}>{homeLoading?"⏳":"↻ Aggiorna"}</button>
               </div>
-              <div style={{flex:1,overflowY:"auto",padding:"24px 20px"}}>
-                <div style={{marginBottom:24}}>
-                  <div style={{fontSize:22,fontWeight:700,color:"#F8FAFC"}}>{getGreeting()}, Dario 👋</div>
-                  <div style={{color:"#475569",fontSize:13,marginTop:4}}>{new Date().toLocaleDateString("it-IT",{timeZone:"Europe/Bucharest",weekday:"long",day:"numeric",month:"long"})}</div>
+
+              <div style={{flex:1,overflowY:"auto",padding:"16px 16px 24px"}}>
+
+                {/* Saluto */}
+                <div style={{marginBottom:16}}>
+                  <div style={{fontSize:20,fontWeight:700,color:"#F8FAFC"}}>{getGreeting()}, Dario 👋</div>
+                  <div style={{color:"#475569",fontSize:12,marginTop:3}}>{new Date().toLocaleDateString("it-IT",{timeZone:"Europe/Bucharest",weekday:"long",day:"numeric",month:"long"})}</div>
                 </div>
+
+                {/* RIGA 1 — Orologi + Meteo */}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+
+                  {/* Orologi */}
+                  <DCard>
+                    <DLabel>🕐 Ora</DLabel>
+                    <div style={{fontSize:26,fontWeight:800,color:"#F8FAFC",letterSpacing:"0.04em",lineHeight:1}}>{clockBucharest}</div>
+                    <div style={{fontSize:10,color:"#475569",marginTop:3,marginBottom:10}}>Bucarest</div>
+                    <div style={{paddingTop:8,borderTop:"1px solid #1A1A2E"}}>
+                      <div style={{fontSize:16,fontWeight:600,color:"#94A3B8"}}>{clockRome}</div>
+                      <div style={{fontSize:10,color:"#334155",marginTop:2}}>Roma / Torremaggiore</div>
+                    </div>
+                  </DCard>
+
+                  {/* Meteo */}
+                  <DCard>
+                    <DLabel>🌍 Timișoara</DLabel>
+                    {weather?(
+                      <>
+                        <div style={{fontSize:32,lineHeight:1,marginBottom:4}}>{getWeatherEmoji(weather.condition)}</div>
+                        <div style={{fontSize:26,fontWeight:800,color:"#F8FAFC"}}>{weather.temp}°C</div>
+                        <div style={{fontSize:11,color:"#64748B",marginTop:2,textTransform:"capitalize"}}>{weather.description}</div>
+                        <div style={{fontSize:10,color:"#334155",marginTop:4}}>💧{weather.humidity}% · 💨{weather.wind}km/h</div>
+                      </>
+                    ):(
+                      <div style={{fontSize:12,color:"#334155"}}>{homeLoading?"Caricamento...":"–"}</div>
+                    )}
+                  </DCard>
+                </div>
+
+                {/* RIGA 2 — Task + Routine */}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+
+                  {/* TO DO DAILY */}
+                  <DCard>
+                    <DLabel>✅ To Do Oggi</DLabel>
+                    {homeData.todo.length===0?(
+                      <div style={{fontSize:12,color:"#334155"}}>{homeLoading?"Caricamento...":"Nessun task 🎉"}</div>
+                    ):homeData.todo.map(t=>(
+                      <TaskItem key={t.id} task={t} color="#8B5CF6" onToggle={id=>toggleTask(id,"todo")}/>
+                    ))}
+                  </DCard>
+
+                  {/* ROUTINE DAILY */}
+                  <DCard>
+                    <DLabel>🔄 Routine</DLabel>
+                    {homeData.routine.length===0?(
+                      <div style={{fontSize:12,color:"#334155"}}>{homeLoading?"Caricamento...":"Nessuna routine"}</div>
+                    ):homeData.routine.map(t=>(
+                      <TaskItem key={t.id} task={t} color="#10B981" onToggle={id=>toggleTask(id,"routine")}/>
+                    ))}
+                  </DCard>
+                </div>
+
+                {/* RIGA 3 — Peso + Revenue */}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
+
+                  {/* Peso */}
+                  <DCard>
+                    <DLabel>💪 Progressi Fisici</DLabel>
+                    {weightData?(
+                      <>
+                        <div style={{fontSize:26,fontWeight:800,color:"#F97316"}}>{weightData.ultimo?.peso}<span style={{fontSize:13,fontWeight:400}}> kg</span></div>
+                        <div style={{fontSize:11,color:"#10B981",marginTop:2}}>−{weightData.persi} kg persi 🔥</div>
+                        <div style={{fontSize:10,color:"#475569",marginTop:1}}>Mancano {weightData.mancano} kg all'obiettivo</div>
+                        {/* Progress bar verso 85kg */}
+                        <div style={{marginTop:8,height:3,background:"#1A1A2E",borderRadius:2}}>
+                          <div style={{height:"100%",background:"#F97316",borderRadius:2,width:`${Math.min(Math.round(((121.6-(weightData.ultimo?.peso||121.6))/(121.6-85))*100),100)}%`,transition:"width 0.4s"}}/>
+                        </div>
+                        <div style={{fontSize:9,color:"#334155",marginTop:3}}>Obiettivo: 85 kg</div>
+                        {/* Input nuovo peso */}
+                        <div style={{marginTop:10,display:"flex",gap:6}}>
+                          <input type="number" step="0.1" placeholder="kg oggi" value={newWeight} onChange={e=>setNewWeight(e.target.value)} onKeyDown={e=>{if(e.key==="Enter") saveWeight();}} style={{flex:1,padding:"5px 8px",borderRadius:6,border:"1px solid #1A1A2E",background:"#09090F",color:"#E2E8F0",fontSize:12,outline:"none"}}/>
+                          <button onClick={saveWeight} style={{padding:"5px 10px",borderRadius:6,border:"none",background:"#F97316",color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer"}}>+</button>
+                        </div>
+                      </>
+                    ):(
+                      <div style={{fontSize:12,color:"#334155"}}>{homeLoading?"Caricamento...":"–"}</div>
+                    )}
+                  </DCard>
+
+                  {/* Revenue IAGREX */}
+                  <DCard>
+                    <DLabel>💶 Revenue IAGREX</DLabel>
+                    {revenue?(
+                      <>
+                        <div style={{fontSize:11,color:"#475569",marginBottom:4}}>{revenue.mese}</div>
+                        <div style={{fontSize:22,fontWeight:800,color:"#10B981"}}>+{(revenue.entrate_totali||0).toLocaleString("it-IT")}€</div>
+                        <div style={{fontSize:11,color:"#EF4444",marginTop:2}}>−{(revenue.uscite_totali||0).toLocaleString("it-IT")}€ uscite</div>
+                        <div style={{fontSize:11,color:"#64748B",marginTop:1}}>Saldo netto: {((revenue.entrate_totali||0)-(revenue.uscite_totali||0)).toLocaleString("it-IT")}€</div>
+                        {/* Progress bar verso 1M€ */}
+                        <div style={{marginTop:8,height:3,background:"#1A1A2E",borderRadius:2}}>
+                          <div style={{height:"100%",background:"#10B981",borderRadius:2,width:`${Math.max(revenue.percentuale||0,1)}%`,transition:"width 0.4s"}}/>
+                        </div>
+                        <div style={{fontSize:9,color:"#334155",marginTop:3}}>{revenue.percentuale}% verso 1.000.000€</div>
+                      </>
+                    ):(
+                      <div style={{fontSize:12,color:"#334155"}}>{homeLoading?"Caricamento...":"–"}</div>
+                    )}
+                  </DCard>
+                </div>
+
+                {/* AGENTI AI */}
+                <div style={{fontSize:10,fontWeight:700,color:"#475569",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:10}}>🤖 Agenti AI</div>
                 {GROUPS.map(g=>(
-                  <div key={g.label} style={{marginBottom:28}}>
-                    <div style={{fontSize:10,fontWeight:700,color:"#475569",letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:10,paddingLeft:2}}>{g.label}</div>
-                    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(155px,1fr))",gap:10}}>
-                      {g.ids.map(id=>{const a=AGENTS[id];const last=conversations[a.id]?.slice(-1)[0];const hasConv=conversations[a.id]?.length>0;return(
-                        <button key={a.id} onClick={()=>goToAgent(a.id)} style={{padding:14,borderRadius:14,border:`1px solid ${a.color}30`,background:`linear-gradient(135deg,${a.color}12,${a.color}06)`,cursor:"pointer",textAlign:"left",position:"relative"}}>
-                          {hasConv&&<div style={{position:"absolute",top:10,right:10,width:8,height:8,borderRadius:"50%",background:a.color,boxShadow:`0 0 6px ${a.color}`}}/>}
-                          <div style={{fontSize:26,marginBottom:8,lineHeight:1}}>{a.icon}</div>
-                          <div style={{fontWeight:700,fontSize:13,color:a.color,marginBottom:2}}>{a.name}</div>
-                          <div style={{fontSize:10,color:"#64748B",marginBottom:8}}>{a.role}</div>
-                          <div style={{fontSize:11,color:"#334155",lineHeight:1.5,minHeight:28}}>{last?last.content.slice(0,55)+(last.content.length>55?"...":""):"Nessuna conversazione ancora"}</div>
-                        </button>
-                      );})}
+                  <div key={g.label} style={{marginBottom:16}}>
+                    <div style={{fontSize:9,color:"#334155",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:8}}>{g.label}</div>
+                    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:8}}>
+                      {g.ids.map(id=>{
+                        const a=AGENTS[id];
+                        const last=conversations[a.id]?.slice(-1)[0];
+                        const hasConv=conversations[a.id]?.length>0;
+                        return(
+                          <button key={a.id} onClick={()=>goToAgent(a.id)} style={{padding:12,borderRadius:12,border:`1px solid ${a.color}30`,background:`linear-gradient(135deg,${a.color}12,${a.color}06)`,cursor:"pointer",textAlign:"left",position:"relative"}}>
+                            {hasConv&&<div style={{position:"absolute",top:8,right:8,width:7,height:7,borderRadius:"50%",background:a.color,boxShadow:`0 0 5px ${a.color}`}}/>}
+                            <div style={{fontSize:22,marginBottom:5,lineHeight:1}}>{a.icon}</div>
+                            <div style={{fontWeight:700,fontSize:12,color:a.color,marginBottom:1}}>{a.name}</div>
+                            <div style={{fontSize:10,color:"#475569",marginBottom:6}}>{a.role}</div>
+                            <div style={{fontSize:10,color:"#334155",lineHeight:1.4}}>{last?last.content.slice(0,45)+(last.content.length>45?"...":""):"Inizia a chattare →"}</div>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 ))}
               </div>
             </>
           )}
+
+          {/* ══════════════════════════════════════
+              CHAT VIEW
+          ══════════════════════════════════════ */}
           {view==="chat"&&(
             <>
-              {/* ===== HEADER — FIX MOBILE: due righe su mobile ===== */}
               <div style={{padding:"10px 16px",borderBottom:"1px solid #1A1A2E",background:"#09090F",flexShrink:0}}>
-                {/* Riga 1: freccia + icona + nome (sempre visibile) */}
                 <div style={{display:"flex",alignItems:"center",gap:10}}>
                   {isMobile&&(
                     <button onClick={()=>setView("home")} style={{padding:"5px 9px",borderRadius:8,border:"1px solid #1A1A2E",background:"transparent",color:"#64748B",cursor:"pointer",fontSize:13,flexShrink:0}}>←</button>
@@ -481,7 +665,6 @@ export default function App() {
                     <div style={{fontWeight:700,fontSize:14,color:agent.color,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{agent.name}</div>
                     <div style={{fontSize:11,color:"#475569"}}>{agent.role}</div>
                   </div>
-                  {/* Pulsanti solo su desktop nella riga 1 */}
                   {!isMobile&&(
                     <div style={{marginLeft:"auto",display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
                       {sl&&<span style={{fontSize:11,color:sl.color,fontStyle:"italic"}}>{sl.text}</span>}
@@ -494,7 +677,6 @@ export default function App() {
                     </div>
                   )}
                 </div>
-                {/* Riga 2: pulsanti solo su mobile */}
                 {isMobile&&(
                   <div style={{display:"flex",gap:6,alignItems:"center",marginTop:8,overflowX:"auto",paddingBottom:2}}>
                     {sl&&<span style={{fontSize:11,color:sl.color,fontStyle:"italic",flexShrink:0}}>{sl.text}</span>}
@@ -507,7 +689,7 @@ export default function App() {
                   </div>
                 )}
               </div>
-              {/* ===== FINE HEADER ===== */}
+
               {infoTab&&(
                 <div style={{background:"#0F0F1A",borderBottom:"1px solid #1A1A2E",flexShrink:0}}>
                   <div style={{display:"flex",borderBottom:"1px solid #1A1A2E"}}>
@@ -520,6 +702,7 @@ export default function App() {
                   </div>
                 </div>
               )}
+
               {showSettings&&(
                 <div style={{padding:"14px 16px",background:"#0F0F1A",borderBottom:"1px solid #1A1A2E",flexShrink:0}}>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
@@ -543,6 +726,7 @@ export default function App() {
                   <button onClick={requestNotifications} style={{padding:"6px 12px",borderRadius:6,border:`1px solid ${notifEnabled?"#10B981":"#1A1A2E"}`,background:notifEnabled?"#10B98120":"transparent",color:notifEnabled?"#10B981":"#64748B",cursor:"pointer",fontSize:12}}>{notifEnabled?"🔔 Notifiche ON":"🔕 Abilita notifiche"}</button>
                 </div>
               )}
+
               <div style={{flex:1,overflowY:"auto",padding:"16px",display:"flex",flexDirection:"column",gap:12}}>
                 {conv.length===0&&(
                   <div style={{textAlign:"center",margin:"auto",color:"#334155",padding:"0 20px"}}>
@@ -568,6 +752,7 @@ export default function App() {
                 )}
                 <div ref={messagesEndRef}/>
               </div>
+
               {agent.statoProgetto&&(
                 <div style={{padding:"6px 16px",borderTop:"1px solid #1A1A2E",background:"#0A0A14",flexShrink:0,display:"flex",alignItems:"center",gap:10}}>
                   <button onClick={saveSession} disabled={saveStatus==="generating"||saveStatus==="saving"||!conv.length} style={{padding:"7px 16px",borderRadius:8,border:`1px solid ${saveStatus==="success"?"#10B981":saveStatus==="error"?"#EF4444":"#1E2A1E"}`,background:saveStatus==="success"?"#10B98120":saveStatus==="error"?"#EF444420":"#0D1A0D",color:saveStatus==="success"?"#10B981":saveStatus==="error"?"#EF4444":!conv.length?"#2A2A3A":"#4ADE80",cursor:saveStatus==="generating"||saveStatus==="saving"||!conv.length?"not-allowed":"pointer",fontSize:12,fontWeight:600,opacity:!conv.length?0.4:1,display:"flex",alignItems:"center",gap:6}}>
@@ -577,6 +762,7 @@ export default function App() {
                   {!conv.length&&<span style={{fontSize:11,color:"#334155"}}>Inizia una conversazione per salvare</span>}
                 </div>
               )}
+
               {agent.quickReplies&&(
                 <div style={{padding:"6px 16px 4px",display:"flex",gap:6,overflowX:"auto",flexShrink:0}}>
                   {agent.quickReplies.map(qr=>(
@@ -584,6 +770,7 @@ export default function App() {
                   ))}
                 </div>
               )}
+
               <div style={{padding:"10px 16px 12px",borderTop:"1px solid #1A1A2E",background:"#09090F",display:"flex",gap:8,alignItems:"flex-end",flexShrink:0}}>
                 <textarea ref={textareaRef} value={input} onChange={handleTA} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendMessage();}}} placeholder={`Scrivi a ${agent.name}...`} rows={1} style={{flex:1,padding:"9px 13px",borderRadius:10,border:"1px solid #1A1A2E",background:"#0F0F1A",color:"#E2E8F0",fontSize:fontSize,resize:"none",outline:"none",fontFamily:"inherit",lineHeight:1.5,maxHeight:120,overflowY:"auto"}}/>
                 <button onClick={toggleListen} style={{width:40,height:40,borderRadius:10,border:`1.5px solid ${isListening?agent.color:"#1A1A2E"}`,background:isListening?`${agent.color}25`:"#0F0F1A",color:isListening?agent.color:"#475569",cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{isListening?"⏹":"🎤"}</button>
@@ -593,6 +780,8 @@ export default function App() {
           )}
         </div>
       </div>
+
+      {/* ── NAV MOBILE ── */}
       {isMobile&&(
         <div style={{display:"flex",background:"#0F0F1A",borderTop:"1px solid #1A1A2E",padding:"4px 2px",flexShrink:0,overflowX:"auto",alignItems:"stretch"}}>
           <button onClick={()=>setView("home")} style={{flex:1,padding:"6px 2px",borderRadius:8,border:"none",background:view==="home"?"#1A1A2E":"transparent",color:view==="home"?"#F8FAFC":"#475569",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1,minWidth:36}}>
@@ -612,6 +801,7 @@ export default function App() {
           ))}
         </div>
       )}
+
       <style>{`
         @keyframes blink{0%,80%,100%{opacity:.2;transform:scale(.8)}40%{opacity:1;transform:scale(1)}}
         *{box-sizing:border-box}
