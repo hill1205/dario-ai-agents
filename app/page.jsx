@@ -106,6 +106,8 @@ export default function App() {
   const [calApiKey, setCalApiKey] = useState("");
   const [calId, setCalId] = useState("");
   const [showSettings, setShowSettings] = useState(false);
+  const [showWeightModal, setShowWeightModal] = useState(false);
+  const [weightInput, setWeightInput] = useState("");
   const [infoTab, setInfoTab] = useState(null);
   const [statusMsg, setStatusMsg] = useState("");
   const [notifEnabled, setNotifEnabled] = useState(false);
@@ -258,6 +260,22 @@ export default function App() {
         const last=data.entries[data.entries.length-1];
         setWeightData(prev=>({...prev,entries:data.entries,ultimo:last,persi:Math.round((121.6-last.peso)*10)/10,mancano:Math.round((last.peso-85)*10)/10}));
         setNewWeight("");
+      }
+    }catch(e){console.error(e);}
+  };
+
+  const saveWeightModal=async()=>{
+    const p=parseFloat(weightInput.replace(",","."));
+    if(!weightInput||isNaN(p)) return;
+    const today=new Date().toISOString().slice(0,10);
+    try{
+      const res=await fetch("/api/weight",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({data:today,peso:p})});
+      const data=await res.json();
+      if(data.success){
+        const last=data.entries[data.entries.length-1];
+        setWeightData(prev=>({...prev,entries:data.entries,ultimo:last,persi:Math.round((121.6-last.peso)*10)/10,mancano:Math.round((last.peso-85)*10)/10}));
+        setShowWeightModal(false);
+        setWeightInput("");
       }
     }catch(e){console.error(e);}
   };
@@ -629,8 +647,7 @@ export default function App() {
                         </div>
                         <div style={{fontSize:fontSize-5,color:"#334155",marginTop:3}}>Obiettivo: 85 kg</div>
                         <div style={{marginTop:10,display:"flex",gap:6}}>
-                          <input type="text" inputMode="decimal" pattern="[0-9]*[.,]?[0-9]*" placeholder="kg oggi" value={newWeight} onChange={e=>setNewWeight(e.target.value)} onKeyDown={e=>{if(e.key==="Enter") saveWeight();}} style={{flex:1,padding:"5px 8px",borderRadius:6,border:"1px solid #1A1A2E",background:"#09090F",color:"#E2E8F0",fontSize:fontSize-2,outline:"none"}}/>
-                          <button onClick={saveWeight} style={{padding:"5px 10px",borderRadius:6,border:"none",background:"#F97316",color:"#fff",fontSize:fontSize-3,fontWeight:700,cursor:"pointer"}}>+</button>
+                          <button onClick={()=>{setWeightInput("");setShowWeightModal(true);}} style={{flex:1,padding:"5px 8px",borderRadius:6,border:"1px solid #1A1A2E",background:"#09090F",color:"#475569",fontSize:fontSize-2,textAlign:"left",cursor:"pointer"}}>kg oggi...</button>
                         </div>
                       </>
                     ):(
@@ -804,6 +821,28 @@ export default function App() {
               );})}
             </div>
           ))}
+        </div>
+      )}
+
+      {showWeightModal&&(
+        <div style={{position:"fixed",inset:0,background:"#00000090",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setShowWeightModal(false)}>
+          <div style={{background:"#0F0F1A",border:"1px solid #1A1A2E",borderRadius:16,padding:24,width:"100%",maxWidth:320}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:14,fontWeight:700,color:"#F8FAFC",marginBottom:16}}>💪 Peso di oggi</div>
+            <input
+              autoFocus
+              type="text"
+              inputMode="decimal"
+              placeholder="es. 102.5"
+              value={weightInput}
+              onChange={e=>setWeightInput(e.target.value)}
+              onKeyDown={e=>{if(e.key==="Enter") saveWeightModal();}}
+              style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #334155",background:"#09090F",color:"#E2E8F0",fontSize:18,outline:"none",marginBottom:12}}
+            />
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={()=>setShowWeightModal(false)} style={{flex:1,padding:"10px",borderRadius:8,border:"1px solid #1A1A2E",background:"transparent",color:"#475569",cursor:"pointer",fontSize:14}}>Annulla</button>
+              <button onClick={saveWeightModal} style={{flex:1,padding:"10px",borderRadius:8,border:"none",background:"#F97316",color:"#fff",cursor:"pointer",fontSize:14,fontWeight:700}}>Salva</button>
+            </div>
+          </div>
         </div>
       )}
 
