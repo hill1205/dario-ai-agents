@@ -20,7 +20,7 @@ const EMPTY_FORM = {
   data: new Date().toISOString().slice(0, 10), note: "",
 };
 const DOC_ID  = "2kxuu4g1-932";
-const PAGE_ID = "2kxuu4g1-892";
+const PAGE_ID = "2kxuu4g1-912";
 
 function genId() { return Math.random().toString(36).slice(2, 10); }
 function stageColor(s, t) { return (t==="cliente"?CLIENT_STAGES:LEAD_STAGES).find(x=>x.id===s)?.color||"#475569"; }
