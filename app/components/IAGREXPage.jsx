@@ -6,8 +6,8 @@ const CAT_USCITE  = ["Keez / Commercialista","Software & Tools","Marketing","Hos
 const OBIETTIVO_ANNUO = 1000000;
 
 const CONTI_IAGREX = [
-  { id: "unicredit_ro", label: "UniCredit Romania (aziendale)" },
-  { id: "altro",        label: "Altro conto" },
+  { id: "unicredit_eur", label: "UniCredit Romania — EUR" },
+  { id: "unicredit_ron", label: "UniCredit Romania — RON (€)" },
 ];
 
 const EMPTY_MONTH = { entrate: [], uscite: [], saldi: { unicredit_ro: 0, altro: 0 } };
