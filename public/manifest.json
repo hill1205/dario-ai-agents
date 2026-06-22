@@ -1,7 +1,7 @@
 {
   "name": "Dario AI Agents",
   "short_name": "Dario AI",
-  "description": "Il tuo sistema di agenti AI personali",
+  "description": "Assistenti AI personali di Dario Angeloro",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#09090F",
