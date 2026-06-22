@@ -1,5 +1,6 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
+import PipelinePage from "./components/PipelinePage";
 
 const AGENTS = {
   bea: {
@@ -548,7 +549,8 @@ export default function App() {
 
         {!isMobile&&(
           <div style={{width:200,background:"#0F0F1A",borderRight:"1px solid #1A1A2E",display:"flex",flexDirection:"column",padding:"16px 10px",flexShrink:0}}>
-            <button onClick={()=>setView("home")} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",marginBottom:12,borderRadius:10,border:"none",background:view==="home"?"#1A1A2E":"transparent",color:view==="home"?"#F8FAFC":"#64748B",cursor:"pointer",fontSize:13,fontWeight:600,textAlign:"left"}}>🏠 Dashboard</button>
+            <button onClick={()=>setView("home")} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",marginBottom:4,borderRadius:10,border:"none",background:view==="home"?"#1A1A2E":"transparent",color:view==="home"?"#F8FAFC":"#64748B",cursor:"pointer",fontSize:13,fontWeight:600,textAlign:"left"}}>🏠 Dashboard</button>
+            <button onClick={()=>setView("pipeline")} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",marginBottom:12,borderRadius:10,border:"none",background:view==="pipeline"?"#8B5CF620":"transparent",color:view==="pipeline"?"#8B5CF6":"#64748B",cursor:"pointer",fontSize:13,fontWeight:600,textAlign:"left",borderLeft:`3px solid ${view==="pipeline"?"#8B5CF6":"transparent"}`}}>🎯 Pipeline</button>
             {GROUPS.map(g=>(
               <div key={g.label} style={{marginBottom:8}}>
                 <div style={{fontSize:9,color:"#334155",letterSpacing:"0.1em",textTransform:"uppercase",padding:"0 8px",marginBottom:4}}>{g.label}</div>
@@ -571,6 +573,10 @@ export default function App() {
         )}
 
         <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+
+          {view==="pipeline"&&(
+            <PipelinePage fontSize={fontSize}/>
+          )}
 
           {view==="home"&&(
             <>
@@ -808,6 +814,9 @@ export default function App() {
         <div style={{display:"flex",background:"#0F0F1A",borderTop:"1px solid #1A1A2E",padding:"4px 2px",flexShrink:0,overflowX:"auto",alignItems:"stretch"}}>
           <button onClick={()=>setView("home")} style={{flex:1,padding:"6px 2px",borderRadius:8,border:"none",background:view==="home"?"#1A1A2E":"transparent",color:view==="home"?"#F8FAFC":"#475569",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1,minWidth:36}}>
             <span style={{fontSize:18}}>🏠</span><span style={{fontSize:8}}>Home</span>
+          </button>
+          <button onClick={()=>setView("pipeline")} style={{flex:1,padding:"6px 2px",borderRadius:8,border:"none",background:view==="pipeline"?"#8B5CF620":"transparent",color:view==="pipeline"?"#8B5CF6":"#475569",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1,minWidth:36}}>
+            <span style={{fontSize:18}}>🎯</span><span style={{fontSize:8}}>Pipeline</span>
           </button>
           {GROUPS.map((g,gi)=>(
             <div key={g.label} style={{display:"flex",alignItems:"stretch"}}>
