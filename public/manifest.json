@@ -1,6 +1,6 @@
 {
-  "name": "Dario AI Agents",
-  "short_name": "Dario AI",
+"name": "IA Agent",
+"short_name": "IA Agent",
   "description": "Assistenti AI personali di Dario Angeloro",
   "start_url": "/",
   "display": "standalone",
