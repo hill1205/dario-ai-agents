@@ -1,3 +1,4 @@
+export const runtime = "nodejs";
 const CLICKUP_API_KEY = process.env.CLICKUP_API_KEY;
 const WORKSPACE_ID = "90121769473";
 const DOC_ID  = "2kxuu4g1-932";
