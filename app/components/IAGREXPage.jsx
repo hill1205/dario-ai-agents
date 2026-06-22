@@ -242,9 +242,12 @@ export default function IAGREXPage({ fontSize=14, onBack }) {
                     </div>
                   </div>
                 ))}
-                <div style={{padding:"10px 12px",borderTop:"1px solid #1A1A2E",display:"flex",justifyContent:"space-between",background:"#09090F"}}>
-                  <span style={{fontSize:fs-2,fontWeight:700,color:"#3B82F6"}}>Totale liquidità (EUR + RON convertiti)</span>
-                  <span style={{fontSize:fs-1,fontWeight:800,color:"#3B82F6"}}>{fmt(Object.values(monthData.saldi||{}).reduce((s,v)=>s+(parseFloat(v)||0),0))}€</span>
+                <div style={{padding:"10px 12px",borderTop:"1px solid #1A1A2E",background:"#09090F",display:"flex",justifyContent:"space-between",gap:8}}>
+                  <span style={{fontSize:fs-2,fontWeight:700,color:"#3B82F6"}}>Totale</span>
+                  <div style={{display:"flex",gap:16}}>
+                    <span style={{fontSize:fs-1,fontWeight:800,color:"#3B82F6"}}>{fmt(monthData.saldi?.unicredit_eur||0)} €</span>
+                    <span style={{fontSize:fs-1,fontWeight:800,color:"#8B5CF6"}}>{fmt(monthData.saldi?.unicredit_ron||0)} RON</span>
+                  </div>
                 </div>
               </div>
             </div>
