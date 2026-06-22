@@ -175,7 +175,7 @@ export default function PipelinePage({ fontSize=14 }) {
     setSaveStatus("saving");
     try {
       const res = await fetch("/api/pipeline-data", {
-        method: "PUT",
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ entries: updated }),
       });
