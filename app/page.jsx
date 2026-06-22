@@ -575,7 +575,7 @@ export default function App() {
         <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
 
           {view==="pipeline"&&(
-            <PipelinePage fontSize={fontSize}/>
+            <PipelinePage fontSize={fontSize} clickupKey={clickupKey}/>
           )}
 
           {view==="home"&&(
