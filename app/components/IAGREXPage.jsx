@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 
 const CAT_ENTRATE = ["Retainer","One-time","Consulenza","Bonus","Altro"];
 const CAT_USCITE  = ["Keez / Commercialista","Software & Tools","Marketing","Hosting","Personale IAGREX","Tasse & Contributi","Altro"];
+const EUR_RON_RATE = 5; // 1 EUR = 5 RON
 const OBIETTIVO_ANNUO = 1000000;
 
 const CONTI_IAGREX = [
@@ -242,12 +243,14 @@ export default function IAGREXPage({ fontSize=14, onBack }) {
                     </div>
                   </div>
                 ))}
-                <div style={{padding:"10px 12px",borderTop:"1px solid #1A1A2E",background:"#09090F",display:"flex",justifyContent:"space-between",gap:8}}>
-                  <span style={{fontSize:fs-2,fontWeight:700,color:"#3B82F6"}}>Totale</span>
-                  <div style={{display:"flex",gap:16}}>
-                    <span style={{fontSize:fs-1,fontWeight:800,color:"#3B82F6"}}>{fmt(monthData.saldi?.unicredit_eur||0)} €</span>
-                    <span style={{fontSize:fs-1,fontWeight:800,color:"#8B5CF6"}}>{fmt(monthData.saldi?.unicredit_ron||0)} RON</span>
+                <div style={{padding:"10px 12px",borderTop:"1px solid #1A1A2E",background:"#09090F",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+                  <div>
+                    <div style={{fontSize:fs-2,fontWeight:700,color:"#3B82F6"}}>Totale liquidità aziendale</div>
+                    <div style={{fontSize:fs-4,color:"#334155",marginTop:2}}>EUR convertiti a RON (×{EUR_RON_RATE})</div>
                   </div>
+                  <span style={{fontSize:fs+1,fontWeight:800,color:"#8B5CF6"}}>
+                    {fmt((parseFloat(monthData.saldi?.unicredit_eur)||0)*EUR_RON_RATE + (parseFloat(monthData.saldi?.unicredit_ron)||0))} RON
+                  </span>
                 </div>
               </div>
             </div>
