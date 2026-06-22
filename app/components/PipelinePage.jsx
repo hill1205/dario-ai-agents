@@ -159,25 +159,40 @@ export default function PipelinePage({ fontSize = 14 }) {
   const [modal, setModal] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [loading, setLoading] = useState(true);
-  const [saveStatus, setSaveStatus] = useState(null); // null | "saving" | "saved" | "error"
+  const [saveStatus, setSaveStatus] = useState(null);
 
-  // Load from ClickUp on mount
-  useEffect(() => {
-    loadData();
-  }, []);
+  useEffect(() => { loadData(); }, []);
 
   const loadData = async () => {
     setLoading(true);
+    // Leggi localStorage come fallback
+    let localEntries = [];
+    try {
+      const saved = localStorage.getItem("dario-pipeline");
+      if (saved) localEntries = JSON.parse(saved);
+    } catch {}
+
     try {
       const res = await fetch("/api/pipeline-data");
       const data = await res.json();
-      setEntries(data.entries || []);
-    } catch (e) {
-      // fallback to localStorage
-      try {
-        const saved = localStorage.getItem("dario-pipeline");
-        if (saved) setEntries(JSON.parse(saved));
-      } catch {}
+      const clickupEntries = data.entries || [];
+
+      if (clickupEntries.length > 0) {
+        // ClickUp ha dati — usa quelli e aggiorna localStorage
+        setEntries(clickupEntries);
+        try { localStorage.setItem("dario-pipeline", JSON.stringify(clickupEntries)); } catch {}
+      } else if (localEntries.length > 0) {
+        // ClickUp vuoto ma localStorage ha dati — usa locale e pusha su ClickUp
+        setEntries(localEntries);
+        fetch("/api/pipeline-data", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ entries: localEntries }),
+        });
+      }
+    } catch {
+      // Errore di rete — usa localStorage
+      if (localEntries.length > 0) setEntries(localEntries);
     } finally {
       setLoading(false);
     }
@@ -185,9 +200,7 @@ export default function PipelinePage({ fontSize = 14 }) {
 
   const saveData = useCallback(async (updated) => {
     setEntries(updated);
-    // Save to localStorage immediately (cache)
     try { localStorage.setItem("dario-pipeline", JSON.stringify(updated)); } catch {}
-    // Save to ClickUp
     setSaveStatus("saving");
     try {
       const res = await fetch("/api/pipeline-data", {
@@ -234,7 +247,6 @@ export default function PipelinePage({ fontSize = 14 }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden", background: "#09090F" }}>
 
-      {/* Header */}
       <div style={{ padding: "14px 20px", borderBottom: "1px solid #1A1A2E", flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -269,20 +281,17 @@ export default function PipelinePage({ fontSize = 14 }) {
         </div>
       </div>
 
-      {/* Loading */}
       {loading && (
         <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#334155", fontSize: fs - 2 }}>
           ⏳ Caricamento pipeline...
         </div>
       )}
 
-      {/* View */}
       {!loading && (view === "kanban"
         ? <KanbanView entries={filtered} filter={filter} fs={fs} onEdit={openEdit} onDelete={deleteEntry} openAdd={openAdd} />
         : <ListView   entries={filtered} fs={fs} onEdit={openEdit} onDelete={deleteEntry} />
       )}
 
-      {/* Modal */}
       {modal && (
         <div style={{ position: "fixed", inset: 0, background: "#00000090", zIndex: 999, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={closeModal}>
           <div style={{ background: "#0F0F1A", border: "1px solid #1A1A2E", borderRadius: 16, padding: 24, width: "100%", maxWidth: 480, maxHeight: "90vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
