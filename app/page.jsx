@@ -2,6 +2,7 @@
 import { useState, useRef, useEffect } from "react";
 import PipelinePage from "./components/PipelinePage";
 import BrunoPage from "./components/BrunoPage";
+import IAGREXPage from "./components/IAGREXPage";
 
 const AGENTS = {
   bea: {
@@ -552,7 +553,8 @@ export default function App() {
           <div style={{width:200,background:"#0F0F1A",borderRight:"1px solid #1A1A2E",display:"flex",flexDirection:"column",padding:"16px 10px",flexShrink:0}}>
             <button onClick={()=>setView("home")} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",marginBottom:4,borderRadius:10,border:"none",background:view==="home"?"#1A1A2E":"transparent",color:view==="home"?"#F8FAFC":"#64748B",cursor:"pointer",fontSize:13,fontWeight:600,textAlign:"left"}}>🏠 Dashboard</button>
             <button onClick={()=>setView("pipeline")} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",marginBottom:4,borderRadius:10,border:"none",background:view==="pipeline"?"#8B5CF620":"transparent",color:view==="pipeline"?"#8B5CF6":"#64748B",cursor:"pointer",fontSize:13,fontWeight:600,textAlign:"left",borderLeft:`3px solid ${view==="pipeline"?"#8B5CF6":"transparent"}`}}>🎯 Pipeline</button>
-            <button onClick={()=>setView("finanze")} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",marginBottom:12,borderRadius:10,border:"none",background:view==="finanze"?"#F59E0B20":"transparent",color:view==="finanze"?"#F59E0B":"#64748B",cursor:"pointer",fontSize:13,fontWeight:600,textAlign:"left",borderLeft:`3px solid ${view==="finanze"?"#F59E0B":"transparent"}`}}>💰 Finanze</button>
+            <button onClick={()=>setView("finanze")} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",marginBottom:4,borderRadius:10,border:"none",background:view==="finanze"?"#F59E0B20":"transparent",color:view==="finanze"?"#F59E0B":"#64748B",cursor:"pointer",fontSize:13,fontWeight:600,textAlign:"left",borderLeft:`3px solid ${view==="finanze"?"#F59E0B":"transparent"}`}}>💰 Finanze</button>
+            <button onClick={()=>setView("iagrex")} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",marginBottom:12,borderRadius:10,border:"none",background:view==="iagrex"?"#3B82F620":"transparent",color:view==="iagrex"?"#3B82F6":"#64748B",cursor:"pointer",fontSize:13,fontWeight:600,textAlign:"left",borderLeft:`3px solid ${view==="iagrex"?"#3B82F6":"transparent"}`}}>📊 IAGREX</button>
             {GROUPS.map(g=>(
               <div key={g.label} style={{marginBottom:8}}>
                 <div style={{fontSize:9,color:"#334155",letterSpacing:"0.1em",textTransform:"uppercase",padding:"0 8px",marginBottom:4}}>{g.label}</div>
@@ -575,6 +577,10 @@ export default function App() {
         )}
 
         <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+
+          {view==="iagrex"&&(
+            <IAGREXPage fontSize={fontSize} onBack={()=>setView("home")}/>
+          )}
 
           {view==="finanze"&&(
             <BrunoPage fontSize={fontSize}/>
@@ -678,6 +684,7 @@ export default function App() {
                           <div style={{height:"100%",background:"#10B981",borderRadius:2,width:`${Math.max(revenue.percentuale||0,1)}%`,transition:"width 0.4s"}}/>
                         </div>
                         <div style={{fontSize:fontSize-5,color:"#334155",marginTop:3}}>{revenue.percentuale}% verso 1.000.000€</div>
+                        <button onClick={()=>setView("iagrex")} style={{marginTop:10,width:"100%",padding:"6px",borderRadius:7,border:"1px solid #3B82F640",background:"#3B82F610",color:"#3B82F6",cursor:"pointer",fontSize:fontSize-3,fontWeight:600}}>📊 Apri tracking completo</button>
                       </>
                     ):(
                       <div style={{fontSize:fontSize-2,color:"#334155"}}>{homeLoading?"Caricamento...":"–"}</div>
@@ -826,6 +833,9 @@ export default function App() {
           </button>
           <button onClick={()=>setView("finanze")} style={{flex:1,padding:"6px 2px",borderRadius:8,border:"none",background:view==="finanze"?"#F59E0B20":"transparent",color:view==="finanze"?"#F59E0B":"#475569",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1,minWidth:36}}>
             <span style={{fontSize:18}}>💰</span><span style={{fontSize:8}}>Finanze</span>
+          </button>
+          <button onClick={()=>setView("iagrex")} style={{flex:1,padding:"6px 2px",borderRadius:8,border:"none",background:view==="iagrex"?"#3B82F620":"transparent",color:view==="iagrex"?"#3B82F6":"#475569",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1,minWidth:36}}>
+            <span style={{fontSize:18}}>📊</span><span style={{fontSize:8}}>IAGREX</span>
           </button>
           {GROUPS.map((g,gi)=>(
             <div key={g.label} style={{display:"flex",alignItems:"stretch"}}>
