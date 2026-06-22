@@ -7,7 +7,7 @@ const OBIETTIVO_ANNUO = 1000000;
 
 const CONTI_IAGREX = [
   { id: "unicredit_eur", label: "UniCredit Romania — EUR" },
-  { id: "unicredit_ron", label: "UniCredit Romania — RON (€)" },
+  { id: "unicredit_ron", label: "UniCredit Romania — RON" },
 ];
 
 const EMPTY_MONTH = { entrate: [], uscite: [], saldi: { unicredit_ro: 0, altro: 0 } };
