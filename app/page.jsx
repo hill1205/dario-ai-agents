@@ -80,8 +80,8 @@ function getWeatherEmoji(condition) {
   return "🌤️";
 }
 
-function TaskItem({ task, color, onToggle, fontSize=14 }) {
-  const done = task.status?.status === "completato";
+function TaskItem({ task, color, onToggle, fontSize=14, isChecked }) {
+  const done = isChecked ?? DONE_STATUSES.includes((task.status?.status||"").toLowerCase());
   return (
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,cursor:"pointer"}} onClick={()=>onToggle(task.id)}>
       <div style={{width:18,height:18,borderRadius:4,border:`1.5px solid ${color}60`,background:done?color:"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.15s"}}>
@@ -126,6 +126,7 @@ export default function App() {
   const [weightData, setWeightData] = useState(null);
   const [homeLoading, setHomeLoading] = useState(false);
   const [newWeight, setNewWeight] = useState("");
+  const [checkedTasks, setCheckedTasks] = useState({});
 
   const messagesEndRef = useRef(null);
   const recognitionRef = useRef(null);
@@ -155,6 +156,10 @@ export default function App() {
         if(s.notifEnabled!==undefined) setNotifEnabled(s.notifEnabled);
         if(s.readStatus)  setReadStatus(s.readStatus);
       }
+    }catch(e){}
+    try{
+      const ct=localStorage.getItem("dario-checked-tasks");
+      if(ct) setCheckedTasks(JSON.parse(ct));
     }catch(e){}
     setStorageReady(true);
   },[]);
@@ -232,12 +237,14 @@ export default function App() {
   const toggleTask=async(taskId,type)=>{
     const task=homeData[type]?.find(t=>t.id===taskId);
     if(!task) return;
-    const cur=task.status?.status||"da fare";
-    const next=cur==="completato"?"da fare":"completato";
-    setHomeData(prev=>({...prev,[type]:prev[type].map(t=>t.id===taskId?{...t,status:{...t.status,status:next}}:t)}));
+    const cur = checkedTasks[taskId] ?? DONE_STATUSES.includes((task.status?.status||"").toLowerCase());
+    const next = !cur;
+    const newChecked={...checkedTasks,[taskId]:next};
+    setCheckedTasks(newChecked);
+    try{localStorage.setItem("dario-checked-tasks",JSON.stringify(newChecked));}catch(e){}
     try{
-      await fetch("/api/update-task",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({taskId,status:next})});
-    }catch(e){loadHomeData();}
+      await fetch("/api/update-task",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({taskId,status:next?"completato":"da fare"})});
+    }catch(e){}
   };
 
   const saveWeight=async()=>{
@@ -596,7 +603,7 @@ export default function App() {
                     {homeData.todo.length===0?(
                       <div style={{fontSize:fontSize-2,color:"#334155"}}>{homeLoading?"Caricamento...":"Nessun task 🎉"}</div>
                     ):homeData.todo.map(t=>(
-                      <TaskItem key={t.id} task={t} color="#8B5CF6" onToggle={id=>toggleTask(id,"todo")} fontSize={fontSize}/>
+                      <TaskItem key={t.id} task={t} color="#8B5CF6" onToggle={id=>toggleTask(id,"todo")} fontSize={fontSize} isChecked={checkedTasks[t.id]}/>
                     ))}
                   </DCard>
                   <DCard>
@@ -604,7 +611,7 @@ export default function App() {
                     {homeData.routine.length===0?(
                       <div style={{fontSize:fontSize-2,color:"#334155"}}>{homeLoading?"Caricamento...":"Nessuna routine"}</div>
                     ):homeData.routine.map(t=>(
-                      <TaskItem key={t.id} task={t} color="#10B981" onToggle={id=>toggleTask(id,"routine")} fontSize={fontSize}/>
+                      <TaskItem key={t.id} task={t} color="#10B981" onToggle={id=>toggleTask(id,"routine")} fontSize={fontSize} isChecked={checkedTasks[t.id]}/>
                     ))}
                   </DCard>
                 </div>
@@ -622,7 +629,7 @@ export default function App() {
                         </div>
                         <div style={{fontSize:fontSize-5,color:"#334155",marginTop:3}}>Obiettivo: 85 kg</div>
                         <div style={{marginTop:10,display:"flex",gap:6}}>
-                          <input type="number" step="0.1" placeholder="kg oggi" value={newWeight} onChange={e=>setNewWeight(e.target.value)} onKeyDown={e=>{if(e.key==="Enter") saveWeight();}} style={{flex:1,padding:"5px 8px",borderRadius:6,border:"1px solid #1A1A2E",background:"#09090F",color:"#E2E8F0",fontSize:fontSize-2,outline:"none"}}/>
+                          <input type="text" inputMode="decimal" pattern="[0-9]*[.,]?[0-9]*" placeholder="kg oggi" value={newWeight} onChange={e=>setNewWeight(e.target.value)} onKeyDown={e=>{if(e.key==="Enter") saveWeight();}} style={{flex:1,padding:"5px 8px",borderRadius:6,border:"1px solid #1A1A2E",background:"#09090F",color:"#E2E8F0",fontSize:fontSize-2,outline:"none"}}/>
                           <button onClick={saveWeight} style={{padding:"5px 10px",borderRadius:6,border:"none",background:"#F97316",color:"#fff",fontSize:fontSize-3,fontWeight:700,cursor:"pointer"}}>+</button>
                         </div>
                       </>
