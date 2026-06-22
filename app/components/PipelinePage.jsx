@@ -154,22 +154,16 @@ export default function PipelinePage({ fontSize=14, clickupKey="" }) {
   const syncFromClickup = async (key) => {
     setSyncing(true);
     try {
-      const res = await fetch(`/api/clickup-doc?docId=${DOC_ID}&pageId=${PAGE_ID}`, {
-        headers: { "x-clickup-key": key }
-      });
+      // GET usa il route server-side (non richiede API key dal frontend)
+      const res = await fetch("/api/pipeline-data");
       if (!res.ok) return;
       const data = await res.json();
-      const content = data.content || data.content_editable || "";
-      const match = content.match(/PIPELINE_DATA_JSON:([\s\S]*)/);
-      if (!match) return;
-      const cuEntries = JSON.parse(match[1].trim());
+      const cuEntries = data.entries || [];
       const local = lsGet();
-      if (cuEntries.length >= local.length) {
-        // ClickUp è più aggiornato — usa quelli
+      if (cuEntries.length > 0 && cuEntries.length >= local.length) {
         setEntries(cuEntries);
         lsSet(cuEntries);
-      } else if (local.length > 0 && cuEntries.length === 0) {
-        // Locale ha dati ma ClickUp è vuoto — pusha
+      } else if (local.length > 0 && cuEntries.length === 0 && key) {
         pushToClickup(local, key);
       }
     } catch {} finally {
@@ -203,7 +197,7 @@ export default function PipelinePage({ fontSize=14, clickupKey="" }) {
     setTimeout(()=>setSaveStatus(null), 2500);
   }, [clickupKey]);
 
-  const manualSync = () => clickupKey ? syncFromClickup(clickupKey) : null;
+  const manualSync = () => syncFromClickup(clickupKey);
 
   const openAdd = (tipo="lead", stage=null) => {
     setForm({...EMPTY_FORM, tipo, stage: stage||(tipo==="lead"?"da_contattare":"attivo"), data: new Date().toISOString().slice(0,10)});
