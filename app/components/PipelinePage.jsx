@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 
 const LEAD_STAGES = [
   { id: "da_contattare",   label: "Da Contattare",    color: "#475569" },
@@ -11,15 +11,15 @@ const LEAD_STAGES = [
 ];
 
 const CLIENT_STAGES = [
-  { id: "attivo",    label: "Attivo ✅",  color: "#10B981" },
-  { id: "in_pausa",  label: "In Pausa",   color: "#F59E0B" },
-  { id: "concluso",  label: "Concluso",   color: "#475569" },
+  { id: "attivo",   label: "Attivo ✅", color: "#10B981" },
+  { id: "in_pausa", label: "In Pausa",  color: "#F59E0B" },
+  { id: "concluso", label: "Concluso",  color: "#475569" },
 ];
 
 const EMPTY_FORM = {
   id: null, tipo: "lead", nome: "", contatto: "", email: "",
   telefono: "", budget: "", stage: "da_contattare",
-  data: new Date().toISOString().slice(0, 10), note: "", clickupId: null,
+  data: new Date().toISOString().slice(0, 10), note: "",
 };
 
 function genId() { return Math.random().toString(36).slice(2, 10); }
@@ -48,7 +48,7 @@ function InputField({ label, value, onChange, type = "text", full = false }) {
   );
 }
 
-function EntryCard({ entry, onEdit, onDelete, onSync, syncing, fs }) {
+function EntryCard({ entry, onEdit, onDelete, fs }) {
   const color = stageColor(entry.stage, entry.tipo);
   return (
     <div style={{ background: "#0F0F1A", border: "1px solid #1A1A2E", borderLeft: `3px solid ${color}`, borderRadius: 8, padding: 10 }}>
@@ -60,21 +60,15 @@ function EntryCard({ entry, onEdit, onDelete, onSync, syncing, fs }) {
         </div>
       </div>
       {entry.contatto && <div style={{ fontSize: fs - 4, color: "#64748B", marginBottom: 2 }}>👤 {entry.contatto}</div>}
-      {entry.email && <div style={{ fontSize: fs - 4, color: "#64748B", marginBottom: 2 }}>📧 {entry.email}</div>}
-      {entry.budget && <div style={{ fontSize: fs - 3, color: "#10B981", fontWeight: 700, marginBottom: 4 }}>💶 {parseFloat(entry.budget).toLocaleString("it-IT")}€/mese</div>}
-      {entry.note && <div style={{ fontSize: fs - 4, color: "#475569", lineHeight: 1.4, marginBottom: 4 }}>{entry.note.slice(0, 70)}{entry.note.length > 70 ? "…" : ""}</div>}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6, borderTop: "1px solid #1A1A2E", paddingTop: 6 }}>
-        <div style={{ fontSize: fs - 5, color: "#334155" }}>{entry.data}</div>
-        {entry.clickupId
-          ? <div style={{ fontSize: 9, color: "#334155" }}>✅ ClickUp</div>
-          : <button onClick={() => onSync(entry)} style={{ padding: "2px 8px", borderRadius: 5, border: "1px solid #1E3A5F", background: "transparent", color: "#3B82F6", cursor: "pointer", fontSize: 9 }}>{syncing === entry.id ? "⏳" : "☁️ Sync"}</button>
-        }
-      </div>
+      {entry.email    && <div style={{ fontSize: fs - 4, color: "#64748B", marginBottom: 2 }}>📧 {entry.email}</div>}
+      {entry.budget   && <div style={{ fontSize: fs - 3, color: "#10B981", fontWeight: 700, marginBottom: 4 }}>💶 {parseFloat(entry.budget).toLocaleString("it-IT")}€/mese</div>}
+      {entry.note     && <div style={{ fontSize: fs - 4, color: "#475569", lineHeight: 1.4, marginBottom: 4 }}>{entry.note.slice(0, 70)}{entry.note.length > 70 ? "…" : ""}</div>}
+      <div style={{ fontSize: fs - 5, color: "#334155", marginTop: 4 }}>{entry.data}</div>
     </div>
   );
 }
 
-function KanbanView({ entries, filter, fs, onEdit, onDelete, onSync, syncing, openAdd }) {
+function KanbanView({ entries, filter, fs, onEdit, onDelete, openAdd }) {
   const cols = filter === "cliente"
     ? CLIENT_STAGES.map(s => ({ ...s, tipo: "cliente" }))
     : filter === "lead"
@@ -99,7 +93,7 @@ function KanbanView({ entries, filter, fs, onEdit, onDelete, onSync, syncing, op
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
               {colEntries.map(e => (
-                <EntryCard key={e.id} entry={e} onEdit={onEdit} onDelete={onDelete} onSync={onSync} syncing={syncing} fs={fs} />
+                <EntryCard key={e.id} entry={e} onEdit={onEdit} onDelete={onDelete} fs={fs} />
               ))}
             </div>
             <button onClick={() => openAdd(col.tipo, col.id)} style={{ padding: "6px", borderRadius: 7, border: `1px dashed ${col.color}40`, background: "transparent", color: col.color, cursor: "pointer", fontSize: 11, opacity: 0.5 }}>
@@ -112,7 +106,7 @@ function KanbanView({ entries, filter, fs, onEdit, onDelete, onSync, syncing, op
   );
 }
 
-function ListView({ entries, fs, onEdit, onDelete, onSync, syncing }) {
+function ListView({ entries, fs, onEdit, onDelete }) {
   if (entries.length === 0) {
     return (
       <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#334155", fontSize: fs - 2 }}>
@@ -123,23 +117,18 @@ function ListView({ entries, fs, onEdit, onDelete, onSync, syncing }) {
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
       <div style={{ background: "#0F0F1A", border: "1px solid #1A1A2E", borderRadius: 10, overflow: "hidden" }}>
-        {/* Header */}
-        <div style={{ display: "grid", gridTemplateColumns: "2fr 80px 130px 80px 130px 80px", background: "#09090F", borderBottom: "1px solid #1A1A2E" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "2fr 80px 140px 80px 130px 70px", background: "#09090F", borderBottom: "1px solid #1A1A2E" }}>
           {["Nome", "Tipo", "Stage", "Budget", "Contatto", ""].map(h => (
             <div key={h} style={{ padding: "9px 12px", fontSize: 10, fontWeight: 700, color: "#475569", textTransform: "uppercase", letterSpacing: "0.08em" }}>{h}</div>
           ))}
         </div>
-        {/* Rows */}
         {entries.map((entry, i) => {
           const color = stageColor(entry.stage, entry.tipo);
           const bg = i % 2 === 0 ? "#0F0F1A" : "#0B0B16";
           const cell = { padding: "10px 12px", fontSize: fs - 2, color: "#94A3B8", borderTop: i === 0 ? "none" : "1px solid #1A1A2E", background: bg, display: "flex", alignItems: "center" };
           return (
-            <div key={entry.id} style={{ display: "grid", gridTemplateColumns: "2fr 80px 130px 80px 130px 80px" }}>
-              <div style={{ ...cell, color: "#E2E8F0", fontWeight: 600, flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
-                <span>{entry.nome}</span>
-                {entry.note && <span style={{ fontSize: fs - 5, color: "#334155", fontWeight: 400 }}>{entry.note.slice(0, 40)}…</span>}
-              </div>
+            <div key={entry.id} style={{ display: "grid", gridTemplateColumns: "2fr 80px 140px 80px 130px 70px" }}>
+              <div style={{ ...cell, color: "#E2E8F0", fontWeight: 600 }}>{entry.nome}</div>
               <div style={cell}>
                 <span style={{ padding: "2px 7px", borderRadius: 10, background: entry.tipo === "lead" ? "#3B82F620" : "#10B98120", color: entry.tipo === "lead" ? "#3B82F6" : "#10B981", fontSize: 10, fontWeight: 600 }}>
                   {entry.tipo === "lead" ? "Lead" : "Cliente"}
@@ -152,9 +141,6 @@ function ListView({ entries, fs, onEdit, onDelete, onSync, syncing }) {
               <div style={cell}>{entry.contatto || "–"}</div>
               <div style={{ ...cell, gap: 4 }}>
                 <button onClick={() => onEdit(entry)} style={{ width: 24, height: 24, borderRadius: 5, border: "1px solid #1A1A2E", background: "transparent", color: "#64748B", cursor: "pointer", fontSize: 10 }}>✏️</button>
-                {!entry.clickupId && (
-                  <button onClick={() => onSync(entry)} style={{ width: 24, height: 24, borderRadius: 5, border: "1px solid #1E3A5F", background: "transparent", color: "#3B82F6", cursor: "pointer", fontSize: 10 }}>{syncing === entry.id ? "⏳" : "☁️"}</button>
-                )}
                 <button onClick={() => onDelete(entry.id)} style={{ width: 24, height: 24, borderRadius: 5, border: "1px solid #2A1A1A", background: "transparent", color: "#EF4444", cursor: "pointer", fontSize: 12, fontWeight: 700 }}>×</button>
               </div>
             </div>
@@ -172,53 +158,49 @@ export default function PipelinePage({ fontSize = 14 }) {
   const [filter, setFilter] = useState("tutti");
   const [modal, setModal] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
-  const [loading, setLoading] = useState(false);
-  const [syncing, setSyncing] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saveStatus, setSaveStatus] = useState(null); // null | "saving" | "saved" | "error"
 
+  // Load from ClickUp on mount
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem("dario-pipeline");
-      if (saved) setEntries(JSON.parse(saved));
-    } catch (e) {}
-    syncClickup();
+    loadData();
   }, []);
 
-  const persist = (updated) => {
-    setEntries(updated);
-    try { localStorage.setItem("dario-pipeline", JSON.stringify(updated)); } catch (e) {}
-  };
-
-  const syncClickup = async () => {
+  const loadData = async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/pipeline");
-      if (!res.ok) return;
+      const res = await fetch("/api/pipeline-data");
       const data = await res.json();
-      setEntries(prev => {
-        const merged = [...prev];
-        const process = (tasks, tipo) => {
-          tasks.forEach(task => {
-            if (!merged.find(e => e.clickupId === task.id)) {
-              let extra = {};
-              try { extra = JSON.parse(task.description || "{}"); } catch {}
-              merged.push({
-                id: genId(), tipo, nome: task.name,
-                contatto: extra.contatto || "", email: extra.email || "",
-                telefono: extra.telefono || "", budget: extra.budget || "",
-                stage: task.status?.status || (tipo === "lead" ? "da_contattare" : "attivo"),
-                data: task.date_created ? new Date(parseInt(task.date_created)).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
-                note: extra.note || "", clickupId: task.id,
-              });
-            }
-          });
-        };
-        process(data.leads || [], "lead");
-        process(data.clienti || [], "cliente");
-        try { localStorage.setItem("dario-pipeline", JSON.stringify(merged)); } catch {}
-        return [...merged];
-      });
-    } catch (e) {} finally { setLoading(false); }
+      setEntries(data.entries || []);
+    } catch (e) {
+      // fallback to localStorage
+      try {
+        const saved = localStorage.getItem("dario-pipeline");
+        if (saved) setEntries(JSON.parse(saved));
+      } catch {}
+    } finally {
+      setLoading(false);
+    }
   };
+
+  const saveData = useCallback(async (updated) => {
+    setEntries(updated);
+    // Save to localStorage immediately (cache)
+    try { localStorage.setItem("dario-pipeline", JSON.stringify(updated)); } catch {}
+    // Save to ClickUp
+    setSaveStatus("saving");
+    try {
+      const res = await fetch("/api/pipeline-data", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entries: updated }),
+      });
+      setSaveStatus(res.ok ? "saved" : "error");
+    } catch {
+      setSaveStatus("error");
+    }
+    setTimeout(() => setSaveStatus(null), 2500);
+  }, []);
 
   const openAdd = (tipo = "lead", stage = null) => {
     setForm({ ...EMPTY_FORM, tipo, stage: stage || (tipo === "lead" ? "da_contattare" : "attivo"), data: new Date().toISOString().slice(0, 10) });
@@ -230,36 +212,22 @@ export default function PipelinePage({ fontSize = 14 }) {
 
   const saveEntry = () => {
     if (!form.nome.trim()) return;
-    if (modal === "add") {
-      persist([...entries, { ...form, id: genId() }]);
-    } else {
-      persist(entries.map(e => e.id === form.id ? form : e));
-    }
+    const updated = modal === "add"
+      ? [...entries, { ...form, id: genId() }]
+      : entries.map(e => e.id === form.id ? form : e);
+    saveData(updated);
     closeModal();
   };
 
   const deleteEntry = (id) => {
     if (!confirm("Eliminare questo record?")) return;
-    persist(entries.filter(e => e.id !== id));
-  };
-
-  const syncEntry = async (entry) => {
-    setSyncing(entry.id);
-    try {
-      const res = await fetch("/api/pipeline", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(entry),
-      });
-      const data = await res.json();
-      if (data.id) persist(entries.map(e => e.id === entry.id ? { ...e, clickupId: data.id } : e));
-    } catch (e) {} finally { setSyncing(null); }
+    saveData(entries.filter(e => e.id !== id));
   };
 
   const filtered = entries.filter(e => filter === "tutti" || e.tipo === filter);
   const activeClients = entries.filter(e => e.tipo === "cliente" && e.stage === "attivo");
   const mrr = activeClients.reduce((s, e) => s + (parseFloat(e.budget) || 0), 0);
-  const pipelineValue = entries.filter(e => e.tipo === "lead").reduce((s, e) => s + (parseFloat(e.budget) || 0), 0);
+  const pipelineValue = entries.filter(e => e.tipo === "lead" && !["vinto","perso"].includes(e.stage)).reduce((s, e) => s + (parseFloat(e.budget) || 0), 0);
 
   const f = (key) => (val) => setForm(p => ({ ...p, [key]: val }));
 
@@ -269,11 +237,16 @@ export default function PipelinePage({ fontSize = 14 }) {
       {/* Header */}
       <div style={{ padding: "14px 20px", borderBottom: "1px solid #1A1A2E", flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-          <div style={{ fontWeight: 700, fontSize: 15, color: "#F8FAFC" }}>🎯 Pipeline IAGREX</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ fontWeight: 700, fontSize: 15, color: "#F8FAFC" }}>🎯 Pipeline IAGREX</div>
+            {saveStatus === "saving" && <span style={{ fontSize: 11, color: "#F59E0B" }}>☁️ Salvataggio...</span>}
+            {saveStatus === "saved"  && <span style={{ fontSize: 11, color: "#10B981" }}>✅ Salvato</span>}
+            {saveStatus === "error"  && <span style={{ fontSize: 11, color: "#EF4444" }}>❌ Errore salvataggio</span>}
+          </div>
           <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-            {["tutti", "lead", "cliente"].map(f => (
-              <button key={f} onClick={() => setFilter(f)} style={{ padding: "4px 10px", borderRadius: 7, border: `1px solid ${filter === f ? "#8B5CF6" : "#1A1A2E"}`, background: filter === f ? "#8B5CF620" : "transparent", color: filter === f ? "#8B5CF6" : "#475569", cursor: "pointer", fontSize: 11, textTransform: "capitalize" }}>
-                {f === "tutti" ? "Tutti" : f === "lead" ? "Lead" : "Clienti"}
+            {["tutti", "lead", "cliente"].map(fi => (
+              <button key={fi} onClick={() => setFilter(fi)} style={{ padding: "4px 10px", borderRadius: 7, border: `1px solid ${filter === fi ? "#8B5CF6" : "#1A1A2E"}`, background: filter === fi ? "#8B5CF620" : "transparent", color: filter === fi ? "#8B5CF6" : "#475569", cursor: "pointer", fontSize: 11 }}>
+                {fi === "tutti" ? "Tutti" : fi === "lead" ? "Lead" : "Clienti"}
               </button>
             ))}
             <div style={{ width: 1, height: 18, background: "#1A1A2E" }} />
@@ -281,15 +254,14 @@ export default function PipelinePage({ fontSize = 14 }) {
               <button key={v} onClick={() => setView(v)} style={{ padding: "4px 10px", borderRadius: 7, border: `1px solid ${view === v ? "#F97316" : "#1A1A2E"}`, background: view === v ? "#F9731620" : "transparent", color: view === v ? "#F97316" : "#475569", cursor: "pointer", fontSize: 11 }}>{label}</button>
             ))}
             <div style={{ width: 1, height: 18, background: "#1A1A2E" }} />
-            <button onClick={() => openAdd("lead")} style={{ padding: "4px 10px", borderRadius: 7, border: "none", background: "#3B82F6", color: "#fff", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>+ Lead</button>
+            <button onClick={() => openAdd("lead")}    style={{ padding: "4px 10px", borderRadius: 7, border: "none", background: "#3B82F6", color: "#fff", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>+ Lead</button>
             <button onClick={() => openAdd("cliente")} style={{ padding: "4px 10px", borderRadius: 7, border: "none", background: "#10B981", color: "#fff", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>+ Cliente</button>
-            <button onClick={syncClickup} style={{ padding: "4px 10px", borderRadius: 7, border: "1px solid #1A1A2E", background: "transparent", color: "#475569", cursor: "pointer", fontSize: 11 }}>{loading ? "⏳" : "↻ Sync"}</button>
+            <button onClick={loadData} style={{ padding: "4px 10px", borderRadius: 7, border: "1px solid #1A1A2E", background: "transparent", color: "#475569", cursor: "pointer", fontSize: 11 }}>{loading ? "⏳" : "↻"}</button>
           </div>
         </div>
-        {/* Stats */}
         <div style={{ display: "flex", gap: 20, marginTop: 8 }}>
           <div style={{ fontSize: fs - 3, color: "#64748B" }}>
-            <span style={{ color: "#3B82F6", fontWeight: 700 }}>{entries.filter(e => e.tipo === "lead").length}</span> lead · valore pipeline <span style={{ color: "#F59E0B", fontWeight: 700 }}>{pipelineValue.toLocaleString("it-IT")}€/mese</span>
+            <span style={{ color: "#3B82F6", fontWeight: 700 }}>{entries.filter(e => e.tipo === "lead").length}</span> lead · pipeline <span style={{ color: "#F59E0B", fontWeight: 700 }}>{pipelineValue.toLocaleString("it-IT")}€/mese</span>
           </div>
           <div style={{ fontSize: fs - 3, color: "#64748B" }}>
             <span style={{ color: "#10B981", fontWeight: 700 }}>{activeClients.length}</span> clienti attivi · MRR <span style={{ color: "#10B981", fontWeight: 700 }}>{mrr.toLocaleString("it-IT")}€</span>
@@ -297,11 +269,18 @@ export default function PipelinePage({ fontSize = 14 }) {
         </div>
       </div>
 
+      {/* Loading */}
+      {loading && (
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#334155", fontSize: fs - 2 }}>
+          ⏳ Caricamento pipeline...
+        </div>
+      )}
+
       {/* View */}
-      {view === "kanban"
-        ? <KanbanView entries={filtered} filter={filter} fs={fs} onEdit={openEdit} onDelete={deleteEntry} onSync={syncEntry} syncing={syncing} openAdd={openAdd} />
-        : <ListView entries={filtered} fs={fs} onEdit={openEdit} onDelete={deleteEntry} onSync={syncEntry} syncing={syncing} />
-      }
+      {!loading && (view === "kanban"
+        ? <KanbanView entries={filtered} filter={filter} fs={fs} onEdit={openEdit} onDelete={deleteEntry} openAdd={openAdd} />
+        : <ListView   entries={filtered} fs={fs} onEdit={openEdit} onDelete={deleteEntry} />
+      )}
 
       {/* Modal */}
       {modal && (
@@ -311,7 +290,6 @@ export default function PipelinePage({ fontSize = 14 }) {
               {modal === "add" ? "➕ Nuovo" : "✏️ Modifica"} {form.tipo === "lead" ? "Lead" : "Cliente"}
             </div>
 
-            {/* Tipo */}
             <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
               {[["lead", "🎯 Lead", "#3B82F6"], ["cliente", "✅ Cliente", "#10B981"]].map(([t, label, color]) => (
                 <button key={t} onClick={() => setForm(p => ({ ...p, tipo: t, stage: t === "lead" ? "da_contattare" : "attivo" }))}
@@ -322,14 +300,13 @@ export default function PipelinePage({ fontSize = 14 }) {
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <InputField label="Nome azienda *" value={form.nome} onChange={f("nome")} full />
-              <InputField label="Referente" value={form.contatto} onChange={f("contatto")} />
-              <InputField label="Email" value={form.email} onChange={f("email")} type="email" />
-              <InputField label="Telefono" value={form.telefono} onChange={f("telefono")} />
-              <InputField label="Budget €/mese" value={form.budget} onChange={f("budget")} type="number" />
-              <InputField label="Data" value={form.data} onChange={f("data")} type="date" />
+              <InputField label="Nome azienda *" value={form.nome}     onChange={f("nome")}     full />
+              <InputField label="Referente"       value={form.contatto} onChange={f("contatto")} />
+              <InputField label="Email"           value={form.email}    onChange={f("email")}    type="email" />
+              <InputField label="Telefono"        value={form.telefono} onChange={f("telefono")} />
+              <InputField label="Budget €/mese"   value={form.budget}   onChange={f("budget")}   type="number" />
+              <InputField label="Data"            value={form.data}     onChange={f("data")}     type="date" />
 
-              {/* Stage */}
               <div style={{ gridColumn: "1 / -1" }}>
                 <div style={{ fontSize: 11, color: "#64748B", marginBottom: 6 }}>Stage</div>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -342,7 +319,6 @@ export default function PipelinePage({ fontSize = 14 }) {
                 </div>
               </div>
 
-              {/* Note */}
               <div style={{ gridColumn: "1 / -1" }}>
                 <div style={{ fontSize: 11, color: "#64748B", marginBottom: 4 }}>Note</div>
                 <textarea value={form.note} onChange={e => setForm(p => ({ ...p, note: e.target.value }))} rows={3}
@@ -351,8 +327,8 @@ export default function PipelinePage({ fontSize = 14 }) {
             </div>
 
             <div style={{ display: "flex", gap: 8, marginTop: 20 }}>
-              <button onClick={closeModal} style={{ flex: 1, padding: 10, borderRadius: 8, border: "1px solid #1A1A2E", background: "transparent", color: "#475569", cursor: "pointer", fontSize: 13 }}>Annulla</button>
-              <button onClick={saveEntry} style={{ flex: 2, padding: 10, borderRadius: 8, border: "none", background: "#8B5CF6", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 700 }}>Salva</button>
+              <button onClick={closeModal}  style={{ flex: 1, padding: 10, borderRadius: 8, border: "1px solid #1A1A2E", background: "transparent", color: "#475569", cursor: "pointer", fontSize: 13 }}>Annulla</button>
+              <button onClick={saveEntry}   style={{ flex: 2, padding: 10, borderRadius: 8, border: "none", background: "#8B5CF6", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 700 }}>Salva</button>
             </div>
           </div>
         </div>
