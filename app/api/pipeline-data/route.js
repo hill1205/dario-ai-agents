@@ -1,6 +1,5 @@
 // v2
 const CLICKUP_API_KEY = process.env.CLICKUP_API_KEY;const CLICKUP_API_KEY = process.env.CLICKUP_API_KEY;
-const WORKSPACE_ID = "90121769473";
 const DOC_ID  = "2kxuu4g1-932";
 const PAGE_ID = "2kxuu4g1-912";
 
