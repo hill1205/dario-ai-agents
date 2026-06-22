@@ -19,19 +19,12 @@ const EMPTY_FORM = {
   telefono: "", budget: "", stage: "da_contattare",
   data: new Date().toISOString().slice(0, 10), note: "",
 };
-const DOC_ID  = "2kxuu4g1-932";
-const PAGE_ID = "2kxuu4g1-912";
 
 function genId() { return Math.random().toString(36).slice(2, 10); }
 function stageColor(s, t) { return (t==="cliente"?CLIENT_STAGES:LEAD_STAGES).find(x=>x.id===s)?.color||"#475569"; }
 function stageLabel(s, t) { return (t==="cliente"?CLIENT_STAGES:LEAD_STAGES).find(x=>x.id===s)?.label||s; }
-
-function lsGet() {
-  try { const s=localStorage.getItem("dario-pipeline"); return s?JSON.parse(s):[]; } catch { return []; }
-}
-function lsSet(data) {
-  try { localStorage.setItem("dario-pipeline", JSON.stringify(data)); } catch {}
-}
+function lsGet() { try { const s=localStorage.getItem("dario-pipeline"); return s?JSON.parse(s):[]; } catch { return []; } }
+function lsSet(d) { try { localStorage.setItem("dario-pipeline",JSON.stringify(d)); } catch {} }
 
 function InputField({ label, value, onChange, type="text", full=false }) {
   return (
@@ -127,7 +120,7 @@ function ListView({ entries, fs, onEdit, onDelete }) {
   );
 }
 
-export default function PipelinePage({ fontSize=14, clickupKey="" }) {
+export default function PipelinePage({ fontSize=14 }) {
   const fs = fontSize;
   const [entries, setEntries]       = useState([]);
   const [view, setView]             = useState("kanban");
@@ -138,69 +131,58 @@ export default function PipelinePage({ fontSize=14, clickupKey="" }) {
   const [syncing, setSyncing]       = useState(false);
   const [saveStatus, setSaveStatus] = useState(null);
 
-  // 1. Al mount: mostra subito i dati da localStorage
-  useEffect(()=>{
-    const local = lsGet();
-    setEntries(local);
+  // Al mount: carica da ClickUp (fonte di verità), fallback localStorage
+  useEffect(()=>{ loadData(); }, []);
+
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/pipeline-data");
+      if (res.ok) {
+        const data = await res.json();
+        const cuEntries = data.entries || [];
+        if (cuEntries.length > 0) {
+          setEntries(cuEntries);
+          lsSet(cuEntries);
+          setLoading(false);
+          return;
+        }
+      }
+    } catch {}
+    // Fallback: localStorage
+    setEntries(lsGet());
     setLoading(false);
-  }, []);
+  };
 
-  // 2. Quando clickupKey diventa disponibile: sincronizza da ClickUp
-  useEffect(()=>{
-    if (!clickupKey) return;
-    syncFromClickup(clickupKey);
-  }, [clickupKey]);
-
-  const syncFromClickup = async (key) => {
+  const syncNow = async () => {
     setSyncing(true);
     try {
       const res = await fetch("/api/pipeline-data");
-      if (!res.ok) return;
-      const data = await res.json();
-      const cuEntries = data.entries || [];
-      const local = lsGet();
-      // ClickUp è la fonte di verità per il sync cross-device
-      // Aggiorna solo se ClickUp ha dati O se ha meno dati (cancellazione)
-      // Non aggiornare solo se ClickUp è vuoto E locale ha dati (prima sincronizzazione)
-      if (cuEntries.length > 0 || local.length === 0) {
+      if (res.ok) {
+        const data = await res.json();
+        const cuEntries = data.entries || [];
         setEntries(cuEntries);
         lsSet(cuEntries);
-      } else if (local.length > 0 && cuEntries.length === 0 && key) {
-        // Prima sincronizzazione: locale ha dati, ClickUp vuoto → pusha
-        pushToClickup(local, key);
       }
     } catch {} finally {
       setSyncing(false);
     }
   };
 
-  const pushToClickup = async (data, key) => {
-    try {
-      await fetch(`/api/clickup-doc?docId=${DOC_ID}&pageId=${PAGE_ID}`, {
-        method: "PUT",
-        headers: { "x-clickup-key": key, "Content-Type": "application/json" },
-        body: JSON.stringify({ content: `PIPELINE_DATA_JSON:${JSON.stringify(data)}`, content_format: "text/plain" }),
-      });
-    } catch {}
-  };
-
   const saveData = useCallback(async (updated) => {
     setEntries(updated);
     lsSet(updated);
-    if (!clickupKey) { setSaveStatus("error"); setTimeout(()=>setSaveStatus(null),2500); return; }
     setSaveStatus("saving");
     try {
-      const res = await fetch(`/api/clickup-doc?docId=${DOC_ID}&pageId=${PAGE_ID}`, {
+      const res = await fetch("/api/pipeline-data", {
         method: "PUT",
-        headers: { "x-clickup-key": clickupKey, "Content-Type": "application/json" },
-        body: JSON.stringify({ content: `PIPELINE_DATA_JSON:${JSON.stringify(updated)}`, content_format: "text/plain" }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entries: updated }),
       });
       setSaveStatus(res.ok ? "saved" : "error");
     } catch { setSaveStatus("error"); }
     setTimeout(()=>setSaveStatus(null), 2500);
-  }, [clickupKey]);
-
-  const manualSync = () => syncFromClickup(clickupKey);
+  }, []);
 
   const openAdd = (tipo="lead", stage=null) => {
     setForm({...EMPTY_FORM, tipo, stage: stage||(tipo==="lead"?"da_contattare":"attivo"), data: new Date().toISOString().slice(0,10)});
@@ -238,8 +220,8 @@ export default function PipelinePage({ fontSize=14, clickupKey="" }) {
             <div style={{ fontWeight:700, fontSize:15, color:"#F8FAFC" }}>🎯 Pipeline IAGREX</div>
             {syncing                && <span style={{ fontSize:11, color:"#64748B" }}>🔄 Sync...</span>}
             {saveStatus==="saving"  && <span style={{ fontSize:11, color:"#F59E0B" }}>☁️ Salvataggio...</span>}
-            {saveStatus==="saved"   && <span style={{ fontSize:11, color:"#10B981" }}>✅ Salvato</span>}
-            {saveStatus==="error"   && <span style={{ fontSize:11, color:"#EF4444" }}>❌ {clickupKey?"Errore salvataggio":"API key mancante — dati in locale"}</span>}
+            {saveStatus==="saved"   && <span style={{ fontSize:11, color:"#10B981" }}>✅ Salvato su ClickUp</span>}
+            {saveStatus==="error"   && <span style={{ fontSize:11, color:"#EF4444" }}>❌ Errore salvataggio</span>}
           </div>
           <div style={{ display:"flex", gap:6, alignItems:"center", flexWrap:"wrap" }}>
             {["tutti","lead","cliente"].map(fi=>(
@@ -254,7 +236,7 @@ export default function PipelinePage({ fontSize=14, clickupKey="" }) {
             <div style={{ width:1, height:18, background:"#1A1A2E" }}/>
             <button onClick={()=>openAdd("lead")}    style={{ padding:"4px 10px", borderRadius:7, border:"none", background:"#3B82F6", color:"#fff", cursor:"pointer", fontSize:11, fontWeight:600 }}>+ Lead</button>
             <button onClick={()=>openAdd("cliente")} style={{ padding:"4px 10px", borderRadius:7, border:"none", background:"#10B981", color:"#fff", cursor:"pointer", fontSize:11, fontWeight:600 }}>+ Cliente</button>
-            <button onClick={manualSync} style={{ padding:"4px 10px", borderRadius:7, border:"1px solid #1A1A2E", background:"transparent", color:"#475569", cursor:"pointer", fontSize:11 }}>{syncing?"⏳":"↻"}</button>
+            <button onClick={syncNow} style={{ padding:"4px 10px", borderRadius:7, border:"1px solid #1A1A2E", background:"transparent", color:"#475569", cursor:"pointer", fontSize:11 }}>{syncing?"⏳":"↻"}</button>
           </div>
         </div>
         <div style={{ display:"flex", gap:20, marginTop:8 }}>
