@@ -6,11 +6,11 @@ const CAT_USCITE  = ["Keez / Commercialista","Software & Tools","Marketing","Hos
 const OBIETTIVO_ANNUO = 1000000;
 
 const CONTI_IAGREX = [
-  { id: "unicredit_eur", label: "UniCredit Romania — EUR" },
-  { id: "unicredit_ron", label: "UniCredit Romania — RON" },
+  { id: "unicredit_eur", label: "UniCredit Romania — EUR", currency: "€" },
+  { id: "unicredit_ron", label: "UniCredit Romania — RON", currency: "RON" },
 ];
 
-const EMPTY_MONTH = { entrate: [], uscite: [], saldi: { unicredit_ro: 0, altro: 0 } };
+const EMPTY_MONTH = { entrate: [], uscite: [], saldi: { unicredit_eur: 0, unicredit_ron: 0 } };
 
 function genId() { return Math.random().toString(36).slice(2,10); }
 function fmt(n) { return (parseFloat(n)||0).toLocaleString("it-IT",{minimumFractionDigits:0,maximumFractionDigits:2}); }
@@ -238,12 +238,12 @@ export default function IAGREXPage({ fontSize=14, onBack }) {
                     <div style={{padding:"6px 12px",display:"flex",alignItems:"center",gap:4}}>
                       <input type="number" value={monthData.saldi?.[c.id]||""} onChange={e=>updateSaldo(c.id,e.target.value)} placeholder="0"
                         style={{width:100,padding:"5px 8px",borderRadius:6,border:"1px solid #1A1A2E",background:"#09090F",color:"#3B82F6",fontSize:fs-2,outline:"none",textAlign:"right",fontWeight:700}}/>
-                      <span style={{fontSize:fs-3,color:"#475569"}}>€</span>
+                      <span style={{fontSize:fs-3,color:"#475569"}}>{c.currency}</span>
                     </div>
                   </div>
                 ))}
                 <div style={{padding:"10px 12px",borderTop:"1px solid #1A1A2E",display:"flex",justifyContent:"space-between",background:"#09090F"}}>
-                  <span style={{fontSize:fs-2,fontWeight:700,color:"#3B82F6"}}>Totale liquidità aziendale</span>
+                  <span style={{fontSize:fs-2,fontWeight:700,color:"#3B82F6"}}>Totale liquidità (EUR + RON convertiti)</span>
                   <span style={{fontSize:fs-1,fontWeight:800,color:"#3B82F6"}}>{fmt(Object.values(monthData.saldi||{}).reduce((s,v)=>s+(parseFloat(v)||0),0))}€</span>
                 </div>
               </div>
