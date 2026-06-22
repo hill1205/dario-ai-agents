@@ -1,15 +1,16 @@
-export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 const CLICKUP_API_KEY = process.env.CLICKUP_API_KEY;
 const WORKSPACE_ID = "90121769473";
 const DOC_ID  = "2kxuu4g1-932";
 const PAGE_ID = "2kxuu4g1-912";
-
 const BASE = `https://api.clickup.com/api/v3/workspaces/${WORKSPACE_ID}/docs/${DOC_ID}/pages/${PAGE_ID}`;
 
 export async function GET() {
   try {
     const res = await fetch(`${BASE}?content_format=text/plain`, {
-      headers: { Authorization: CLICKUP_API_KEY }
+      headers: { Authorization: CLICKUP_API_KEY },
+      cache: "no-store",
     });
     if (!res.ok) return Response.json({ entries: [] });
     const data = await res.json();
@@ -23,7 +24,7 @@ export async function GET() {
   }
 }
 
-export async function PUT(request) {
+export async function POST(request) {
   try {
     const { entries } = await request.json();
     const content = `PIPELINE_DATA_JSON:${JSON.stringify(entries)}`;
@@ -31,7 +32,7 @@ export async function PUT(request) {
       method: "PUT",
       headers: {
         Authorization: CLICKUP_API_KEY,
-        "Content-Type": "application/json",   // ← questo mancava prima!
+        "Content-Type": "application/json",
       },
       body: JSON.stringify({ content }),
     });
