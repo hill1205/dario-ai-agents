@@ -154,16 +154,19 @@ export default function PipelinePage({ fontSize=14, clickupKey="" }) {
   const syncFromClickup = async (key) => {
     setSyncing(true);
     try {
-      // GET usa il route server-side (non richiede API key dal frontend)
       const res = await fetch("/api/pipeline-data");
       if (!res.ok) return;
       const data = await res.json();
       const cuEntries = data.entries || [];
       const local = lsGet();
-      if (cuEntries.length > 0 && cuEntries.length >= local.length) {
+      // ClickUp è la fonte di verità per il sync cross-device
+      // Aggiorna solo se ClickUp ha dati O se ha meno dati (cancellazione)
+      // Non aggiornare solo se ClickUp è vuoto E locale ha dati (prima sincronizzazione)
+      if (cuEntries.length > 0 || local.length === 0) {
         setEntries(cuEntries);
         lsSet(cuEntries);
       } else if (local.length > 0 && cuEntries.length === 0 && key) {
+        // Prima sincronizzazione: locale ha dati, ClickUp vuoto → pusha
         pushToClickup(local, key);
       }
     } catch {} finally {
