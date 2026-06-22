@@ -9,25 +9,29 @@ const LEAD_STAGES = [
   { id: "vinto",           label: "Vinto 🎉",          color: "#10B981" },
   { id: "perso",           label: "Perso",             color: "#EF4444" },
 ];
-
 const CLIENT_STAGES = [
   { id: "attivo",   label: "Attivo ✅", color: "#10B981" },
   { id: "in_pausa", label: "In Pausa",  color: "#F59E0B" },
   { id: "concluso", label: "Concluso",  color: "#475569" },
 ];
-
 const EMPTY_FORM = {
   id: null, tipo: "lead", nome: "", contatto: "", email: "",
   telefono: "", budget: "", stage: "da_contattare",
   data: new Date().toISOString().slice(0, 10), note: "",
 };
-
 const DOC_ID  = "2kxuu4g1-932";
 const PAGE_ID = "2kxuu4g1-892";
 
 function genId() { return Math.random().toString(36).slice(2, 10); }
 function stageColor(s, t) { return (t==="cliente"?CLIENT_STAGES:LEAD_STAGES).find(x=>x.id===s)?.color||"#475569"; }
 function stageLabel(s, t) { return (t==="cliente"?CLIENT_STAGES:LEAD_STAGES).find(x=>x.id===s)?.label||s; }
+
+function lsGet() {
+  try { const s=localStorage.getItem("dario-pipeline"); return s?JSON.parse(s):[]; } catch { return []; }
+}
+function lsSet(data) {
+  try { localStorage.setItem("dario-pipeline", JSON.stringify(data)); } catch {}
+}
 
 function InputField({ label, value, onChange, type="text", full=false }) {
   return (
@@ -125,86 +129,87 @@ function ListView({ entries, fs, onEdit, onDelete }) {
 
 export default function PipelinePage({ fontSize=14, clickupKey="" }) {
   const fs = fontSize;
-  const [entries, setEntries]     = useState([]);
-  const [view, setView]           = useState("kanban");
-  const [filter, setFilter]       = useState("tutti");
-  const [modal, setModal]         = useState(null);
-  const [form, setForm]           = useState(EMPTY_FORM);
-  const [loading, setLoading]     = useState(true);
+  const [entries, setEntries]       = useState([]);
+  const [view, setView]             = useState("kanban");
+  const [filter, setFilter]         = useState("tutti");
+  const [modal, setModal]           = useState(null);
+  const [form, setForm]             = useState(EMPTY_FORM);
+  const [loading, setLoading]       = useState(true);
+  const [syncing, setSyncing]       = useState(false);
   const [saveStatus, setSaveStatus] = useState(null);
 
-  useEffect(()=>{ loadData(); }, []);
-
-  const loadData = async () => {
-    setLoading(true);
-    // 1. Prima leggi localStorage come fallback sicuro
-    let localEntries = [];
-    try {
-      const saved = localStorage.getItem("dario-pipeline");
-      if (saved) localEntries = JSON.parse(saved);
-    } catch {}
-
-    // 2. Prova a leggere da ClickUp via clickup-doc (stesso route di salva sessione)
-    if (clickupKey) {
-      try {
-        const res = await fetch(`/api/clickup-doc?docId=${DOC_ID}&pageId=${PAGE_ID}`, {
-          headers: { "x-clickup-key": clickupKey }
-        });
-        if (res.ok) {
-          const data = await res.json();
-          const content = data.content || data.content_editable || "";
-          const match = content.match(/PIPELINE_DATA_JSON:([\s\S]*)/);
-          if (match) {
-            const clickupEntries = JSON.parse(match[1].trim());
-            if (clickupEntries.length > 0) {
-              // ClickUp ha dati — usali come fonte di verità
-              setEntries(clickupEntries);
-              try { localStorage.setItem("dario-pipeline", JSON.stringify(clickupEntries)); } catch {}
-              setLoading(false);
-              return;
-            }
-          }
-        }
-      } catch {}
-    }
-
-    // 3. ClickUp vuoto o non disponibile → usa localStorage
-    if (localEntries.length > 0) {
-      setEntries(localEntries);
-      // Pusha su ClickUp in background se la key è disponibile
-      if (clickupKey) {
-        fetch(`/api/clickup-doc?docId=${DOC_ID}&pageId=${PAGE_ID}`, {
-          method: "PUT",
-          headers: { "x-clickup-key": clickupKey, "Content-Type": "application/json" },
-          body: JSON.stringify({ content: `PIPELINE_DATA_JSON:${JSON.stringify(localEntries)}`, content_format: "text/plain" }),
-        });
-      }
-    }
+  // 1. Al mount: mostra subito i dati da localStorage
+  useEffect(()=>{
+    const local = lsGet();
+    setEntries(local);
     setLoading(false);
+  }, []);
+
+  // 2. Quando clickupKey diventa disponibile: sincronizza da ClickUp
+  useEffect(()=>{
+    if (!clickupKey) return;
+    syncFromClickup(clickupKey);
+  }, [clickupKey]);
+
+  const syncFromClickup = async (key) => {
+    setSyncing(true);
+    try {
+      const res = await fetch(`/api/clickup-doc?docId=${DOC_ID}&pageId=${PAGE_ID}`, {
+        headers: { "x-clickup-key": key }
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      const content = data.content || data.content_editable || "";
+      const match = content.match(/PIPELINE_DATA_JSON:([\s\S]*)/);
+      if (!match) return;
+      const cuEntries = JSON.parse(match[1].trim());
+      const local = lsGet();
+      if (cuEntries.length >= local.length) {
+        // ClickUp è più aggiornato — usa quelli
+        setEntries(cuEntries);
+        lsSet(cuEntries);
+      } else if (local.length > 0 && cuEntries.length === 0) {
+        // Locale ha dati ma ClickUp è vuoto — pusha
+        pushToClickup(local, key);
+      }
+    } catch {} finally {
+      setSyncing(false);
+    }
+  };
+
+  const pushToClickup = async (data, key) => {
+    try {
+      await fetch(`/api/clickup-doc?docId=${DOC_ID}&pageId=${PAGE_ID}`, {
+        method: "PUT",
+        headers: { "x-clickup-key": key, "Content-Type": "application/json" },
+        body: JSON.stringify({ content: `PIPELINE_DATA_JSON:${JSON.stringify(data)}`, content_format: "text/plain" }),
+      });
+    } catch {}
   };
 
   const saveData = useCallback(async (updated) => {
     setEntries(updated);
-    try { localStorage.setItem("dario-pipeline", JSON.stringify(updated)); } catch {}
-    if (!clickupKey) return;
+    lsSet(updated);
+    if (!clickupKey) { setSaveStatus("error"); setTimeout(()=>setSaveStatus(null),2500); return; }
     setSaveStatus("saving");
     try {
-      const content = `PIPELINE_DATA_JSON:${JSON.stringify(updated)}`;
       const res = await fetch(`/api/clickup-doc?docId=${DOC_ID}&pageId=${PAGE_ID}`, {
         method: "PUT",
         headers: { "x-clickup-key": clickupKey, "Content-Type": "application/json" },
-        body: JSON.stringify({ content, content_format: "text/plain" }),
+        body: JSON.stringify({ content: `PIPELINE_DATA_JSON:${JSON.stringify(updated)}`, content_format: "text/plain" }),
       });
       setSaveStatus(res.ok ? "saved" : "error");
     } catch { setSaveStatus("error"); }
     setTimeout(()=>setSaveStatus(null), 2500);
   }, [clickupKey]);
 
+  const manualSync = () => clickupKey ? syncFromClickup(clickupKey) : null;
+
   const openAdd = (tipo="lead", stage=null) => {
     setForm({...EMPTY_FORM, tipo, stage: stage||(tipo==="lead"?"da_contattare":"attivo"), data: new Date().toISOString().slice(0,10)});
     setModal("add");
   };
-  const openEdit  = (entry) => { setForm({...entry}); setModal("edit"); };
+  const openEdit   = (entry) => { setForm({...entry}); setModal("edit"); };
   const closeModal = () => { setModal(null); setForm(EMPTY_FORM); };
 
   const saveEntry = () => {
@@ -230,15 +235,14 @@ export default function PipelinePage({ fontSize=14, clickupKey="" }) {
   return (
     <div style={{ display:"flex", flexDirection:"column", height:"100%", overflow:"hidden", background:"#09090F" }}>
 
-      {/* Header */}
       <div style={{ padding:"14px 20px", borderBottom:"1px solid #1A1A2E", flexShrink:0 }}>
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:8 }}>
           <div style={{ display:"flex", alignItems:"center", gap:10 }}>
             <div style={{ fontWeight:700, fontSize:15, color:"#F8FAFC" }}>🎯 Pipeline IAGREX</div>
-            {!clickupKey && <span style={{ fontSize:10, color:"#EF4444" }}>⚠️ API key non impostata</span>}
-            {saveStatus==="saving" && <span style={{ fontSize:11, color:"#F59E0B" }}>☁️ Salvataggio...</span>}
-            {saveStatus==="saved"  && <span style={{ fontSize:11, color:"#10B981" }}>✅ Salvato</span>}
-            {saveStatus==="error"  && <span style={{ fontSize:11, color:"#EF4444" }}>❌ Errore salvataggio</span>}
+            {syncing                && <span style={{ fontSize:11, color:"#64748B" }}>🔄 Sync...</span>}
+            {saveStatus==="saving"  && <span style={{ fontSize:11, color:"#F59E0B" }}>☁️ Salvataggio...</span>}
+            {saveStatus==="saved"   && <span style={{ fontSize:11, color:"#10B981" }}>✅ Salvato</span>}
+            {saveStatus==="error"   && <span style={{ fontSize:11, color:"#EF4444" }}>❌ {clickupKey?"Errore salvataggio":"API key mancante — dati in locale"}</span>}
           </div>
           <div style={{ display:"flex", gap:6, alignItems:"center", flexWrap:"wrap" }}>
             {["tutti","lead","cliente"].map(fi=>(
@@ -253,7 +257,7 @@ export default function PipelinePage({ fontSize=14, clickupKey="" }) {
             <div style={{ width:1, height:18, background:"#1A1A2E" }}/>
             <button onClick={()=>openAdd("lead")}    style={{ padding:"4px 10px", borderRadius:7, border:"none", background:"#3B82F6", color:"#fff", cursor:"pointer", fontSize:11, fontWeight:600 }}>+ Lead</button>
             <button onClick={()=>openAdd("cliente")} style={{ padding:"4px 10px", borderRadius:7, border:"none", background:"#10B981", color:"#fff", cursor:"pointer", fontSize:11, fontWeight:600 }}>+ Cliente</button>
-            <button onClick={loadData} style={{ padding:"4px 10px", borderRadius:7, border:"1px solid #1A1A2E", background:"transparent", color:"#475569", cursor:"pointer", fontSize:11 }}>{loading?"⏳":"↻"}</button>
+            <button onClick={manualSync} style={{ padding:"4px 10px", borderRadius:7, border:"1px solid #1A1A2E", background:"transparent", color:"#475569", cursor:"pointer", fontSize:11 }}>{syncing?"⏳":"↻"}</button>
           </div>
         </div>
         <div style={{ display:"flex", gap:20, marginTop:8 }}>
@@ -266,14 +270,13 @@ export default function PipelinePage({ fontSize=14, clickupKey="" }) {
         </div>
       </div>
 
-      {loading && <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", color:"#334155", fontSize:fs-2 }}>⏳ Caricamento pipeline...</div>}
+      {loading && <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", color:"#334155", fontSize:fs-2 }}>⏳ Caricamento...</div>}
 
       {!loading && (view==="kanban"
         ? <KanbanView entries={filtered} filter={filter} fs={fs} onEdit={openEdit} onDelete={deleteEntry} openAdd={openAdd}/>
         : <ListView   entries={filtered} fs={fs} onEdit={openEdit} onDelete={deleteEntry}/>
       )}
 
-      {/* Modal */}
       {modal && (
         <div style={{ position:"fixed", inset:0, background:"#00000090", zIndex:999, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }} onClick={closeModal}>
           <div style={{ background:"#0F0F1A", border:"1px solid #1A1A2E", borderRadius:16, padding:24, width:"100%", maxWidth:480, maxHeight:"90vh", overflowY:"auto" }} onClick={e=>e.stopPropagation()}>
