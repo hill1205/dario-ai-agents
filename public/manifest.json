@@ -1,0 +1,23 @@
+{
+  "name": "Dario AI Agents",
+  "short_name": "Dario AI",
+  "description": "Il tuo sistema di agenti AI personali",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#09090F",
+  "theme_color": "#09090F",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icon-256.png",
+      "sizes": "256x256",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
