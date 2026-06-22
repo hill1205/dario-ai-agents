@@ -1,5 +1,6 @@
-const CLICKUP_API_KEY = process.env.CLICKUP_API_KEY;
+export const dynamic = 'force-dynamic';
 
+const CLICKUP_API_KEY = process.env.CLICKUP_API_KEY;
 const LIST_IDS = {
   todo: "901218950374",
   routine: "901218950375",
@@ -9,15 +10,13 @@ const LIST_IDS = {
 async function fetchTasks(listId) {
   const res = await fetch(
     `https://api.clickup.com/api/v2/list/${listId}/task?include_closed=false`,
-    { headers: { Authorization: CLICKUP_API_KEY } }
+    { headers: { Authorization: CLICKUP_API_KEY }, cache: 'no-store' }
   );
-
   if (!res.ok) {
     const errorText = await res.text();
     console.error(`ClickUp API error for list ${listId}:`, res.status, errorText);
     return [];
   }
-
   const data = await res.json();
   return data.tasks || [];
 }
@@ -27,7 +26,6 @@ export async function GET() {
     console.error("CLICKUP_API_KEY is not set!");
     return Response.json({ error: "Missing API key" }, { status: 500 });
   }
-
   try {
     const [todo, routine, sospeso] = await Promise.all([
       fetchTasks(LIST_IDS.todo),
