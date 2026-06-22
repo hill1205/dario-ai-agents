@@ -173,7 +173,7 @@ export default function BrunoPage({ fontSize=14 }) {
         </div>
 
         {/* Summary cards */}
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:8, marginTop:12 }}>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:8, marginTop:12 }}>
           {[
             { label:"Entrate", val:totEntrate, color:"#10B981", prefix:"+" },
             { label:"Uscite",  val:totUscite,  color:"#EF4444", prefix:"-" },
