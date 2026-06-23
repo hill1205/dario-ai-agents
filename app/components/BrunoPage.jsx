@@ -103,7 +103,7 @@ export default function BrunoPage({ fontSize=14 }) {
 
   // MODAL HANDLERS
   const openAdd = (tipo) => {
-    setForm({ descrizione:"", importo:"", categoria: tipo==="uscita"?CAT_USCITE_FISSE[0]:"Stipendio" });
+    setForm({ descrizione:"", importo:"", categoria: tipo==="uscita"?CAT_USCITE_FISSE[0]:"Stipendio", conto: tipo==="uscita"?CONTI[0].id:"" });
     setCustomCat("");
     setModal({ tipo, mode:"add" });
   };
@@ -119,11 +119,19 @@ export default function BrunoPage({ fontSize=14 }) {
     const cat = customCat.trim() || form.categoria;
     const item = { ...form, categoria: cat, importo: parseFloat(form.importo), id: modal.mode==="add"?genId():form.id };
     const tipo = modal.tipo;
-    let updated = { ...monthData };
-    if (tipo==="entrata") {
-      updated.entrate = modal.mode==="add" ? [...updated.entrate, item] : updated.entrate.map(e=>e.id===item.id?item:e);
-    } else {
+    let updated = { ...monthData, saldi: {...monthData.saldi} };
+    if (tipo==="uscita") {
+      // Ripristina vecchio importo sul vecchio conto (se edit)
+      if (modal.mode==="edit" && modal.item?.conto) {
+        updated.saldi[modal.item.conto] = (parseFloat(updated.saldi[modal.item.conto])||0) + (parseFloat(modal.item.importo)||0);
+      }
+      // Scala nuovo importo dal nuovo conto
+      if (item.conto && updated.saldi[item.conto] !== undefined) {
+        updated.saldi[item.conto] = (parseFloat(updated.saldi[item.conto])||0) - parseFloat(item.importo);
+      }
       updated.uscite = modal.mode==="add" ? [...updated.uscite, item] : updated.uscite.map(e=>e.id===item.id?item:e);
+    } else {
+      updated.entrate = modal.mode==="add" ? [...updated.entrate, item] : updated.entrate.map(e=>e.id===item.id?item:e);
     }
     updateMonth(updated);
     closeModal();
@@ -131,9 +139,16 @@ export default function BrunoPage({ fontSize=14 }) {
 
   const deleteItem = (tipo, id) => {
     if (!confirm("Eliminare?")) return;
-    let updated = { ...monthData };
-    if (tipo==="entrata") updated.entrate = updated.entrate.filter(e=>e.id!==id);
-    else updated.uscite = updated.uscite.filter(e=>e.id!==id);
+    let updated = { ...monthData, saldi: {...monthData.saldi} };
+    if (tipo==="uscita") {
+      const item = updated.uscite.find(e=>e.id===id);
+      if (item?.conto && updated.saldi[item.conto] !== undefined) {
+        updated.saldi[item.conto] = (parseFloat(updated.saldi[item.conto])||0) + parseFloat(item.importo);
+      }
+      updated.uscite = updated.uscite.filter(e=>e.id!==id);
+    } else {
+      updated.entrate = updated.entrate.filter(e=>e.id!==id);
+    }
     updateMonth(updated);
   };
 
@@ -173,7 +188,7 @@ export default function BrunoPage({ fontSize=14 }) {
         </div>
 
         {/* Summary cards */}
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:8, marginTop:12 }}>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:8, marginTop:12 }}>
           {[
             { label:"Entrate", val:totEntrate, color:"#10B981", prefix:"+" },
             { label:"Uscite",  val:totUscite,  color:"#EF4444", prefix:"-" },
@@ -359,6 +374,16 @@ export default function BrunoPage({ fontSize=14 }) {
                     style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid #1A1A2E", background:"#09090F", color:"#E2E8F0", fontSize:13, outline:"none" }}/>
                 )}
               </div>
+              {modal.tipo==="uscita" && (
+                <div>
+                  <div style={{ fontSize:11, color:"#64748B", marginBottom:4 }}>Pagato da 🏦</div>
+                  <select value={form.conto||""} onChange={e=>setForm(p=>({...p,conto:e.target.value}))}
+                    style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid #1A1A2E", background:"#09090F", color:"#E2E8F0", fontSize:13, outline:"none" }}>
+                    <option value="">-- Seleziona conto --</option>
+                    {CONTI.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
+                  </select>
+                </div>
+              )}
             </div>
 
             <div style={{ display:"flex", gap:8, marginTop:20 }}>
