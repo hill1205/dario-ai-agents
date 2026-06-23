@@ -111,6 +111,7 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showWeightModal, setShowWeightModal] = useState(false);
   const [weightInput, setWeightInput] = useState("");
+  const [mobileExpanded, setMobileExpanded] = useState(null);
   const [infoTab, setInfoTab] = useState(null);
   const [statusMsg, setStatusMsg] = useState("");
   const [notifEnabled, setNotifEnabled] = useState(false);
@@ -824,32 +825,50 @@ export default function App() {
       </div>
 
       {isMobile&&(
-        <div style={{display:"flex",background:"#0F0F1A",borderTop:"1px solid #1A1A2E",padding:"4px 2px",flexShrink:0,overflowX:"auto",alignItems:"stretch"}}>
-          <button onClick={()=>setView("home")} style={{flex:1,padding:"6px 2px",borderRadius:8,border:"none",background:view==="home"?"#1A1A2E":"transparent",color:view==="home"?"#F8FAFC":"#475569",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1,minWidth:36}}>
-            <span style={{fontSize:18}}>🏠</span><span style={{fontSize:8}}>Home</span>
-          </button>
-          <button onClick={()=>setView("pipeline")} style={{flex:1,padding:"6px 2px",borderRadius:8,border:"none",background:view==="pipeline"?"#8B5CF620":"transparent",color:view==="pipeline"?"#8B5CF6":"#475569",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1,minWidth:36}}>
-            <span style={{fontSize:18}}>🎯</span><span style={{fontSize:8}}>Pipeline</span>
-          </button>
-          <button onClick={()=>setView("finanze")} style={{flex:1,padding:"6px 2px",borderRadius:8,border:"none",background:view==="finanze"?"#F59E0B20":"transparent",color:view==="finanze"?"#F59E0B":"#475569",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1,minWidth:36}}>
-            <span style={{fontSize:18}}>💰</span><span style={{fontSize:8}}>Finanze</span>
-          </button>
-          <button onClick={()=>setView("iagrex")} style={{flex:1,padding:"6px 2px",borderRadius:8,border:"none",background:view==="iagrex"?"#3B82F620":"transparent",color:view==="iagrex"?"#3B82F6":"#475569",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1,minWidth:36}}>
-            <span style={{fontSize:18}}>📊</span><span style={{fontSize:8}}>IAGREX</span>
-          </button>
-          {GROUPS.map((g,gi)=>(
-            <div key={g.label} style={{display:"flex",alignItems:"stretch"}}>
-              {gi>0&&<div style={{width:1,background:"#1A1A2E",margin:"6px 2px"}}/>}
-              {g.ids.map(id=>{const a=AGENTS[id];return(
-                <button key={a.id} onClick={()=>goToAgent(a.id)} style={{flex:1,padding:"6px 2px",borderRadius:8,border:"none",background:view==="chat"&&activeAgent===a.id?`${a.color}20`:"transparent",color:view==="chat"&&activeAgent===a.id?a.color:"#475569",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1,minWidth:36,position:"relative"}}>
-                  <span style={{fontSize:18}}>{a.icon}</span>
-                  <span style={{fontSize:8}}>{a.name}</span>
-                  {isUnread(a.id)&&<div style={{position:"absolute",top:4,right:6,width:5,height:5,borderRadius:"50%",background:a.color}}/>}
-                </button>
-              );})}
+        <>
+          {/* Popup agenti espanso */}
+          {mobileExpanded&&(
+            <div style={{position:"fixed",inset:0,zIndex:98}} onClick={()=>setMobileExpanded(null)}/>
+          )}
+          {mobileExpanded&&(
+            <div style={{position:"fixed",bottom:62,left:0,right:0,zIndex:99,padding:"0 8px"}}>
+              <div style={{background:"#0F0F1A",border:"1px solid #1A1A2E",borderRadius:14,padding:8,display:"flex",gap:4,justifyContent:"center",flexWrap:"wrap",boxShadow:"0 -4px 20px #00000060"}}>
+                {(mobileExpanded==="agenti"
+                  ? [["bea","👑","Bea"],["carmine","💪","Carmine"],["vlad","📜","Vlad"],["bruno","💰","Bruno"],["virgilio","🌙","Virgilio"]]
+                  : [["mario","📊","Mario"],["mimmo","📋","Mimmo"]]
+                ).map(([id,icon,name])=>(
+                  <button key={id} onClick={()=>{goToAgent(id);setMobileExpanded(null);}} style={{padding:"8px 14px",borderRadius:10,border:`1px solid ${view==="chat"&&activeAgent===id?AGENTS[id].color:"#1A1A2E"}`,background:view==="chat"&&activeAgent===id?`${AGENTS[id].color}20`:"transparent",color:view==="chat"&&activeAgent===id?AGENTS[id].color:"#94A3B8",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2,minWidth:60}}>
+                    <span style={{fontSize:20}}>{icon}</span>
+                    <span style={{fontSize:9}}>{name}</span>
+                  </button>
+                ))}
+              </div>
             </div>
-          ))}
-        </div>
+          )}
+
+          {/* Bottom nav */}
+          <div style={{display:"flex",background:"#0F0F1A",borderTop:"1px solid #1A1A2E",padding:"4px 2px",flexShrink:0,alignItems:"stretch",zIndex:100}}>
+            {[
+              {id:"home",  icon:"🏠", label:"Home",     action:()=>{setView("home");setMobileExpanded(null);}},
+              {id:"finanze",icon:"💰",label:"Finanze",   action:()=>{setView("finanze");setMobileExpanded(null);}},
+              {id:"iagrex",icon:"📊", label:"IAGREX",   action:()=>{setView("iagrex");setMobileExpanded(null);}},
+              {id:"pipeline",icon:"🎯",label:"Pipeline",action:()=>{setView("pipeline");setMobileExpanded(null);}},
+            ].map(item=>(
+              <button key={item.id} onClick={item.action} style={{flex:1,padding:"6px 2px",borderRadius:8,border:"none",background:view===item.id?"#1A1A2E":"transparent",color:view===item.id?"#F8FAFC":"#475569",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1}}>
+                <span style={{fontSize:18}}>{item.icon}</span>
+                <span style={{fontSize:8}}>{item.label}</span>
+              </button>
+            ))}
+            <button onClick={()=>setMobileExpanded(p=>p==="agenti"?null:"agenti")} style={{flex:1,padding:"6px 2px",borderRadius:8,border:"none",background:mobileExpanded==="agenti"||(view==="chat"&&["bea","carmine","vlad","bruno","virgilio"].includes(activeAgent))?"#8B5CF620":"transparent",color:mobileExpanded==="agenti"||(view==="chat"&&["bea","carmine","vlad","bruno","virgilio"].includes(activeAgent))?"#8B5CF6":"#475569",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1}}>
+              <span style={{fontSize:18}}>👥</span>
+              <span style={{fontSize:8}}>Agenti</span>
+            </button>
+            <button onClick={()=>setMobileExpanded(p=>p==="iag"?null:"iag")} style={{flex:1,padding:"6px 2px",borderRadius:8,border:"none",background:mobileExpanded==="iag"||(view==="chat"&&["mario","mimmo"].includes(activeAgent))?"#3B82F620":"transparent",color:mobileExpanded==="iag"||(view==="chat"&&["mario","mimmo"].includes(activeAgent))?"#3B82F6":"#475569",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1}}>
+              <span style={{fontSize:18}}>🏢</span>
+              <span style={{fontSize:8}}>IAG</span>
+            </button>
+          </div>
+        </>
       )}
 
       {showWeightModal&&(
