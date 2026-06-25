@@ -69,7 +69,7 @@ const GROUPS = [
   {label:"EXTRA",           ids:["virgilio"]}
 ];
 
-const DONE_STATUSES = ["complete","completed","done","chiuso","closed","fatto","completato"];
+const DONE_STATUSES = ["complete","completed","done","chiuso","closed","fatto","completato","completata"];
 
 function getWeatherEmoji(condition) {
   const c = (condition || "").toLowerCase();
@@ -249,7 +249,7 @@ export default function App() {
     setCheckedTasks(newChecked);
     try{localStorage.setItem("dario-checked-tasks",JSON.stringify(newChecked));}catch(e){}
     try{
-      await fetch("/api/update-task",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({taskId,status:next?"completato":"da fare"})});
+      await fetch("/api/update-task",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({taskId,status:next?"completata":"da fare"})});
     }catch(e){}
   };
 
