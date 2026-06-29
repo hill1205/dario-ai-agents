@@ -147,8 +147,12 @@ export default function PipelinePage({ fontSize=14 }) {
   const [syncing, setSyncing]       = useState(false);
   const [saveStatus, setSaveStatus] = useState(null);
 
-  // --- Generatore messaggio AI ---
-  const [msgLead, setMsgLead]       = useState(null);   // lead selezionato
+  // Import da ClickUp
+  const [importing, setImporting]   = useState(false);
+  const [importResult, setImportResult] = useState(null); // {added, skipped}
+
+  // Generatore messaggio AI
+  const [msgLead, setMsgLead]       = useState(null);
   const [msgType, setMsgType]       = useState("primo_contatto");
   const [msgExtra, setMsgExtra]     = useState("");
   const [msgLoading, setMsgLoading] = useState(false);
@@ -188,6 +192,56 @@ export default function PipelinePage({ fontSize=14 }) {
     setTimeout(()=>setSaveStatus(null),2500);
   },[]);
 
+  // IMPORT DA CLICKUP — Comportamento A: aggiunge senza cancellare
+  const importFromClickup = async ()=>{
+    setImporting(true);
+    setImportResult(null);
+    try {
+      const res = await fetch("/api/lead-bea");
+      if (!res.ok) throw new Error(`Errore API ${res.status}`);
+      const data = await res.json();
+      const tasks = data.tasks || [];
+
+      // Nomi già presenti nell'app (case-insensitive)
+      const existingNames = new Set(entries.map(e=>e.nome.toLowerCase().trim()));
+
+      const toAdd = [];
+      let skipped = 0;
+
+      tasks.forEach(task => {
+        // Salta task di tipo [RICERCA]
+        if (task.nome.startsWith("[RICERCA]")) { skipped++; return; }
+        if (existingNames.has(task.nome.toLowerCase().trim())) { skipped++; return; }
+        toAdd.push({
+          id:         genId(),
+          tipo:       "lead",
+          nome:       task.nome,
+          contatto:   "",
+          email:      "",
+          telefono:   "",
+          budget:     "",
+          stage:      "da_contattare",
+          settore:    "",
+          data:       new Date().toISOString().slice(0,10),
+          note:       "",
+          clickupId:  task.clickupId,
+        });
+      });
+
+      if (toAdd.length > 0) {
+        const updated = [...entries, ...toAdd];
+        await saveData(updated);
+      }
+
+      setImportResult({ added: toAdd.length, skipped });
+      setTimeout(()=>setImportResult(null), 5000);
+    } catch(e) {
+      setImportResult({ error: e.message });
+      setTimeout(()=>setImportResult(null), 5000);
+    }
+    setImporting(false);
+  };
+
   const openAdd    = (tipo="lead",stage=null)=>{ setForm({...EMPTY_FORM,tipo,stage:stage||(tipo==="lead"?"da_contattare":"attivo"),data:new Date().toISOString().slice(0,10)}); setModal("add"); };
   const openEdit   = (entry)=>{ setForm({...entry}); setModal("edit"); };
   const closeModal = ()=>{ setModal(null); setForm(EMPTY_FORM); };
@@ -203,38 +257,28 @@ export default function PipelinePage({ fontSize=14 }) {
     saveData(entries.filter(e=>e.id!==id));
   };
 
-  // Apri generatore messaggio
   const openGenMsg = (entry)=>{
-    setMsgLead(entry);
-    setMsgType("primo_contatto");
-    setMsgExtra("");
-    setMsgText("");
-    setMsgCopied(false);
+    setMsgLead(entry); setMsgType("primo_contatto");
+    setMsgExtra(""); setMsgText(""); setMsgCopied(false);
   };
 
   const generateMessage = async ()=>{
     if (!msgLead) return;
-    setMsgLoading(true);
-    setMsgText("");
-    setMsgCopied(false);
+    setMsgLoading(true); setMsgText(""); setMsgCopied(false);
     const typeMap = { primo_contatto:"primo contatto", follow_up:"follow-up", proposta:"proposta di collaborazione" };
     try {
       const res = await fetch("/api/chat",{
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
+        method:"POST", headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
-          model:"claude-sonnet-4-6",
-          max_tokens:1000,
-          system:[{type:"text",text:`Sei Mario, responsabile business development di IAGREX SRL — agenzia di performance marketing specializzata in Meta Ads (Facebook/Instagram) e ottimizzazione Shopify per e-commerce italiani.\n\nRisultati medi clienti IAGREX: +30-60% ROAS nei primi 60 giorni, gestione professionale budget ads, ottimizzazione funnel Shopify.\n\nScrivi messaggi di outreach in italiano: professionali, concisi e personalizzati sull'azienda. Obiettivo: ottenere una risposta o call. Max 120 parole. Tono: diretto, credibile, mai aggressivo o spam. Usa il nome dell'azienda. Non usare frasi generiche tipo "spero che tu stia bene" o "mi permetto di contattarla". Vai subito al punto con una proposta di valore chiara e specifica per quel settore.`,cache_control:{type:"ephemeral"}}],
+          model:"claude-sonnet-4-6", max_tokens:1000,
+          system:[{type:"text",text:`Sei Mario, responsabile business development di IAGREX SRL — agenzia di performance marketing specializzata in Meta Ads (Facebook/Instagram) e ottimizzazione Shopify per e-commerce italiani.\n\nRisultati medi clienti IAGREX: +30-60% ROAS nei primi 60 giorni, gestione professionale budget ads, ottimizzazione funnel Shopify.\n\nScrivi messaggi di outreach in italiano: professionali, concisi e personalizzati sull'azienda. Obiettivo: ottenere una risposta o call. Max 120 parole. Tono: diretto, credibile, mai aggressivo o spam. Usa il nome dell'azienda. Non usare frasi generiche tipo "spero che tu stia bene". Vai subito al punto con una proposta di valore chiara e specifica per quel settore.`,cache_control:{type:"ephemeral"}}],
           messages:[{role:"user",content:`Scrivi un messaggio di ${typeMap[msgType]||"primo contatto"} per questa azienda:\n\nAzienda: ${msgLead.nome}\nReferente: ${msgLead.contatto||"non specificato"}\nSettore: ${msgLead.settore||"e-commerce"}\nBudget stimato: ${msgLead.budget?msgLead.budget+"€/mese":"non specificato"}\nNote: ${msgLead.note||"nessuna"}${msgExtra?`\nContesto aggiuntivo da Dario: ${msgExtra}`:""}`}],
           agentId:"mario"
         })
       });
       const data = await res.json();
       setMsgText(data.content?.[0]?.text||"Errore nella generazione.");
-    } catch(e) {
-      setMsgText("Errore: "+e.message);
-    }
+    } catch(e) { setMsgText("Errore: "+e.message); }
     setMsgLoading(false);
   };
 
@@ -260,6 +304,12 @@ export default function PipelinePage({ fontSize=14 }) {
             {saveStatus==="saving" && <span style={{fontSize:11,color:"#F59E0B"}}>☁️ Salvataggio...</span>}
             {saveStatus==="saved"  && <span style={{fontSize:11,color:"#10B981"}}>✅ Salvato</span>}
             {saveStatus==="error"  && <span style={{fontSize:11,color:"#EF4444"}}>❌ Errore</span>}
+            {importResult && !importResult.error && (
+              <span style={{fontSize:11,color:"#10B981"}}>
+                ✅ Importati {importResult.added} lead {importResult.skipped>0?`· ${importResult.skipped} già presenti/saltati`:""}
+              </span>
+            )}
+            {importResult?.error && <span style={{fontSize:11,color:"#EF4444"}}>❌ {importResult.error}</span>}
           </div>
           <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
             {["tutti","lead","cliente"].map(fi=>(
@@ -276,6 +326,11 @@ export default function PipelinePage({ fontSize=14 }) {
               </button>
             ))}
             <div style={{width:1,height:18,background:"#1A1A2E"}}/>
+            {/* BOTTONE IMPORT */}
+            <button onClick={importFromClickup} disabled={importing}
+              style={{padding:"4px 10px",borderRadius:7,border:"1px solid #8B5CF640",background:importing?"#1A1A2E":"#8B5CF615",color:importing?"#475569":"#8B5CF6",cursor:importing?"not-allowed":"pointer",fontSize:11,fontWeight:600,display:"flex",alignItems:"center",gap:4}}>
+              {importing?"⏳ Importando...":"⬇️ Importa da ClickUp"}
+            </button>
             <button onClick={()=>openAdd("lead")}    style={{padding:"4px 10px",borderRadius:7,border:"none",background:"#3B82F6",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:600}}>+ Lead</button>
             <button onClick={()=>openAdd("cliente")} style={{padding:"4px 10px",borderRadius:7,border:"none",background:"#10B981",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:600}}>+ Cliente</button>
             <button onClick={syncNow} style={{padding:"4px 10px",borderRadius:7,border:"1px solid #1A1A2E",background:"transparent",color:"#475569",cursor:"pointer",fontSize:11}}>{syncing?"⏳":"↻"}</button>
@@ -298,7 +353,7 @@ export default function PipelinePage({ fontSize=14 }) {
         : <ListView   entries={filtered} fs={fs} onEdit={openEdit} onDelete={deleteEntry} onGenMsg={openGenMsg}/>
       )}
 
-      {/* MODAL FORM LEAD/CLIENTE */}
+      {/* MODAL FORM */}
       {modal && (
         <div style={{position:"fixed",inset:0,background:"#00000090",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={closeModal}>
           <div style={{background:"#0F0F1A",border:"1px solid #1A1A2E",borderRadius:16,padding:24,width:"100%",maxWidth:480,maxHeight:"90vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
@@ -314,13 +369,13 @@ export default function PipelinePage({ fontSize=14 }) {
               ))}
             </div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-              <InputField label="Nome azienda *" value={form.nome}     onChange={f("nome")}     full/>
+              <InputField label="Nome azienda *" value={form.nome}        onChange={f("nome")}     full/>
               <InputField label="Settore"         value={form.settore||""} onChange={f("settore")}/>
-              <InputField label="Referente"        value={form.contatto} onChange={f("contatto")}/>
-              <InputField label="Email"            value={form.email}    onChange={f("email")}    type="email"/>
-              <InputField label="Telefono"         value={form.telefono} onChange={f("telefono")}/>
-              <InputField label="Budget €/mese"    value={form.budget}   onChange={f("budget")}   type="number"/>
-              <InputField label="Data"             value={form.data}     onChange={f("data")}     type="date"/>
+              <InputField label="Referente"        value={form.contatto}   onChange={f("contatto")}/>
+              <InputField label="Email"            value={form.email}      onChange={f("email")}    type="email"/>
+              <InputField label="Telefono"         value={form.telefono}   onChange={f("telefono")}/>
+              <InputField label="Budget €/mese"    value={form.budget}     onChange={f("budget")}   type="number"/>
+              <InputField label="Data"             value={form.data}       onChange={f("data")}     type="date"/>
               <div style={{gridColumn:"1 / -1"}}>
                 <div style={{fontSize:11,color:"#64748B",marginBottom:6}}>Stage</div>
                 <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
@@ -346,12 +401,10 @@ export default function PipelinePage({ fontSize=14 }) {
         </div>
       )}
 
-      {/* MODAL GENERATORE MESSAGGIO AI */}
+      {/* MODAL GENERATORE MESSAGGIO */}
       {msgLead && (
         <div style={{position:"fixed",inset:0,background:"#00000095",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setMsgLead(null)}>
           <div style={{background:"#0F0F1A",border:"1px solid #3B82F640",borderRadius:16,padding:24,width:"100%",maxWidth:560,maxHeight:"90vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
-
-            {/* Header */}
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
               <div style={{fontSize:15,fontWeight:700,color:"#F8FAFC"}}>🤖 Generatore Messaggio AI</div>
               <button onClick={()=>setMsgLead(null)} style={{width:28,height:28,borderRadius:6,border:"none",background:"#1A1A2E",color:"#64748B",cursor:"pointer",fontSize:14}}>×</button>
@@ -359,8 +412,6 @@ export default function PipelinePage({ fontSize=14 }) {
             <div style={{fontSize:12,color:"#475569",marginBottom:20}}>
               {msgLead.nome}{msgLead.settore?` · ${msgLead.settore}`:""}
             </div>
-
-            {/* Tipo messaggio */}
             <div style={{marginBottom:14}}>
               <div style={{fontSize:11,color:"#64748B",marginBottom:8,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em"}}>Tipo di messaggio</div>
               <div style={{display:"flex",gap:8}}>
@@ -372,27 +423,16 @@ export default function PipelinePage({ fontSize=14 }) {
                 ))}
               </div>
             </div>
-
-            {/* Contesto extra */}
             <div style={{marginBottom:16}}>
               <div style={{fontSize:11,color:"#64748B",marginBottom:4}}>Contesto aggiuntivo (opzionale)</div>
               <textarea value={msgExtra} onChange={e=>setMsgExtra(e.target.value)} rows={2}
-                placeholder="es. hanno appena lanciato una nuova linea prodotti, ho visto il loro sito..."
+                placeholder="es. hanno appena lanciato una nuova linea prodotti..."
                 style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid #1A1A2E",background:"#09090F",color:"#E2E8F0",fontSize:12,outline:"none",resize:"vertical",fontFamily:"inherit"}}/>
             </div>
-
-            {/* Bottone genera */}
             <button onClick={generateMessage} disabled={msgLoading}
               style={{width:"100%",padding:"11px",borderRadius:8,border:"none",background:msgLoading?"#1A1A2E":"#3B82F6",color:msgLoading?"#475569":"#fff",cursor:msgLoading?"not-allowed":"pointer",fontSize:13,fontWeight:700,marginBottom:16,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
-              {msgLoading ? (
-                <>
-                  <span style={{animation:"spin 1s linear infinite",display:"inline-block"}}>⏳</span>
-                  Generazione in corso...
-                </>
-              ) : "🤖 Genera Messaggio"}
+              {msgLoading?"⏳ Generazione in corso...":"🤖 Genera Messaggio"}
             </button>
-
-            {/* Output messaggio */}
             {msgText && (
               <div>
                 <div style={{fontSize:11,color:"#64748B",marginBottom:6,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em"}}>Messaggio generato</div>
@@ -416,7 +456,6 @@ export default function PipelinePage({ fontSize=14 }) {
       )}
 
       <style>{`
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         * { box-sizing: border-box; }
         ::-webkit-scrollbar { width:3px; height:3px; }
         ::-webkit-scrollbar-track { background: transparent; }
