@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
 const LEAD_STAGES = [
   { id:"da_contattare",    label:"Da Contattare",   color:"#475569" },
@@ -36,15 +36,31 @@ function InputField({ label, value, onChange, type="text", full=false }) {
   );
 }
 
-function EntryCard({ entry, onEdit, onDelete, onGenMsg, fs }) {
+function EntryCard({ entry, onEdit, onDelete, onGenMsg, fs, onDragStart, isDragging }) {
   const color = stageColor(entry.stage, entry.tipo);
   return (
-    <div style={{background:"#0F0F1A",border:"1px solid #1A1A2E",borderLeft:`3px solid ${color}`,borderRadius:8,padding:10}}>
+    <div
+      draggable
+      onDragStart={e => onDragStart(e, entry)}
+      style={{
+        background:"#0F0F1A",
+        border:"1px solid #1A1A2E",
+        borderLeft:`3px solid ${color}`,
+        borderRadius:8,
+        padding:10,
+        cursor:"grab",
+        opacity: isDragging ? 0.4 : 1,
+        transition:"opacity 0.15s",
+        userSelect:"none",
+      }}
+    >
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
         <div style={{fontSize:fs-1,fontWeight:700,color:"#E2E8F0",lineHeight:1.3,flex:1,paddingRight:6}}>{entry.nome}</div>
         <div style={{display:"flex",gap:3,flexShrink:0}}>
-          <button onClick={()=>onEdit(entry)} style={{width:22,height:22,borderRadius:4,border:"none",background:"#1A1A2E",color:"#94A3B8",cursor:"pointer",fontSize:10}}>✏️</button>
-          <button onClick={()=>onDelete(entry.id)} style={{width:22,height:22,borderRadius:4,border:"none",background:"#1A1A2E",color:"#EF4444",cursor:"pointer",fontSize:12,fontWeight:700}}>×</button>
+          <button onMouseDown={e=>e.stopPropagation()} onClick={()=>onEdit(entry)}
+            style={{width:22,height:22,borderRadius:4,border:"none",background:"#1A1A2E",color:"#94A3B8",cursor:"pointer",fontSize:10}}>✏️</button>
+          <button onMouseDown={e=>e.stopPropagation()} onClick={()=>onDelete(entry.id)}
+            style={{width:22,height:22,borderRadius:4,border:"none",background:"#1A1A2E",color:"#EF4444",cursor:"pointer",fontSize:12,fontWeight:700}}>×</button>
         </div>
       </div>
       {entry.settore  && <div style={{fontSize:fs-5,color:"#8B5CF6",fontWeight:600,marginBottom:2}}>🏷️ {entry.settore}</div>}
@@ -54,7 +70,7 @@ function EntryCard({ entry, onEdit, onDelete, onGenMsg, fs }) {
       {entry.note     && <div style={{fontSize:fs-4,color:"#475569",lineHeight:1.4,marginBottom:4}}>{entry.note.slice(0,70)}{entry.note.length>70?"…":""}</div>}
       <div style={{fontSize:fs-5,color:"#334155",marginTop:4}}>{entry.data}</div>
       {entry.tipo==="lead" && (
-        <button onClick={()=>onGenMsg(entry)}
+        <button onMouseDown={e=>e.stopPropagation()} onClick={()=>onGenMsg(entry)}
           style={{marginTop:8,width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #3B82F650",background:"#3B82F610",color:"#3B82F6",cursor:"pointer",fontSize:fs-4,fontWeight:600,display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
           🤖 Genera Messaggio Outreach
         </button>
@@ -63,28 +79,97 @@ function EntryCard({ entry, onEdit, onDelete, onGenMsg, fs }) {
   );
 }
 
-function KanbanView({ entries, filter, fs, onEdit, onDelete, openAdd, onGenMsg }) {
-  const cols = filter==="cliente" ? CLIENT_STAGES.map(s=>({...s,tipo:"cliente"}))
-    : filter==="lead" ? LEAD_STAGES.map(s=>({...s,tipo:"lead"}))
+function KanbanView({ entries, filter, fs, onEdit, onDelete, openAdd, onGenMsg, onDropToStage }) {
+  const [draggedId, setDraggedId]     = useState(null);
+  const [dragOverCol, setDragOverCol] = useState(null); // "tipo-stageid"
+
+  const cols = filter==="cliente"
+    ? CLIENT_STAGES.map(s=>({...s,tipo:"cliente"}))
+    : filter==="lead"
+    ? LEAD_STAGES.map(s=>({...s,tipo:"lead"}))
     : [...LEAD_STAGES.map(s=>({...s,tipo:"lead"})),...CLIENT_STAGES.map(s=>({...s,tipo:"cliente"}))];
+
+  const handleDragStart = (e, entry) => {
+    setDraggedId(entry.id);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("entryId", entry.id);
+    e.dataTransfer.setData("entryTipo", entry.tipo);
+  };
+
+  const handleDragOver = (e, colKey) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setDragOverCol(colKey);
+  };
+
+  const handleDrop = (e, stage, tipo) => {
+    e.preventDefault();
+    const entryId   = e.dataTransfer.getData("entryId");
+    const entryTipo = e.dataTransfer.getData("entryTipo");
+    if (entryId && entryTipo === tipo) {
+      onDropToStage(entryId, stage);
+    }
+    setDraggedId(null);
+    setDragOverCol(null);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedId(null);
+    setDragOverCol(null);
+  };
+
   return (
-    <div style={{flex:1,overflowX:"auto",overflowY:"hidden",display:"flex",gap:10,padding:16,alignItems:"flex-start"}}>
-      {cols.map(col=>{
+    <div style={{flex:1,overflowX:"auto",overflowY:"hidden",display:"flex",gap:10,padding:16,alignItems:"stretch"}}>
+      {cols.map(col => {
+        const colKey     = `${col.tipo}-${col.id}`;
         const colEntries = entries.filter(e=>e.stage===col.id&&e.tipo===col.tipo);
+        const isOver     = dragOverCol===colKey;
         return (
-          <div key={`${col.tipo}-${col.id}`} style={{minWidth:220,maxWidth:220,display:"flex",flexDirection:"column",gap:7,flexShrink:0}}>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"6px 10px",borderRadius:8,background:`${col.color}12`,border:`1px solid ${col.color}30`}}>
+          <div
+            key={colKey}
+            onDragOver={e=>handleDragOver(e,colKey)}
+            onDrop={e=>handleDrop(e,col.id,col.tipo)}
+            onDragLeave={()=>setDragOverCol(null)}
+            style={{
+              minWidth:220, maxWidth:220,
+              display:"flex", flexDirection:"column",
+              flexShrink:0,
+              borderRadius:10,
+              border: isOver ? `2px solid ${col.color}` : "2px solid transparent",
+              background: isOver ? `${col.color}08` : "transparent",
+              transition:"border 0.15s, background 0.15s",
+            }}
+          >
+            {/* Intestazione colonna */}
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"6px 10px",borderRadius:8,background:`${col.color}12`,border:`1px solid ${col.color}30`,flexShrink:0,marginBottom:7}}>
               <div>
                 <div style={{fontSize:9,color:col.color,opacity:0.6,textTransform:"uppercase",letterSpacing:"0.08em"}}>{col.tipo==="lead"?"Lead":"Cliente"}</div>
                 <div style={{fontSize:fs-2,fontWeight:700,color:col.color}}>{col.label}</div>
               </div>
               <div style={{fontSize:fs-3,color:col.color,background:`${col.color}20`,borderRadius:10,padding:"1px 7px",fontWeight:700}}>{colEntries.length}</div>
             </div>
-            <div style={{display:"flex",flexDirection:"column",gap:7}}>
-              {colEntries.map(e=><EntryCard key={e.id} entry={e} onEdit={onEdit} onDelete={onDelete} onGenMsg={onGenMsg} fs={fs}/>)}
+
+            {/* Card scrollabili */}
+            <div style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",gap:7,paddingRight:2}}>
+              {colEntries.map(e=>(
+                <EntryCard
+                  key={e.id} entry={e} onEdit={onEdit} onDelete={onDelete}
+                  onGenMsg={onGenMsg} fs={fs}
+                  onDragStart={handleDragStart}
+                  isDragging={draggedId===e.id}
+                  onDragEnd={handleDragEnd}
+                />
+              ))}
+              {colEntries.length===0 && (
+                <div style={{fontSize:fs-4,color:"#1E293B",textAlign:"center",padding:"20px 0",border:"1px dashed #1A1A2E",borderRadius:7}}>
+                  Trascina qui
+                </div>
+              )}
             </div>
+
+            {/* Bottone aggiungi */}
             <button onClick={()=>openAdd(col.tipo,col.id)}
-              style={{padding:"6px",borderRadius:7,border:`1px dashed ${col.color}40`,background:"transparent",color:col.color,cursor:"pointer",fontSize:11,opacity:0.5}}>
+              style={{marginTop:7,padding:"6px",borderRadius:7,border:`1px dashed ${col.color}40`,background:"transparent",color:col.color,cursor:"pointer",fontSize:11,opacity:0.5,flexShrink:0}}>
               + aggiungi
             </button>
           </div>
@@ -110,7 +195,7 @@ function ListView({ entries, fs, onEdit, onDelete, onGenMsg }) {
         </div>
         {entries.map((entry,i)=>{
           const color = stageColor(entry.stage,entry.tipo);
-          const cell = {padding:"10px 12px",fontSize:fs-2,color:"#94A3B8",borderTop:i===0?"none":"1px solid #1A1A2E",background:i%2===0?"#0F0F1A":"#0B0B16",display:"flex",alignItems:"center"};
+          const cell  = {padding:"10px 12px",fontSize:fs-2,color:"#94A3B8",borderTop:i===0?"none":"1px solid #1A1A2E",background:i%2===0?"#0F0F1A":"#0B0B16",display:"flex",alignItems:"center"};
           return (
             <div key={entry.id} style={{display:"grid",gridTemplateColumns:"2fr 80px 140px 80px 130px 90px"}}>
               <div style={{...cell,color:"#E2E8F0",fontWeight:600,flexDirection:"column",alignItems:"flex-start",gap:1}}>
@@ -121,7 +206,7 @@ function ListView({ entries, fs, onEdit, onDelete, onGenMsg }) {
               <div style={cell}><span style={{padding:"2px 8px",borderRadius:10,background:`${color}20`,color,fontSize:10,fontWeight:600}}>{stageLabel(entry.stage,entry.tipo)}</span></div>
               <div style={{...cell,color:"#10B981",fontWeight:700}}>{entry.budget?`${parseFloat(entry.budget).toLocaleString("it-IT")}€`:"–"}</div>
               <div style={cell}>{entry.contatto||"–"}</div>
-              <div style={{...cell,gap:4,flexWrap:"wrap"}}>
+              <div style={{...cell,gap:4}}>
                 <button onClick={()=>onEdit(entry)} style={{width:24,height:24,borderRadius:5,border:"1px solid #1A1A2E",background:"transparent",color:"#64748B",cursor:"pointer",fontSize:10}}>✏️</button>
                 <button onClick={()=>onDelete(entry.id)} style={{width:24,height:24,borderRadius:5,border:"1px solid #2A1A1A",background:"transparent",color:"#EF4444",cursor:"pointer",fontSize:12,fontWeight:700}}>×</button>
                 {entry.tipo==="lead" && (
@@ -147,11 +232,9 @@ export default function PipelinePage({ fontSize=14 }) {
   const [syncing, setSyncing]       = useState(false);
   const [saveStatus, setSaveStatus] = useState(null);
 
-  // Import da ClickUp
-  const [importing, setImporting]   = useState(false);
-  const [importResult, setImportResult] = useState(null); // {added, skipped}
+  const [importing, setImporting]       = useState(false);
+  const [importResult, setImportResult] = useState(null);
 
-  // Generatore messaggio AI
   const [msgLead, setMsgLead]       = useState(null);
   const [msgType, setMsgType]       = useState("primo_contatto");
   const [msgExtra, setMsgExtra]     = useState("");
@@ -192,52 +275,38 @@ export default function PipelinePage({ fontSize=14 }) {
     setTimeout(()=>setSaveStatus(null),2500);
   },[]);
 
-  // IMPORT DA CLICKUP — Comportamento A: aggiunge senza cancellare
+  // Drag & drop: sposta uno stage
+  const handleDropToStage = useCallback((entryId, newStage) => {
+    setEntries(prev => {
+      const updated = prev.map(e => e.id===entryId ? {...e, stage:newStage} : e);
+      lsSet(updated);
+      // Salva su ClickUp in background
+      fetch("/api/pipeline-data",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({entries:updated})}).catch(()=>{});
+      return updated;
+    });
+  },[]);
+
+  // Import da ClickUp LEAD BEA
   const importFromClickup = async ()=>{
-    setImporting(true);
-    setImportResult(null);
+    setImporting(true); setImportResult(null);
     try {
       const res = await fetch("/api/lead-bea");
       if (!res.ok) throw new Error(`Errore API ${res.status}`);
-      const data = await res.json();
-      const tasks = data.tasks || [];
-
-      // Nomi già presenti nell'app (case-insensitive)
+      const data  = await res.json();
+      const tasks = data.tasks||[];
       const existingNames = new Set(entries.map(e=>e.nome.toLowerCase().trim()));
-
-      const toAdd = [];
-      let skipped = 0;
-
-      tasks.forEach(task => {
-        // Salta task di tipo [RICERCA]
+      const toAdd = []; let skipped=0;
+      tasks.forEach(task=>{
         if (task.nome.startsWith("[RICERCA]")) { skipped++; return; }
         if (existingNames.has(task.nome.toLowerCase().trim())) { skipped++; return; }
-        toAdd.push({
-          id:         genId(),
-          tipo:       "lead",
-          nome:       task.nome,
-          contatto:   "",
-          email:      "",
-          telefono:   "",
-          budget:     "",
-          stage:      "da_contattare",
-          settore:    "",
-          data:       new Date().toISOString().slice(0,10),
-          note:       "",
-          clickupId:  task.clickupId,
-        });
+        toAdd.push({ id:genId(), tipo:"lead", nome:task.nome, contatto:"", email:"", telefono:"", budget:"", stage:"da_contattare", settore:"", data:new Date().toISOString().slice(0,10), note:"", clickupId:task.clickupId });
       });
-
-      if (toAdd.length > 0) {
-        const updated = [...entries, ...toAdd];
-        await saveData(updated);
-      }
-
-      setImportResult({ added: toAdd.length, skipped });
-      setTimeout(()=>setImportResult(null), 5000);
+      if (toAdd.length>0) await saveData([...entries,...toAdd]);
+      setImportResult({added:toAdd.length, skipped});
+      setTimeout(()=>setImportResult(null),5000);
     } catch(e) {
-      setImportResult({ error: e.message });
-      setTimeout(()=>setImportResult(null), 5000);
+      setImportResult({error:e.message});
+      setTimeout(()=>setImportResult(null),5000);
     }
     setImporting(false);
   };
@@ -257,34 +326,26 @@ export default function PipelinePage({ fontSize=14 }) {
     saveData(entries.filter(e=>e.id!==id));
   };
 
-  const openGenMsg = (entry)=>{
-    setMsgLead(entry); setMsgType("primo_contatto");
-    setMsgExtra(""); setMsgText(""); setMsgCopied(false);
-  };
+  const openGenMsg = (entry)=>{ setMsgLead(entry); setMsgType("primo_contatto"); setMsgExtra(""); setMsgText(""); setMsgCopied(false); };
 
   const generateMessage = async ()=>{
     if (!msgLead) return;
     setMsgLoading(true); setMsgText(""); setMsgCopied(false);
-    const typeMap = { primo_contatto:"primo contatto", follow_up:"follow-up", proposta:"proposta di collaborazione" };
+    const typeMap = {primo_contatto:"primo contatto",follow_up:"follow-up",proposta:"proposta di collaborazione"};
     try {
-      const res = await fetch("/api/chat",{
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({
-          model:"claude-sonnet-4-6", max_tokens:1000,
-          system:[{type:"text",text:`Sei Mario, responsabile business development di IAGREX SRL — agenzia di performance marketing specializzata in Meta Ads (Facebook/Instagram) e ottimizzazione Shopify per e-commerce italiani.\n\nRisultati medi clienti IAGREX: +30-60% ROAS nei primi 60 giorni, gestione professionale budget ads, ottimizzazione funnel Shopify.\n\nScrivi messaggi di outreach in italiano: professionali, concisi e personalizzati sull'azienda. Obiettivo: ottenere una risposta o call. Max 120 parole. Tono: diretto, credibile, mai aggressivo o spam. Usa il nome dell'azienda. Non usare frasi generiche tipo "spero che tu stia bene". Vai subito al punto con una proposta di valore chiara e specifica per quel settore.`,cache_control:{type:"ephemeral"}}],
-          messages:[{role:"user",content:`Scrivi un messaggio di ${typeMap[msgType]||"primo contatto"} per questa azienda:\n\nAzienda: ${msgLead.nome}\nReferente: ${msgLead.contatto||"non specificato"}\nSettore: ${msgLead.settore||"e-commerce"}\nBudget stimato: ${msgLead.budget?msgLead.budget+"€/mese":"non specificato"}\nNote: ${msgLead.note||"nessuna"}${msgExtra?`\nContesto aggiuntivo da Dario: ${msgExtra}`:""}`}],
-          agentId:"mario"
-        })
-      });
-      const data = await res.json();
-      setMsgText(data.content?.[0]?.text||"Errore nella generazione.");
+      const res = await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+        model:"claude-sonnet-4-6", max_tokens:1000,
+        system:[{type:"text",text:`Sei Mario, responsabile business development di IAGREX SRL — agenzia di performance marketing specializzata in Meta Ads e Shopify per e-commerce italiani. Risultati medi clienti: +30-60% ROAS nei primi 60 giorni.\n\nScrivi messaggi di outreach in italiano: professionali, concisi, personalizzati. Obiettivo: ottenere risposta o call. Max 120 parole. Tono diretto e credibile. Non usare "spero che tu stia bene". Vai subito al punto.`,cache_control:{type:"ephemeral"}}],
+        messages:[{role:"user",content:`Scrivi un messaggio di ${typeMap[msgType]||"primo contatto"} per:\n\nAzienda: ${msgLead.nome}\nReferente: ${msgLead.contatto||"non specificato"}\nSettore: ${msgLead.settore||"e-commerce"}\nBudget stimato: ${msgLead.budget?msgLead.budget+"€/mese":"non specificato"}\nNote: ${msgLead.note||"nessuna"}${msgExtra?`\nContesto: ${msgExtra}`:""}`}],
+        agentId:"mario"
+      })});
+      const d = await res.json();
+      setMsgText(d.content?.[0]?.text||"Errore.");
     } catch(e) { setMsgText("Errore: "+e.message); }
     setMsgLoading(false);
   };
 
-  const copyMessage = ()=>{
-    navigator.clipboard.writeText(msgText).then(()=>{ setMsgCopied(true); setTimeout(()=>setMsgCopied(false),2500); });
-  };
+  const copyMessage = ()=>{ navigator.clipboard.writeText(msgText).then(()=>{ setMsgCopied(true); setTimeout(()=>setMsgCopied(false),2500); }); };
 
   const filtered      = entries.filter(e=>filter==="tutti"||e.tipo===filter);
   const activeClients = entries.filter(e=>e.tipo==="cliente"&&e.stage==="attivo");
@@ -298,18 +359,14 @@ export default function PipelinePage({ fontSize=14 }) {
       {/* HEADER */}
       <div style={{padding:"14px 20px",borderBottom:"1px solid #1A1A2E",flexShrink:0}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
-          <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
             <div style={{fontWeight:700,fontSize:15,color:"#F8FAFC"}}>🎯 Pipeline IAGREX</div>
             {syncing               && <span style={{fontSize:11,color:"#64748B"}}>🔄 Sync...</span>}
             {saveStatus==="saving" && <span style={{fontSize:11,color:"#F59E0B"}}>☁️ Salvataggio...</span>}
             {saveStatus==="saved"  && <span style={{fontSize:11,color:"#10B981"}}>✅ Salvato</span>}
             {saveStatus==="error"  && <span style={{fontSize:11,color:"#EF4444"}}>❌ Errore</span>}
-            {importResult && !importResult.error && (
-              <span style={{fontSize:11,color:"#10B981"}}>
-                ✅ Importati {importResult.added} lead {importResult.skipped>0?`· ${importResult.skipped} già presenti/saltati`:""}
-              </span>
-            )}
-            {importResult?.error && <span style={{fontSize:11,color:"#EF4444"}}>❌ {importResult.error}</span>}
+            {importResult&&!importResult.error && <span style={{fontSize:11,color:"#10B981"}}>✅ Importati {importResult.added} {importResult.skipped>0?`· ${importResult.skipped} saltati`:""}</span>}
+            {importResult?.error   && <span style={{fontSize:11,color:"#EF4444"}}>❌ {importResult.error}</span>}
           </div>
           <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
             {["tutti","lead","cliente"].map(fi=>(
@@ -326,9 +383,8 @@ export default function PipelinePage({ fontSize=14 }) {
               </button>
             ))}
             <div style={{width:1,height:18,background:"#1A1A2E"}}/>
-            {/* BOTTONE IMPORT */}
             <button onClick={importFromClickup} disabled={importing}
-              style={{padding:"4px 10px",borderRadius:7,border:"1px solid #8B5CF640",background:importing?"#1A1A2E":"#8B5CF615",color:importing?"#475569":"#8B5CF6",cursor:importing?"not-allowed":"pointer",fontSize:11,fontWeight:600,display:"flex",alignItems:"center",gap:4}}>
+              style={{padding:"4px 10px",borderRadius:7,border:"1px solid #8B5CF640",background:importing?"#1A1A2E":"#8B5CF615",color:importing?"#475569":"#8B5CF6",cursor:importing?"not-allowed":"pointer",fontSize:11,fontWeight:600}}>
               {importing?"⏳ Importando...":"⬇️ Importa da ClickUp"}
             </button>
             <button onClick={()=>openAdd("lead")}    style={{padding:"4px 10px",borderRadius:7,border:"none",background:"#3B82F6",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:600}}>+ Lead</button>
@@ -349,7 +405,7 @@ export default function PipelinePage({ fontSize=14 }) {
       {loading && <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",color:"#334155",fontSize:fs-2}}>⏳ Caricamento...</div>}
 
       {!loading && (view==="kanban"
-        ? <KanbanView entries={filtered} filter={filter} fs={fs} onEdit={openEdit} onDelete={deleteEntry} openAdd={openAdd} onGenMsg={openGenMsg}/>
+        ? <KanbanView entries={filtered} filter={filter} fs={fs} onEdit={openEdit} onDelete={deleteEntry} openAdd={openAdd} onGenMsg={openGenMsg} onDropToStage={handleDropToStage}/>
         : <ListView   entries={filtered} fs={fs} onEdit={openEdit} onDelete={deleteEntry} onGenMsg={openGenMsg}/>
       )}
 
@@ -409,9 +465,7 @@ export default function PipelinePage({ fontSize=14 }) {
               <div style={{fontSize:15,fontWeight:700,color:"#F8FAFC"}}>🤖 Generatore Messaggio AI</div>
               <button onClick={()=>setMsgLead(null)} style={{width:28,height:28,borderRadius:6,border:"none",background:"#1A1A2E",color:"#64748B",cursor:"pointer",fontSize:14}}>×</button>
             </div>
-            <div style={{fontSize:12,color:"#475569",marginBottom:20}}>
-              {msgLead.nome}{msgLead.settore?` · ${msgLead.settore}`:""}
-            </div>
+            <div style={{fontSize:12,color:"#475569",marginBottom:20}}>{msgLead.nome}{msgLead.settore?` · ${msgLead.settore}`:""}</div>
             <div style={{marginBottom:14}}>
               <div style={{fontSize:11,color:"#64748B",marginBottom:8,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em"}}>Tipo di messaggio</div>
               <div style={{display:"flex",gap:8}}>
@@ -430,7 +484,7 @@ export default function PipelinePage({ fontSize=14 }) {
                 style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid #1A1A2E",background:"#09090F",color:"#E2E8F0",fontSize:12,outline:"none",resize:"vertical",fontFamily:"inherit"}}/>
             </div>
             <button onClick={generateMessage} disabled={msgLoading}
-              style={{width:"100%",padding:"11px",borderRadius:8,border:"none",background:msgLoading?"#1A1A2E":"#3B82F6",color:msgLoading?"#475569":"#fff",cursor:msgLoading?"not-allowed":"pointer",fontSize:13,fontWeight:700,marginBottom:16,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+              style={{width:"100%",padding:"11px",borderRadius:8,border:"none",background:msgLoading?"#1A1A2E":"#3B82F6",color:msgLoading?"#475569":"#fff",cursor:msgLoading?"not-allowed":"pointer",fontSize:13,fontWeight:700,marginBottom:16}}>
               {msgLoading?"⏳ Generazione in corso...":"🤖 Genera Messaggio"}
             </button>
             {msgText && (
