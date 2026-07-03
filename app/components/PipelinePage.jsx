@@ -272,7 +272,18 @@ export default function PipelinePage({ fontSize=14 }) {
   const [msgText, setMsgText]       = useState("");
   const [msgCopied, setMsgCopied]   = useState(false);
 
-  useEffect(()=>{ loadData(); },[]);
+  useEffect(()=>{
+    // Fix una tantum: pulisce cache locale pre-Notion per evitare doppioni
+    // (vecchi lead salvati in localStorage con ID non-Notion venivano
+    // reinviati come "nuovi" al primo drag/modifica dopo la migrazione).
+    try {
+      if (!localStorage.getItem("dario-pipeline-notion-migrated")) {
+        localStorage.removeItem("dario-pipeline");
+        localStorage.setItem("dario-pipeline-notion-migrated", "1");
+      }
+    } catch {}
+    loadData();
+  },[]);
 
   const loadData = async ()=>{
     setLoading(true);
