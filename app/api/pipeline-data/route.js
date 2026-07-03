@@ -94,6 +94,29 @@ export async function POST(req) {
       return NextResponse.json({ error: "entries mancante" }, { status: 400 });
     }
 
+    // Protezione anti-doppioni: se un'entry non ha un notionId valido,
+    // controlla prima se esiste già una pagina con lo stesso nome+tipo
+    // su Notion, ed effettua un update invece di una create.
+    const needsNameCheck = entries.some(e => !(e.notionId || (e.id && e.id.includes("-"))));
+    let existingByName = new Map();
+    if (needsNameCheck) {
+      let cursor = undefined;
+      do {
+        const qres = await notionFetch(`/data_sources/${DATA_SOURCE_ID}/query`, {
+          method: "POST",
+          body: JSON.stringify({ start_cursor: cursor, page_size: 100 }),
+        });
+        if (qres.ok) {
+          const qdata = await qres.json();
+          qdata.results.forEach(page => {
+            const nome = (page.properties["Nome"]?.title?.[0]?.plain_text || "").toLowerCase().trim();
+            if (nome) existingByName.set(nome, page.id);
+          });
+          cursor = qdata.has_more ? qdata.next_cursor : undefined;
+        } else { cursor = undefined; }
+      } while (cursor);
+    }
+
     for (const entry of entries) {
       const properties = {
         "Nome":     { title: [{ text: { content: entry.nome || "" } }] },
@@ -111,6 +134,9 @@ export async function POST(req) {
         "Note":     { rich_text: entry.note ? [{ text: { content: entry.note } }] : [] },
       };
 
+      const nameKey = (entry.nome || "").toLowerCase().trim();
+      const matchedByName = existingByName.get(nameKey);
+
       if (entry.notionId || (entry.id && entry.id.includes("-"))) {
         // Pagina esistente su Notion -> update
         const pageId = entry.notionId || entry.id;
@@ -118,8 +144,14 @@ export async function POST(req) {
           method: "PATCH",
           body: JSON.stringify({ properties }),
         });
+      } else if (matchedByName) {
+        // Trovata pagina con lo stesso nome -> update invece di creare doppione
+        await notionFetch(`/pages/${matchedByName}`, {
+          method: "PATCH",
+          body: JSON.stringify({ properties }),
+        });
       } else {
-        // Nuova entry creata nell'app -> crea pagina su Notion
+        // Nuova entry, nessun match -> crea pagina su Notion
         await notionFetch(`/pages`, {
           method: "POST",
           body: JSON.stringify({
