@@ -263,8 +263,6 @@ export default function PipelinePage({ fontSize=14 }) {
   const [loading, setLoading]       = useState(true);
   const [syncing, setSyncing]       = useState(false);
   const [saveStatus, setSaveStatus] = useState(null);
-  const [importing, setImporting]       = useState(false);
-  const [importResult, setImportResult] = useState(null);
   const [msgLead, setMsgLead]       = useState(null);
   const [msgType, setMsgType]       = useState("primo_contatto");
   const [msgExtra, setMsgExtra]     = useState("");
@@ -324,26 +322,6 @@ export default function PipelinePage({ fontSize=14 }) {
     });
   },[]);
 
-  const importFromClickup = async ()=>{
-    setImporting(true); setImportResult(null);
-    try {
-      const res = await fetch("/api/lead-bea");
-      if (!res.ok) throw new Error(`Errore API ${res.status}`);
-      const data=await res.json(); const tasks=data.tasks||[];
-      const existingNames=new Set(entries.map(e=>e.nome.toLowerCase().trim()));
-      const toAdd=[]; let skipped=0;
-      tasks.forEach(task=>{
-        if(task.nome.startsWith("[RICERCA]")){skipped++;return;}
-        if(existingNames.has(task.nome.toLowerCase().trim())){skipped++;return;}
-        toAdd.push({id:genId(),tipo:"lead",nome:task.nome,settore:"",contatto:"",email:"",telefono:"",sito:"",linkedin:"",budget:"",stage:"da_contattare",ultimo_contatto:"",tentativi:0,data:new Date().toISOString().slice(0,10),note:"",clickupId:task.clickupId});
-      });
-      if(toAdd.length>0) await saveData([...entries,...toAdd]);
-      setImportResult({added:toAdd.length,skipped});
-      setTimeout(()=>setImportResult(null),5000);
-    } catch(e){ setImportResult({error:e.message}); setTimeout(()=>setImportResult(null),5000); }
-    setImporting(false);
-  };
-
   const openAdd    = (tipo="lead",stage=null)=>{ setForm({...EMPTY_FORM,tipo,stage:stage||(tipo==="lead"?"da_contattare":"attivo"),data:new Date().toISOString().slice(0,10)}); setModal("add"); };
   const openEdit   = (entry)=>{ setForm({...EMPTY_FORM,...entry}); setModal("edit"); };
   const closeModal = ()=>{ setModal(null); setForm(EMPTY_FORM); };
@@ -390,8 +368,6 @@ export default function PipelinePage({ fontSize=14 }) {
             {saveStatus==="saving" && <span style={{fontSize:11,color:"#F59E0B"}}>☁️ Salvando...</span>}
             {saveStatus==="saved"  && <span style={{fontSize:11,color:"#10B981"}}>✅ Salvato</span>}
             {saveStatus==="error"  && <span style={{fontSize:11,color:"#EF4444"}}>❌ Errore</span>}
-            {importResult&&!importResult.error && <span style={{fontSize:11,color:"#10B981"}}>✅ {importResult.added} importati{importResult.skipped>0?` · ${importResult.skipped} saltati`:""}</span>}
-            {importResult?.error   && <span style={{fontSize:11,color:"#EF4444"}}>❌ {importResult.error}</span>}
           </div>
           <div style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap"}}>
             {["tutti","lead","cliente"].map(fi=>(
@@ -404,9 +380,6 @@ export default function PipelinePage({ fontSize=14 }) {
               <button key={v} onClick={()=>setView(v)} style={{padding:"4px 9px",borderRadius:7,border:`1px solid ${view===v?"#F97316":"#1A1A2E"}`,background:view===v?"#F9731620":"transparent",color:view===v?"#F97316":"#475569",cursor:"pointer",fontSize:11}}>{icon} {v==="kanban"?"Kanban":"Lista"}</button>
             ))}
             <div style={{width:1,height:16,background:"#1A1A2E"}}/>
-            <button onClick={importFromClickup} disabled={importing} style={{padding:"4px 9px",borderRadius:7,border:"1px solid #8B5CF640",background:"#8B5CF610",color:"#8B5CF6",cursor:importing?"not-allowed":"pointer",fontSize:11,fontWeight:600,opacity:importing?0.5:1}}>
-              {importing?"⏳":"⬇️"} Importa ClickUp
-            </button>
             <button onClick={()=>openAdd("lead")}    style={{padding:"4px 9px",borderRadius:7,border:"none",background:"#3B82F6",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:600}}>+ Lead</button>
             <button onClick={()=>openAdd("cliente")} style={{padding:"4px 9px",borderRadius:7,border:"none",background:"#10B981",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:600}}>+ Cliente</button>
             <button onClick={syncNow} style={{padding:"4px 9px",borderRadius:7,border:"1px solid #1A1A2E",background:"transparent",color:"#475569",cursor:"pointer",fontSize:11}}>{syncing?"⏳":"↻"}</button>
