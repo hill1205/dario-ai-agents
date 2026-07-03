@@ -1,47 +1,137 @@
+import { NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 
-const CLICKUP_API_KEY = process.env.CLICKUP_API_KEY;
-const WORKSPACE_ID = "90121769473";
-const DOC_ID  = "2kxuu4g1-932";
-const PAGE_ID = "2kxuu4g1-912";
-const BASE = `https://api.clickup.com/api/v3/workspaces/${WORKSPACE_ID}/docs/${DOC_ID}/pages/${PAGE_ID}`;
+// Notion Internal Integration Token — da impostare su Vercel come env var
+const NOTION_TOKEN = process.env.NOTION_API_KEY;
+const DATA_SOURCE_ID = "40f1c1e8-3e35-4fe9-a5b9-87f653a5f2d3"; // Pipeline Lead & Clienti
+const NOTION_VERSION = "2022-06-28";
+
+const STAGE_TO_TIPO = {
+  "Da Contattare":"lead","Contattato":"lead","Proposta Inviata":"lead",
+  "In Trattativa":"lead","Vinto":"lead","Perso":"lead",
+  "Attivo":"cliente","In Pausa":"cliente","Concluso":"cliente",
+};
+const STAGE_MAP_TO_APP = {
+  "Da Contattare":"da_contattare","Contattato":"contattato","Proposta Inviata":"proposta_inviata",
+  "In Trattativa":"in_trattativa","Vinto":"vinto","Perso":"perso",
+  "Attivo":"attivo","In Pausa":"in_pausa","Concluso":"concluso",
+};
+const STAGE_MAP_TO_NOTION = Object.fromEntries(Object.entries(STAGE_MAP_TO_APP).map(([k,v])=>[v,k]));
+
+function notionPageToEntry(page) {
+  const p = page.properties;
+  const getText  = (prop) => prop?.rich_text?.[0]?.plain_text || "";
+  const getTitle = (prop) => prop?.title?.[0]?.plain_text || "";
+  const getSel   = (prop) => prop?.select?.name || "";
+  const stageNotion = getSel(p["Stage"]) || "Da Contattare";
+  return {
+    id:              page.id,
+    notionId:        page.id,
+    nome:            getTitle(p["Nome"]),
+    tipo:            getSel(p["Tipo"])?.toLowerCase() === "cliente" ? "cliente" : "lead",
+    stage:           STAGE_MAP_TO_APP[stageNotion] || "da_contattare",
+    settore:         getSel(p["Settore"]) || "",
+    contatto:        getText(p["Contatto"]),
+    email:           p["Email"]?.email || "",
+    telefono:        p["Telefono"]?.phone_number || "",
+    sito:            p["Sito Web"]?.url || "",
+    linkedin:        p["Instagram"]?.url || "", // riusiamo il campo "linkedin" dell'app per Instagram
+    budget:          p["Budget"]?.number != null ? String(p["Budget"].number) : "",
+    ultimo_contatto: p["Ultimo Contatto"]?.date?.start || "",
+    tentativi:       p["Tentativi"]?.number || 0,
+    note:            getText(p["Note"]),
+    data:            page.created_time ? page.created_time.slice(0,10) : new Date().toISOString().slice(0,10),
+  };
+}
+
+async function notionFetch(path, options = {}) {
+  const res = await fetch(`https://api.notion.com/v1${path}`, {
+    ...options,
+    headers: {
+      "Authorization": `Bearer ${NOTION_TOKEN}`,
+      "Notion-Version": NOTION_VERSION,
+      "Content-Type": "application/json",
+      ...(options.headers || {}),
+    },
+  });
+  return res;
+}
 
 export async function GET() {
+  if (!NOTION_TOKEN) {
+    return NextResponse.json({ error: "NOTION_API_KEY non configurata" }, { status: 500 });
+  }
   try {
-    const res = await fetch(`${BASE}?content_format=text/plain`, {
-      headers: { Authorization: CLICKUP_API_KEY },
-      cache: "no-store",
-    });
-    if (!res.ok) return Response.json({ entries: [] });
-    const data = await res.json();
-    const content = data.content || "";
-    const match = content.match(/PIPELINE_DATA_JSON:([\s\S]*)/);
-    if (!match) return Response.json({ entries: [] });
-    const entries = JSON.parse(match[1].trim());
-    return Response.json({ entries });
+    let entries = [];
+    let cursor = undefined;
+    do {
+      const res = await notionFetch(`/data_sources/${DATA_SOURCE_ID}/query`, {
+        method: "POST",
+        body: JSON.stringify({ start_cursor: cursor, page_size: 100 }),
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        return NextResponse.json({ error: `Notion error ${res.status}: ${errText}` }, { status: 500 });
+      }
+      const data = await res.json();
+      entries.push(...data.results.map(notionPageToEntry));
+      cursor = data.has_more ? data.next_cursor : undefined;
+    } while (cursor);
+
+    return NextResponse.json({ entries });
   } catch (e) {
-    return Response.json({ entries: [] });
+    return NextResponse.json({ error: e.message }, { status: 500 });
   }
 }
 
-export async function POST(request) {
+export async function POST(req) {
+  if (!NOTION_TOKEN) {
+    return NextResponse.json({ error: "NOTION_API_KEY non configurata" }, { status: 500 });
+  }
   try {
-    const { entries } = await request.json();
-    const content = `PIPELINE_DATA_JSON:${JSON.stringify(entries)}`;
-    const res = await fetch(BASE, {
-      method: "PUT",
-      headers: {
-        Authorization: CLICKUP_API_KEY,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ content }),
-    });
-    if (!res.ok) {
-      const text = await res.text();
-      return Response.json({ error: text }, { status: res.status });
+    const { entries } = await req.json();
+    if (!Array.isArray(entries)) {
+      return NextResponse.json({ error: "entries mancante" }, { status: 400 });
     }
-    return Response.json({ success: true });
+
+    for (const entry of entries) {
+      const properties = {
+        "Nome":     { title: [{ text: { content: entry.nome || "" } }] },
+        "Tipo":     { select: { name: entry.tipo === "cliente" ? "Cliente" : "Lead" } },
+        "Stage":    { select: { name: STAGE_MAP_TO_NOTION[entry.stage] || "Da Contattare" } },
+        "Settore":  entry.settore ? { select: { name: entry.settore } } : { select: null },
+        "Contatto": { rich_text: entry.contatto ? [{ text: { content: entry.contatto } }] : [] },
+        "Email":    entry.email ? { email: entry.email } : { email: null },
+        "Telefono": entry.telefono ? { phone_number: entry.telefono } : { phone_number: null },
+        "Sito Web": entry.sito ? { url: entry.sito } : { url: null },
+        "Instagram": entry.linkedin ? { url: entry.linkedin } : { url: null }, // campo "linkedin" app -> Instagram Notion
+        "Budget":   entry.budget ? { number: parseFloat(entry.budget) } : { number: null },
+        "Ultimo Contatto": entry.ultimo_contatto ? { date: { start: entry.ultimo_contatto } } : { date: null },
+        "Tentativi": { number: entry.tentativi || 0 },
+        "Note":     { rich_text: entry.note ? [{ text: { content: entry.note } }] : [] },
+      };
+
+      if (entry.notionId || (entry.id && entry.id.includes("-"))) {
+        // Pagina esistente su Notion -> update
+        const pageId = entry.notionId || entry.id;
+        await notionFetch(`/pages/${pageId}`, {
+          method: "PATCH",
+          body: JSON.stringify({ properties }),
+        });
+      } else {
+        // Nuova entry creata nell'app -> crea pagina su Notion
+        await notionFetch(`/pages`, {
+          method: "POST",
+          body: JSON.stringify({
+            parent: { data_source_id: DATA_SOURCE_ID },
+            properties,
+          }),
+        });
+      }
+    }
+
+    return NextResponse.json({ success: true });
   } catch (e) {
-    return Response.json({ error: e.message }, { status: 500 });
+    return NextResponse.json({ error: e.message }, { status: 500 });
   }
 }
