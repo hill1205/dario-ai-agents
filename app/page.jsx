@@ -93,10 +93,10 @@ export default function App() {
     setHomeLoading(true);
     try {
       const [wRes,tRes,rRes,wgRes] = await Promise.all([
-        fetch("/api/weather").then(r=>r.json()).catch(()=>null),
-        fetch("/api/tasks").then(r=>r.json()).catch(()=>({todo:[],routine:[],sospeso:[]})),
-        fetch("/api/revenue").then(r=>r.json()).catch(()=>null),
-        fetch("/api/weight").then(r=>r.json()).catch(()=>null),
+        fetch("/api/weather",{cache:"no-store"}).then(r=>r.json()).catch(()=>null),
+        fetch("/api/tasks",{cache:"no-store"}).then(r=>r.json()).catch(()=>({todo:[],routine:[],sospeso:[]})),
+        fetch("/api/revenue",{cache:"no-store"}).then(r=>r.json()).catch(()=>null),
+        fetch("/api/weight",{cache:"no-store"}).then(r=>r.json()).catch(()=>null),
       ]);
       if (wRes&&!wRes.error)  setWeather(wRes);
       if (tRes)               setHomeData(tRes);
