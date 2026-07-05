@@ -32,7 +32,11 @@ export async function GET() {
       fetchTasks(LIST_IDS.routine),
       fetchTasks(LIST_IDS.sospeso),
     ]);
-    return Response.json({ todo, routine, sospeso });
+    // Blocca esplicitamente ogni cache (browser, CDN, Vercel edge)
+    return Response.json(
+      { todo, routine, sospeso },
+      { headers: { "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0" } }
+    );
   } catch (error) {
     return Response.json({ error: error.message }, { status: 500 });
   }
