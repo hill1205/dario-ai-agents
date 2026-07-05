@@ -1,82 +1,65 @@
+export const dynamic = "force-dynamic";
+
 const CLICKUP_API_KEY = process.env.CLICKUP_API_KEY;
 const WORKSPACE_ID = "90121769473";
+// Stesso Doc/pagina usato dal tab IAGREX (app/api/iagrex-finance/route.js):
+// dati reali inseriti da Dario (entrate/uscite/saldi conto), non testo libero
+// interpretato da un'AI. Questo endpoint alimenta solo la card "Finanze"
+// della home con lo stesso numero mostrato nel tab IAGREX, per avere
+// un'unica fonte di verità invece di due sistemi scollegati.
 const DOC_ID = "2kxuu4g1-752";
-const PAGE_ID = "2kxuu4g1-552";
+const PAGE_ID = "2kxuu4g1-972";
 const OBIETTIVO_ANNUALE = 1000000;
 
-async function fetchDocContent() {
-  const res = await fetch(
-    `https://api.clickup.com/api/v3/workspaces/${WORKSPACE_ID}/docs/${DOC_ID}/pages/${PAGE_ID}?content_format=text/plain`,
-    { headers: { Authorization: CLICKUP_API_KEY } }
-  );
-  const data = await res.json();
-  return data.content || "";
+function getCurrentMonth() { return new Date().toISOString().slice(0, 7); } // YYYY-MM
+function getMonthLabel(ym) {
+    const [y, m] = ym.split("-");
+    const months = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
+    return `${months[parseInt(m) - 1]} ${y}`;
 }
 
-async function parseRevenueWithAI(text) {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": process.env.ANTHROPIC_API_KEY,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-6",
-      max_tokens: 500,
-      messages: [
-        {
-          role: "user",
-          content: `Analizza questo testo contabile e restituisci SOLO un JSON valido, senza markdown, senza backtick, senza spiegazioni.
-
-Il JSON deve avere esattamente questa struttura:
-{
-  "entrate_totali": <numero>,
-  "uscite_totali": <numero>,
-  "saldo": <numero>,
-  "mese": "<stringa>",
-  "fatture": [{"descrizione": "<string>", "importo": <numero>}],
-  "uscite_dettaglio": [{"descrizione": "<string>", "importo": <numero>}]
-}
-
-Se un valore non è presente nel testo, usa 0 per i numeri e array vuoto per le liste.
-
-Testo:
-${text}`,
-        },
-      ],
-    }),
-  });
-
-  const data = await res.json();
-  const raw = data.content?.[0]?.text || "{}";
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return {
-      entrate_totali: 0,
-      uscite_totali: 0,
-      saldo: 0,
-      mese: "N/D",
-      fatture: [],
-      uscite_dettaglio: [],
-    };
-  }
+async function fetchFinanceData() {
+    const res = await fetch(
+          `https://api.clickup.com/api/v3/workspaces/${WORKSPACE_ID}/docs/${DOC_ID}/pages/${PAGE_ID}?content_format=text/plain`,
+      { headers: { Authorization: CLICKUP_API_KEY }, cache: "no-store" }
+        );
+    if (!res.ok) return {};
+    const page = await res.json();
+    const content = page.content || "";
+    const match = content.match(/IAGREX_FINANCE_JSON:([\s\S]*)/);
+    if (!match) return {};
+    try { return JSON.parse(match[1].trim()); } catch { return {}; }
 }
 
 export async function GET() {
-  try {
-    const docText = await fetchDocContent();
-    const parsed = await parseRevenueWithAI(docText);
+    try {
+          const allData = await fetchFinanceData();
+          const month = getCurrentMonth();
+          const monthData = allData[month] || { entrate: [], uscite: [] };
 
-    return Response.json({
-      ...parsed,
-      obiettivo_annuale: OBIETTIVO_ANNUALE,
-      percentuale: parsed.entrate_totali
-        ? Math.round((parsed.entrate_totali / OBIETTIVO_ANNUALE) * 100 * 10) / 10
-        : 0,
-    });
-  } catch (error) {
-    return Response.json({ error: error.message }, { status: 500 });
-  }
+      const entrate_totali = monthData.entrate.reduce((s, e) => s + (parseFloat(e.importo) || 0), 0);
+          const uscite_totali  = monthData.uscite.reduce((s, e) => s + (parseFloat(e.importo) || 0), 0);
+
+      // Progresso verso l'obiettivo annuale: somma delle entrate di tutti i mesi
+      // dell'anno in corso (stesso calcolo YTD già usato nel tab IAGREX).
+      const year = month.slice(0, 4);
+          const ytdRevenue = Object.entries(allData)
+            .filter(([k]) => k.startsWith(year))
+            .reduce((s, [, v]) => s + (v.entrate || []).reduce((ss, e) => ss + (parseFloat(e.importo) || 0), 0), 0);
+          const percentuale = Math.min(Math.round((ytdRevenue / OBIETTIVO_ANNUALE) * 100 * 10) / 10, 100);
+
+      return Response.json({
+              mese: getMonthLabel(month),
+              entrate_totali,
+              uscite_totali,
+              saldo: entrate_totali - uscite_totali,
+              fatture: monthData.entrate.map(e => ({ descrizione: e.descrizione, importo: e.importo })),
+              uscite_dettaglio: monthData.uscite.map(e => ({ descrizione: e.descrizione, importo: e.importo })),
+              obiettivo_annuale: OBIETTIVO_ANNUALE,
+              percentuale,
+              ytd_revenue: ytdRevenue,
+      });
+    } catch (error) {
+          return Response.json({ error: error.message }, { status: 500 });
+    }
 }
