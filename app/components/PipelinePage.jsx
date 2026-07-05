@@ -6,8 +6,8 @@ const LEAD_STAGES = [
   { id:"contattato",       label:"Contattato",       color:"#3B82F6" },
   { id:"proposta_inviata", label:"Proposta Inviata", color:"#F59E0B" },
   { id:"in_trattativa",    label:"In Trattativa",    color:"#F97316" },
-  { id:"vinto",            label:"Vinto 🎉",          color:"#10B981" },
-  { id:"perso",            label:"Perso",             color:"#EF4444" },
+  { id:"chiuso",            label:"Chiuso 🎉",          color:"#10B981" },
+  { id:"rifiutato",            label:"Rifiutato",             color:"#EF4444" },
 ];
 const CLIENT_STAGES = [
   { id:"attivo",   label:"Attivo ✅", color:"#10B981" },
@@ -353,7 +353,7 @@ export default function PipelinePage({ fontSize=14 }) {
   const filtered      = entries.filter(e=>filter==="tutti"||e.tipo===filter);
   const activeClients = entries.filter(e=>e.tipo==="cliente"&&e.stage==="attivo");
   const mrr           = activeClients.reduce((s,e)=>s+(parseFloat(e.budget)||0),0);
-  const pipelineValue = entries.filter(e=>e.tipo==="lead"&&!["vinto","perso"].includes(e.stage)).reduce((s,e)=>s+(parseFloat(e.budget)||0),0);
+  const pipelineValue = entries.filter(e=>e.tipo==="lead"&&!["chiuso","rifiutato"].includes(e.stage)).reduce((s,e)=>s+(parseFloat(e.budget)||0),0);
   const f = (key)=>(val)=>setForm(p=>({...p,[key]:val}));
 
   return (
