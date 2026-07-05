@@ -13,6 +13,10 @@ const NAV_ITEMS = [
   { id:"iagrex",   icon:"📊", label:"IAGREX",     color:"#3B82F6" },
 ];
 
+function todayBucharest() {
+    return new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Bucharest" }); // YYYY-MM-DD
+}
+
 function getWeatherEmoji(condition) {
   const c = (condition||"").toLowerCase();
   if (c.includes("thunder")) return "⛈️";
@@ -60,7 +64,19 @@ export default function App() {
       const sr = localStorage.getItem("dario-settings");
       if (sr) { const s=JSON.parse(sr); if(s.fontSize) setFontSize(s.fontSize); }
       const ct = localStorage.getItem("dario-checked-tasks");
-      if (ct) setCheckedTasks(JSON.parse(ct));
+      if (ct) {
+                  const parsed = JSON.parse(ct);
+                  // Nuovo formato: { date, tasks }. Se la data salvata non è oggi
+                  // (fuso Bucarest, stesso usato dal cron di reset notturno),
+                  // scartiamo lo stato vecchio: la dashboard deve ripartire dallo
+                  // stato reale di ClickUp, non da un "completata" di ieri rimasto
+                  // bloccato nel browser dopo il reset delle routine.
+                  if (parsed && parsed.date === todayBucharest()) {
+                                setCheckedTasks(parsed.tasks || {});
+                  } else {
+                                localStorage.removeItem("dario-checked-tasks");
+                  }
+      }
     } catch {}
   },[]);
 
@@ -113,7 +129,7 @@ export default function App() {
     const next = !cur;
     const newChecked = {...checkedTasks,[taskId]:next};
     setCheckedTasks(newChecked);
-    try { localStorage.setItem("dario-checked-tasks",JSON.stringify(newChecked)); } catch {}
+        try { localStorage.setItem("dario-checked-tasks",JSON.stringify({date:todayBucharest(),tasks:newChecked})); } catch {}
     try {
       await fetch("/api/update-task",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({taskId,status:next?"completata":"da fare"})});
     } catch {}
