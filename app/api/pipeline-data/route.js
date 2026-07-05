@@ -8,12 +8,12 @@ const NOTION_VERSION = "2022-06-28";
 
 const STAGE_TO_TIPO = {
   "Da Contattare":"lead","Contattato":"lead","Proposta Inviata":"lead",
-  "In Trattativa":"lead","Vinto":"lead","Perso":"lead",
+  "In Trattativa":"lead","Chiuso":"lead","Rifiutato":"lead",
   "Attivo":"cliente","In Pausa":"cliente","Concluso":"cliente",
 };
 const STAGE_MAP_TO_APP = {
   "Da Contattare":"da_contattare","Contattato":"contattato","Proposta Inviata":"proposta_inviata",
-  "In Trattativa":"in_trattativa","Vinto":"vinto","Perso":"perso",
+  "In Trattativa":"in_trattativa","Chiuso":"chiuso","Rifiutato":"rifiutato",
   "Attivo":"attivo","In Pausa":"in_pausa","Concluso":"concluso",
 };
 const STAGE_MAP_TO_NOTION = Object.fromEntries(Object.entries(STAGE_MAP_TO_APP).map(([k,v])=>[v,k]));
