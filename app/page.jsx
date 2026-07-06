@@ -157,6 +157,11 @@ export default function App() {
   const [theme, setTheme]                   = useState("dark");
   const [routineStreak, setRoutineStreak]   = useState(0);
   const [leadDaRicontattare, setLeadDaRicontattare] = useState([]);
+  const [inactivityDays, setInactivityDays] = useState(0);
+  const [showIdeaModal, setShowIdeaModal]   = useState(false);
+  const [ideaText, setIdeaText]             = useState("");
+  const [ideas, setIdeas]                   = useState([]);
+  const [listening, setListening]           = useState(false);
 
   const T = THEMES[theme] || THEMES.dark;
 
@@ -181,6 +186,23 @@ export default function App() {
           localStorage.removeItem("dario-checked-tasks");
         }
       }
+      const ideasRaw = localStorage.getItem("dario-ideas");
+      if (ideasRaw) { try { setIdeas(JSON.parse(ideasRaw) || []); } catch {} }
+    } catch {}
+  },[]);
+
+  // Banner "bentornato": calcolato interamente in locale (nessuna chiamata
+  // di rete, nessun costo) confrontando la data dell'ultima apertura salvata
+  // in localStorage con oggi, prima di sovrascriverla con la data odierna.
+  useEffect(()=>{
+    try {
+      const last = localStorage.getItem("dario-last-visit");
+      const today = todayBucharest();
+      if (last && last !== today) {
+        const days = Math.round((new Date(today) - new Date(last)) / 86400000);
+        if (days >= 1) setInactivityDays(days);
+      }
+      localStorage.setItem("dario-last-visit", today);
     } catch {}
   },[]);
 
@@ -323,6 +345,42 @@ export default function App() {
     return h<12?"Buongiorno":h<18?"Buon pomeriggio":"Buonasera";
   };
 
+  // Idee al volo: cattura veloce di pensieri/idee imprenditoriali senza
+  // dover aprire una nota separata. Salvate solo in localStorage (nessuna
+  // chiamata di rete, nessun costo) — la sync verso ClickUp/Notion si può
+  // aggiungere in futuro se serve, per ora è solo un backlog personale.
+  const saveIdeasList = (list) => { setIdeas(list); try { localStorage.setItem("dario-ideas", JSON.stringify(list)); } catch {} };
+  const addIdea = () => {
+    const text = ideaText.trim();
+    if (!text) return;
+    saveIdeasList([{ id:Date.now().toString(36), text, data:new Date().toISOString() }, ...ideas]);
+    setIdeaText("");
+  };
+  const removeIdea = (id) => saveIdeasList(ideas.filter(i=>i.id!==id));
+
+  // Dettatura vocale gratuita: usa il riconoscimento vocale nativo del
+  // browser (Web Speech API, disponibile su Chrome/Edge desktop e Android).
+  // Nessuna chiamata API esterna, nessun costo — su Safari/iPhone non è
+  // disponibile, ma la tastiera di iOS ha comunque un tasto microfono per
+  // dettare direttamente nella casella di testo.
+  const speechSupported = typeof window !== "undefined" && (window.SpeechRecognition || window.webkitSpeechRecognition);
+  const toggleListening = () => {
+    if (!speechSupported) return;
+    if (listening) { setListening(false); return; }
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const rec = new SR();
+    rec.lang = "it-IT";
+    rec.interimResults = false;
+    rec.onresult = (e) => {
+      const transcript = e.results[0][0].transcript;
+      setIdeaText(prev => (prev ? prev + " " : "") + transcript);
+    };
+    rec.onend = () => setListening(false);
+    rec.onerror = () => setListening(false);
+    rec.start();
+    setListening(true);
+  };
+
   const DCard  = ({children,style={}})=>(
     <div style={{background:T.panel,border:`1px solid ${T.border}`,borderRadius:14,padding:16,...style}}>{children}</div>
   );
@@ -410,6 +468,9 @@ export default function App() {
                   <button onClick={loadHomeData} style={{padding:"4px 10px",borderRadius:7,border:"1px solid #1A1A2E",background:"transparent",color:"#475569",cursor:"pointer",fontSize:11}}>
                     {homeLoading?"⏳":"↻ Aggiorna"}
                   </button>
+                  <button onClick={()=>setShowIdeaModal(true)} style={{padding:"4px 10px",borderRadius:7,border:"1px solid #8B5CF640",background:"#8B5CF60D",color:"#8B5CF6",cursor:"pointer",fontSize:11}}>
+                    🎙️ Idea
+                  </button>
                   {isMobile && (
                     <button onClick={()=>setShowSettings(s=>!s)}
                       style={{padding:"4px 10px",borderRadius:7,border:`1px solid ${showSettings?"#8B5CF6":"#1A1A2E"}`,background:showSettings?"#8B5CF620":"transparent",color:showSettings?"#8B5CF6":"#64748B",cursor:"pointer",fontSize:11}}>
@@ -422,6 +483,13 @@ export default function App() {
               {isMobile && showSettings && (
                 <div style={{background:T.panel,borderBottom:`1px solid ${T.border}`,flexShrink:0}}>
                   <SettingsContent/>
+                </div>
+              )}
+
+              {inactivityDays >= 1 && (
+                <div style={{margin:"10px 16px 0",padding:"8px 12px",borderRadius:8,border:"1px solid #8B5CF640",background:"#8B5CF60D",color:"#8B5CF6",fontSize:12,flexShrink:0}}>
+                  👋 Bentornato! Non aprivi l'app da {inactivityDays} giorn{inactivityDays===1?"o":"i"}
+                  {leadDaRicontattare.length>0 ? ` — hai ${leadDaRicontattare.length} lead in attesa in pipeline.` : "."}
                 </div>
               )}
 
@@ -617,6 +685,39 @@ export default function App() {
               <button onClick={()=>setShowWeightModal(false)} style={{flex:1,padding:10,borderRadius:8,border:"1px solid #1A1A2E",background:"transparent",color:"#475569",cursor:"pointer",fontSize:14}}>Annulla</button>
               <button onClick={saveWeightModal} style={{flex:1,padding:10,borderRadius:8,border:"none",background:"#F97316",color:"#fff",cursor:"pointer",fontSize:14,fontWeight:700}}>Salva</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* IDEA MODAL */}
+      {showIdeaModal && (
+        <div style={{position:"fixed",inset:0,background:"#00000090",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setShowIdeaModal(false)}>
+          <div style={{background:"#0F0F1A",border:"1px solid #1A1A2E",borderRadius:16,padding:24,width:"100%",maxWidth:420,maxHeight:"80vh",display:"flex",flexDirection:"column"}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:14,fontWeight:700,color:"#F8FAFC",marginBottom:16}}>🎙️ Idea al volo</div>
+            <textarea autoFocus rows={4} placeholder="Scrivi o detta la tua idea..." value={ideaText}
+              onChange={e=>setIdeaText(e.target.value)}
+              style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #334155",background:"#09090F",color:"#E2E8F0",fontSize:14,outline:"none",marginBottom:12,resize:"vertical",fontFamily:"inherit"}}/>
+            <div style={{display:"flex",gap:8,marginBottom:16}}>
+              {speechSupported && (
+                <button onClick={toggleListening}
+                  style={{padding:"10px 14px",borderRadius:8,border:`1px solid ${listening?"#EF4444":"#1A1A2E"}`,background:listening?"#EF444420":"transparent",color:listening?"#EF4444":"#94A3B8",cursor:"pointer",fontSize:14}}>
+                  {listening?"⏹️ Ascolto...":"🎙️ Detta"}
+                </button>
+              )}
+              <button onClick={()=>setShowIdeaModal(false)} style={{flex:1,padding:10,borderRadius:8,border:"1px solid #1A1A2E",background:"transparent",color:"#475569",cursor:"pointer",fontSize:14}}>Chiudi</button>
+              <button onClick={addIdea} style={{flex:1,padding:10,borderRadius:8,border:"none",background:"#8B5CF6",color:"#fff",cursor:"pointer",fontSize:14,fontWeight:700}}>Salva</button>
+            </div>
+            {ideas.length>0 && (
+              <div style={{overflowY:"auto",flex:1,borderTop:"1px solid #1A1A2E",paddingTop:12}}>
+                <div style={{fontSize:10,color:"#475569",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:8}}>Da processare ({ideas.length})</div>
+                {ideas.map(i=>(
+                  <div key={i.id} style={{display:"flex",alignItems:"flex-start",gap:8,marginBottom:10,fontSize:13,color:"#E2E8F0"}}>
+                    <span style={{flex:1,lineHeight:1.4}}>{i.text}</span>
+                    <button onClick={()=>removeIdea(i.id)} style={{background:"transparent",border:"none",color:"#475569",cursor:"pointer",fontSize:14,flexShrink:0}}>×</button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
