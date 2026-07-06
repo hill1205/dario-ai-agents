@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 
 const CAT_ENTRATE = ["Retainer","One-time","Consulenza","Bonus","Altro"];
 const CAT_USCITE  = ["Keez / Commercialista","Software & Tools","Marketing","Hosting","Personale IAGREX","Tasse & Contributi","Altro"];
-const EUR_RON_RATE = 5; // 1 EUR = 5 RON
+const EUR_RON_FALLBACK = 5; // usato solo se il fetch del cambio live fallisce
 const OBIETTIVO_ANNUO = 1000000;
 
 const CONTI_IAGREX = [
@@ -39,8 +39,22 @@ export default function IAGREXPage({ fontSize=14, onBack }) {
   // modifica, cancellando tutti i mesi precedenti.
   const [loadOk, setLoadOk]       = useState(false);
   const [loadError, setLoadError] = useState(null);
+  // Cambio EUR->RON: proviamo a prenderlo live (BCE, via Frankfurter API,
+  // gratuita e senza chiave). Se il fetch fallisce usiamo il valore fisso
+  // di riserva, ma lo segnaliamo chiaramente invece di spacciarlo per live.
+  const [eurRonRate, setEurRonRate] = useState(null);
+  const [rateIsLive, setRateIsLive] = useState(false);
 
-  useEffect(()=>{ loadData(); },[]);
+  useEffect(()=>{ loadData(); loadRate(); },[]);
+
+  const loadRate = async () => {
+    try {
+      const res = await fetch("https://api.frankfurter.app/latest?from=EUR&to=RON");
+      const j = await res.json();
+      if (res.ok && j.rates?.RON) { setEurRonRate(j.rates.RON); setRateIsLive(true); }
+      else { setEurRonRate(EUR_RON_FALLBACK); setRateIsLive(false); }
+    } catch { setEurRonRate(EUR_RON_FALLBACK); setRateIsLive(false); }
+  };
 
   const loadData = async () => {
     setLoading(true);
@@ -288,10 +302,12 @@ export default function IAGREXPage({ fontSize=14, onBack }) {
                 <div style={{padding:"10px 12px",borderTop:"1px solid #1A1A2E",background:"#09090F",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
                   <div>
                     <div style={{fontSize:fs-2,fontWeight:700,color:"#3B82F6"}}>Totale liquidità aziendale</div>
-                    <div style={{fontSize:fs-4,color:"#334155",marginTop:2}}>EUR convertiti a RON (×{EUR_RON_RATE})</div>
+                    <div style={{fontSize:fs-4,color:"#334155",marginTop:2}}>
+                      EUR convertiti a RON (×{(eurRonRate||EUR_RON_FALLBACK).toFixed(2)}{rateIsLive?" · cambio live BCE":" · cambio fisso di riserva"})
+                    </div>
                   </div>
                   <span style={{fontSize:fs+1,fontWeight:800,color:"#8B5CF6"}}>
-                    {fmt((parseFloat(monthData.saldi?.unicredit_eur)||0)*EUR_RON_RATE + (parseFloat(monthData.saldi?.unicredit_ron)||0))} RON
+                    {fmt((parseFloat(monthData.saldi?.unicredit_eur)||0)*(eurRonRate||EUR_RON_FALLBACK) + (parseFloat(monthData.saldi?.unicredit_ron)||0))} RON
                   </span>
                 </div>
               </div>
