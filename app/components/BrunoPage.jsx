@@ -44,7 +44,7 @@ export default function BrunoPage({ fontSize=14 }) {
   const [tab, setTab]           = useState("entrate");
   const [loading, setLoading]   = useState(true);
   const [saveStatus, setSaveStatus] = useState(null);
-  const [modal, setModal]       = useState(null); // {tipo:"entrata"|"uscita", mode:"add"|"edit", item?}
+  const [modal, setModal]       = useState(null); // {tipo:"entrata"|"uscita", mode:"add"|"edit", item}
   const [form, setForm]         = useState({});
   const [customCat, setCustomCat] = useState("");
   // Stessa protezione introdotta su IAGREXPage: finché non confermiamo di
@@ -322,7 +322,7 @@ export default function BrunoPage({ fontSize=14 }) {
               <div>
                 <div style={{ fontSize:fs-3, fontWeight:700, color:"#F59E0B", textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:8 }}>🎯 Obiettivi</div>
                 <div style={{ background:"#0F0F1A", border:"1px solid #1A1A2E", borderRadius:10, overflow:"hidden" }}>
-                  {(
+                  {[
                     { key:"investimenti", label:"📈 Investimenti", color:"#3B82F6" },
                     { key:"risparmi",     label:"🐷 Risparmi",     color:"#10B981" },
                   ].map((item,i)=>(
