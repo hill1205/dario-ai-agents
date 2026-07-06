@@ -366,6 +366,17 @@ export default function PipelinePage({ fontSize=14, theme="dark" }) {
   const pipelineValue = entries.filter(e=>e.tipo==="lead"&&!["chiuso","rifiutato"].includes(e.stage)).reduce((s,e)=>s+(parseFloat(e.budget)||0),0);
   const f = (key)=>(val)=>setForm(p=>({...p,[key]:val}));
 
+  // Giorni dall'ultimo nuovo lead entrato in pipeline: usa la data di
+  // creazione ("data") delle entry tipo lead, non l'ultimo_contatto (che
+  // si aggiorna anche su lead vecchi ricontattati). Se la pipeline e' vuota
+  // da giorni questo contatore lo rende impossibile da ignorare, invece di
+  // doverlo dedurre a occhio scorrendo le colonne.
+  const leadDates = entries.filter(e=>e.tipo==="lead").map(e=>e.data).filter(Boolean);
+  const ultimoLeadData = leadDates.length ? leadDates.reduce((a,b)=>a>b?a:b) : null;
+  const giorniSenzaLead = ultimoLeadData
+    ? Math.floor((new Date(new Date().toISOString().slice(0,10)) - new Date(ultimoLeadData)) / 86400000)
+    : null;
+
   return (
     <div style={{...themeVars,display:"flex",flexDirection:"column",height:"100%",overflow:"hidden",background:"var(--c-bg)"}}>
 
@@ -374,6 +385,15 @@ export default function PipelinePage({ fontSize=14, theme="dark" }) {
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
           <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
             <div style={{fontWeight:700,fontSize:15,color:"var(--c-text-strong)"}}>🎯 Pipeline IAGREX</div>
+            {giorniSenzaLead != null && giorniSenzaLead >= 3 && (
+              <span title="Giorni dall'ultimo nuovo lead inserito in pipeline"
+                style={{fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:20,
+                  color: giorniSenzaLead>=7 ? "#EF4444" : "#F59E0B",
+                  background: giorniSenzaLead>=7 ? "#EF444420" : "#F59E0B20",
+                  border:`1px solid ${giorniSenzaLead>=7?"#EF4444":"#F59E0B"}40`}}>
+                ⏳ {giorniSenzaLead}g senza nuovi lead
+              </span>
+            )}
             {syncing               && <span style={{fontSize:11,color:"var(--c-text-dim)"}}>🔄</span>}
             {saveStatus==="saving" && <span style={{fontSize:11,color:"#F59E0B"}}>☁️ Salvando...</span>}
             {saveStatus==="saved"  && <span style={{fontSize:11,color:"#10B981"}}>✅ Salvato</span>}
