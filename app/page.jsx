@@ -41,6 +41,35 @@ function TaskItem({ task, color, onToggle, fontSize=14, isChecked }) {
   );
 }
 
+// Mini-grafico a barre dell'andamento mensile delle entrate nell'anno in
+// corso, verso l'obiettivo 1M€. Niente librerie esterne: un SVG semplice
+// basta per far vedere il trend a colpo d'occhio dentro la card Revenue.
+function RevenueMiniChart({ data }) {
+  const W = 220, H = 46, gap = 4;
+  const barW = (W - gap * (data.length - 1)) / data.length;
+  const max = Math.max(...data.map(d => d.entrate), 1);
+  return (
+    <div style={{marginTop:10,paddingTop:8,borderTop:"1px solid #1A1A2E"}}>
+      <svg width="100%" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{display:"block"}}>
+        {data.map((d, i) => {
+          const h = Math.max((d.entrate / max) * (H - 12), d.entrate > 0 ? 2 : 0);
+          const x = i * (barW + gap);
+          const isLast = i === data.length - 1;
+          return (
+            <g key={d.mese}>
+              <rect x={x} y={H - 12 - h} width={barW} height={h} rx={1.5}
+                fill={isLast ? "#10B981" : "#10B98155"} />
+              <text x={x + barW / 2} y={H} textAnchor="middle" fontSize="6" fill="#334155">
+                {d.label}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
 export default function App() {
   const [view, setView]                   = useState("home");
   const [fontSize, setFontSize]           = useState(14);
@@ -370,6 +399,9 @@ export default function App() {
                           <div style={{height:"100%",background:"#10B981",borderRadius:2,width:`${Math.max(revenue.percentuale||0,1)}%`,transition:"width 0.4s"}}/>
                         </div>
                         <div style={{fontSize:fontSize-5,color:"#334155",marginTop:3}}>{revenue.percentuale}% verso 1.000.000€</div>
+                        {revenue.storico_mensile && revenue.storico_mensile.length>1 && (
+                          <RevenueMiniChart data={revenue.storico_mensile}/>
+                        )}
                         {revenue.ritmo_mensile_necessario != null && (
                           <div style={{fontSize:fontSize-4,color:"#3B82F6",marginTop:6,paddingTop:6,borderTop:"1px solid #1A1A2E"}}>
                             🎯 Servono {revenue.ritmo_mensile_necessario.toLocaleString("it-IT")}€/mese per {revenue.mesi_rimanenti} mes{revenue.mesi_rimanenti===1?"e":"i"} per arrivare a 1M€
