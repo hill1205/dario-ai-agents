@@ -23,6 +23,59 @@ function getMonthLabel(ym) {
 function getCurrentMonth() { return new Date().toISOString().slice(0,7); }
 function getCurrentYear() { return new Date().getFullYear().toString(); }
 
+// Ultimi N mesi (compreso quello corrente) con entrate/uscite totali,
+// anche se un mese non ha ancora dati (0€, non saltato) per non rompere
+// la continuità visiva del trend.
+function lastMonths(allData, n) {
+  const out = [];
+  const now = new Date();
+  for (let i = n-1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
+    const ym = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+    const md = allData[ym] || { entrate:[], uscite:[] };
+    out.push({
+      mese: ym,
+      label: getMonthLabel(ym).slice(0,3),
+      entrate: (md.entrate||[]).reduce((s,e)=>s+(parseFloat(e.importo)||0),0),
+      uscite:  (md.uscite||[]).reduce((s,e)=>s+(parseFloat(e.importo)||0),0),
+    });
+  }
+  return out;
+}
+
+// Mini cash-flow: entrate (verde) e uscite (rosso) affiancate mese per
+// mese, per capire a colpo d'occhio se il trend accelera o rallenta
+// invece di guardare solo il totale cumulato dell'anno.
+function CashFlowMiniChart({ allData }) {
+  const data = lastMonths(allData, 6);
+  const W = 260, H = 56, gap = 10;
+  const groupW = (W - gap*(data.length-1)) / data.length;
+  const barW = groupW/2 - 1;
+  const max = Math.max(...data.map(d=>Math.max(d.entrate,d.uscite)), 1);
+  return (
+    <div style={{marginTop:12,background:"#0F0F1A",border:"1px solid #1A1A2E",borderRadius:10,padding:"12px 14px"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+        <div style={{fontSize:11,color:"#64748B",textTransform:"uppercase",letterSpacing:"0.06em"}}>Cash flow ultimi 6 mesi</div>
+        <div style={{fontSize:10,color:"#475569"}}><span style={{color:"#10B981"}}>■</span> entrate <span style={{color:"#EF4444",marginLeft:6}}>■</span> uscite</div>
+      </div>
+      <svg width="100%" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{display:"block"}}>
+        {data.map((d,i)=>{
+          const gx = i*(groupW+gap);
+          const he = Math.max((d.entrate/max)*(H-14), d.entrate>0?2:0);
+          const hu = Math.max((d.uscite/max)*(H-14), d.uscite>0?2:0);
+          return (
+            <g key={d.mese}>
+              <rect x={gx} y={H-14-he} width={barW} height={he} rx={1.5} fill="#10B981" />
+              <rect x={gx+barW+2} y={H-14-hu} width={barW} height={hu} rx={1.5} fill="#EF4444" />
+              <text x={gx+groupW/2} y={H} textAnchor="middle" fontSize="7" fill="#334155">{d.label}</text>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
 export default function IAGREXPage({ fontSize=14, onBack }) {
   const fs = fontSize;
   const [allData, setAllData]     = useState({});
@@ -206,6 +259,8 @@ export default function IAGREXPage({ fontSize=14, onBack }) {
             🎯 Servono {fmt(ritmoMensileNecessario)}€/mese per {mesiRimanenti} mes{mesiRimanenti===1?"e":"i"}
           </div>
         </div>
+
+        <CashFlowMiniChart allData={allData}/>
 
         {/* Month summary */}
         <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,marginTop:10}}>

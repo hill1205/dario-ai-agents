@@ -37,6 +37,56 @@ function getCurrentMonth() {
   return new Date().toISOString().slice(0,7);
 }
 
+// Stessa idea del mini cash-flow di IAGREXPage: ultimi 6 mesi, entrate
+// verdi e uscite rosse affiancate, per vedere il trend personale invece
+// del solo totale del mese corrente.
+function lastMonths(allData, n) {
+  const out = [];
+  const now = new Date();
+  for (let i = n-1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
+    const ym = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+    const md = allData[ym] || { entrate:[], uscite:[] };
+    out.push({
+      mese: ym,
+      label: getMonthLabel(ym).slice(0,3),
+      entrate: (md.entrate||[]).reduce((s,e)=>s+(parseFloat(e.importo)||0),0),
+      uscite:  (md.uscite||[]).reduce((s,e)=>s+(parseFloat(e.importo)||0),0),
+    });
+  }
+  return out;
+}
+
+function CashFlowMiniChart({ allData }) {
+  const data = lastMonths(allData, 6);
+  const W = 260, H = 56, gap = 10;
+  const groupW = (W - gap*(data.length-1)) / data.length;
+  const barW = groupW/2 - 1;
+  const max = Math.max(...data.map(d=>Math.max(d.entrate,d.uscite)), 1);
+  return (
+    <div style={{marginTop:10,background:"#0F0F1A",border:"1px solid #1A1A2E",borderRadius:10,padding:"12px 14px"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+        <div style={{fontSize:11,color:"#64748B",textTransform:"uppercase",letterSpacing:"0.06em"}}>Cash flow ultimi 6 mesi</div>
+        <div style={{fontSize:10,color:"#475569"}}><span style={{color:"#10B981"}}>■</span> entrate <span style={{color:"#EF4444",marginLeft:6}}>■</span> uscite</div>
+      </div>
+      <svg width="100%" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{display:"block"}}>
+        {data.map((d,i)=>{
+          const gx = i*(groupW+gap);
+          const he = Math.max((d.entrate/max)*(H-14), d.entrate>0?2:0);
+          const hu = Math.max((d.uscite/max)*(H-14), d.uscite>0?2:0);
+          return (
+            <g key={d.mese}>
+              <rect x={gx} y={H-14-he} width={barW} height={he} rx={1.5} fill="#10B981" />
+              <rect x={gx+barW+2} y={H-14-hu} width={barW} height={hu} rx={1.5} fill="#EF4444" />
+              <text x={gx+groupW/2} y={H} textAnchor="middle" fontSize="7" fill="#334155">{d.label}</text>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
 export default function BrunoPage({ fontSize=14 }) {
   const fs = fontSize;
   const [allData, setAllData]   = useState({});
@@ -44,7 +94,7 @@ export default function BrunoPage({ fontSize=14 }) {
   const [tab, setTab]           = useState("entrate");
   const [loading, setLoading]   = useState(true);
   const [saveStatus, setSaveStatus] = useState(null);
-  const [modal, setModal]       = useState(null); // {tipo:"entrata"|"uscita", mode:"add"|"edit", item}
+  const [modal, setModal]       = useState(null); // {tipo:"entrata"|"uscita", mode:"add"|"edit", item?}
   const [form, setForm]         = useState({});
   const [customCat, setCustomCat] = useState("");
   // Stessa protezione introdotta su IAGREXPage: finché non confermiamo di
@@ -217,6 +267,8 @@ export default function BrunoPage({ fontSize=14 }) {
             </div>
           ))}
         </div>
+
+        <CashFlowMiniChart allData={allData}/>
       </div>
 
       {/* Tabs */}
