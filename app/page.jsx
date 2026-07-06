@@ -28,12 +28,11 @@ function sortedByPriority(list) {
   return [...list].sort((a,b)=>priorityRank(a)-priorityRank(b));
 }
 
-// Palette dei due temi. Per ora il tema chiaro/scuro si applica solo alla
-// shell dell'app (sidebar, header, dashboard home): Pipeline/Finanze/IAGREX
-// restano scuri perche' hanno centinaia di colori hardcoded propri e
-// ritemarli tutti "alla cieca" (senza poter vedere il rendering) rischia
-// di rompere qualcosa. Se il tema chiaro piace, si estende in un secondo
-// passaggio con verifica visiva.
+// Palette dei due temi, condivisa con Pipeline/Finanze/IAGREX (che la
+// ricevono come prop "theme" e la applicano tramite le proprie variabili
+// CSS --c-*). I colori "accent" (verde/rosso/blu/viola/arancio di stage,
+// stati, grafici) restano hardcoded perche' restano leggibili su entrambi
+// gli sfondi.
 const THEMES = {
   dark:  { bg:"#09090F", panel:"#0F0F1A", border:"#1A1A2E", text:"#E2E8F0", textDim:"#475569", textFaint:"#334155", cardText:"#F8FAFC" },
   light: { bg:"#F4F5F7", panel:"#FFFFFF", border:"#E2E4E9", text:"#1A1A2E", textDim:"#64748B", textFaint:"#94A3B8", cardText:"#0F172A" },
@@ -73,18 +72,26 @@ function getWeatherEmoji(condition) {
   return "🌤️";
 }
 
+// Etichette italiane per le 4 priorità di ClickUp, cosi' invece di un
+// pallino colorato (che richiede ricordarsi cosa significa ogni colore)
+// si legge subito "Urgente"/"Alta"/ecc.
+const PRIORITY_LABEL = { urgent:"Urgente", high:"Alta", normal:"Normale", low:"Bassa" };
+
 function TaskItem({ task, color, onToggle, fontSize=14, isChecked }) {
   const done = isChecked ?? DONE_STATUSES.includes((task.status?.status||"").toLowerCase());
-  const prioColor = task.priority?.color; // colore nativo ClickUp per la priorità, se impostata
+  const prio = task.priority?.priority;
+  const prioColor = task.priority?.color;
   return (
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,cursor:"pointer"}} onClick={()=>onToggle(task.id)}>
       <div style={{width:18,height:18,borderRadius:4,border:`1.5px solid ${color}60`,background:done?color:"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.15s"}}>
         {done && <span style={{fontSize:11,color:"#fff",lineHeight:1}}>✓</span>}
       </div>
-      {!done && prioColor && (
-        <span title={task.priority?.priority} style={{width:6,height:6,borderRadius:"50%",background:prioColor,flexShrink:0}}/>
+      <span style={{fontSize,color:done?"#334155":"#94A3B8",textDecoration:done?"line-through":"none",lineHeight:1.4,flex:1}}>{task.name}</span>
+      {!done && prio && PRIORITY_LABEL[prio] && (
+        <span style={{fontSize:Math.max(8,fontSize-5),fontWeight:700,color:prioColor||"#64748B",textTransform:"uppercase",letterSpacing:"0.04em",flexShrink:0}}>
+          {PRIORITY_LABEL[prio]}
+        </span>
       )}
-      <span style={{fontSize,color:done?"#334155":"#94A3B8",textDecoration:done?"line-through":"none",lineHeight:1.4}}>{task.name}</span>
     </div>
   );
 }
@@ -345,7 +352,7 @@ export default function App() {
           </button>
         ))}
       </div>
-      <div style={{fontSize:9,color:"#334155",marginTop:6,lineHeight:1.4}}>Pipeline, Finanze e IAGREX restano scuri per ora.</div>
+      <div style={{fontSize:9,color:"#334155",marginTop:6,lineHeight:1.4}}>Si applica a tutta l'app.</div>
     </div>
   );
 
@@ -385,9 +392,9 @@ export default function App() {
         {/* MAIN AREA */}
         <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
 
-          {view==="iagrex"   && <IAGREXPage fontSize={fontSize} onBack={()=>setView("home")}/>}
-          {view==="finanze"  && <BrunoPage  fontSize={fontSize}/>}
-          {view==="pipeline" && <PipelinePage fontSize={fontSize}/>}
+          {view==="iagrex"   && <IAGREXPage fontSize={fontSize} onBack={()=>setView("home")} theme={theme}/>}
+          {view==="finanze"  && <BrunoPage  fontSize={fontSize} theme={theme}/>}
+          {view==="pipeline" && <PipelinePage fontSize={fontSize} theme={theme}/>}
 
           {view==="home" && (
             <>
@@ -537,9 +544,19 @@ export default function App() {
                         {!isMobile && revenue.storico_mensile && revenue.storico_mensile.length>1 && (
                           <RevenueMiniChart data={revenue.storico_mensile} target={revenue.ritmo_mensile_necessario}/>
                         )}
+                        {/* Riformulato per chiarezza: prima si leggeva come "166k€ in
+                            totale spalmati su 6 mesi", mentre è una cifra DA RIPETERE
+                            ogni singolo mese. Numero grande + "/mese" come unità, e la
+                            durata su una riga separata, per togliere l'ambiguità. */}
                         {!isMobile && revenue.ritmo_mensile_necessario != null && (
-                          <div style={{fontSize:fontSize-4,color:"#3B82F6",marginTop:6,paddingTop:6,borderTop:"1px solid #1A1A2E"}}>
-                            🎯 Servono {revenue.ritmo_mensile_necessario.toLocaleString("it-IT")}€/mese per {revenue.mesi_rimanenti} mes{revenue.mesi_rimanenti===1?"e":"i"} per arrivare a 1M€
+                          <div style={{marginTop:6,paddingTop:6,borderTop:"1px solid #1A1A2E"}}>
+                            <div style={{fontSize:fontSize-5,color:"#3B82F6",textTransform:"uppercase",letterSpacing:"0.06em"}}>🎯 Ritmo necessario</div>
+                            <div style={{fontSize:fontSize+2,fontWeight:800,color:"#3B82F6"}}>
+                              {revenue.ritmo_mensile_necessario.toLocaleString("it-IT")}€<span style={{fontSize:fontSize-3,fontWeight:400}}>/mese</span>
+                            </div>
+                            <div style={{fontSize:fontSize-4,color:"#475569"}}>
+                              ripetuto per ciascuno dei {revenue.mesi_rimanenti} mes{revenue.mesi_rimanenti===1?"e rimanente":"i rimanenti"} per arrivare a 1.000.000€
+                            </div>
                           </div>
                         )}
                         <button onClick={()=>setView("iagrex")}
