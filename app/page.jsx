@@ -6,12 +6,56 @@ import IAGREXPage from "./components/IAGREXPage";
 
 const DONE_STATUSES = ["complete","completed","done","chiuso","closed","fatto","completato","completata"];
 
+// "home" non ha un colore fisso: in tema chiaro un bianco pieno sarebbe
+// invisibile su sfondo chiaro, quindi il colore effettivo viene risolto
+// a runtime in base al tema attivo (vedi NAV_ITEMS_RESOLVED piu' sotto).
 const NAV_ITEMS = [
-  { id:"home",     icon:"🏠", label:"Dashboard",  color:"#F8FAFC" },
+  { id:"home",     icon:"🏠", label:"Dashboard",  color:null },
   { id:"pipeline", icon:"🎯", label:"Pipeline",   color:"#8B5CF6" },
   { id:"finanze",  icon:"💰", label:"Finanze",    color:"#F59E0B" },
   { id:"iagrex",   icon:"📊", label:"IAGREX",     color:"#3B82F6" },
 ];
+
+// Priorità ClickUp: urgent(0) > high(1) > normal(2) > low(3) > nessuna(4).
+// Ordiniamo To Do/Routine di conseguenza invece di lasciarli nell'ordine
+// grezzo restituito da ClickUp, cosi' le cose piu' urgenti stanno in cima.
+const PRIORITY_RANK = { urgent:0, high:1, normal:2, low:3 };
+function priorityRank(task) {
+  const p = task.priority?.priority;
+  return p != null && PRIORITY_RANK[p] != null ? PRIORITY_RANK[p] : 4;
+}
+function sortedByPriority(list) {
+  return [...list].sort((a,b)=>priorityRank(a)-priorityRank(b));
+}
+
+// Palette dei due temi. Per ora il tema chiaro/scuro si applica solo alla
+// shell dell'app (sidebar, header, dashboard home): Pipeline/Finanze/IAGREX
+// restano scuri perche' hanno centinaia di colori hardcoded propri e
+// ritemarli tutti "alla cieca" (senza poter vedere il rendering) rischia
+// di rompere qualcosa. Se il tema chiaro piace, si estende in un secondo
+// passaggio con verifica visiva.
+const THEMES = {
+  dark:  { bg:"#09090F", panel:"#0F0F1A", border:"#1A1A2E", text:"#E2E8F0", textDim:"#475569", textFaint:"#334155", cardText:"#F8FAFC" },
+  light: { bg:"#F4F5F7", panel:"#FFFFFF", border:"#E2E4E9", text:"#1A1A2E", textDim:"#64748B", textFaint:"#94A3B8", cardText:"#0F172A" },
+};
+
+// Retry silenzioso: un blip di rete non deve subito accendere il banner
+// di errore. Un solo ritentativo dopo mezzo secondo copre la maggior
+// parte dei timeout momentanei senza allungare troppo il caricamento.
+async function fetchWithRetry(url, opts={}) {
+  try {
+    const r = await fetch(url, opts);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return await r.json();
+  } catch {
+    await new Promise(res=>setTimeout(res,500));
+    try {
+      const r2 = await fetch(url, opts);
+      if (!r2.ok) throw new Error(`HTTP ${r2.status}`);
+      return await r2.json();
+    } catch { return null; }
+  }
+}
 
 function todayBucharest() {
   return new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Bucharest" }); // YYYY-MM-DD
@@ -31,11 +75,15 @@ function getWeatherEmoji(condition) {
 
 function TaskItem({ task, color, onToggle, fontSize=14, isChecked }) {
   const done = isChecked ?? DONE_STATUSES.includes((task.status?.status||"").toLowerCase());
+  const prioColor = task.priority?.color; // colore nativo ClickUp per la priorità, se impostata
   return (
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,cursor:"pointer"}} onClick={()=>onToggle(task.id)}>
       <div style={{width:18,height:18,borderRadius:4,border:`1.5px solid ${color}60`,background:done?color:"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.15s"}}>
         {done && <span style={{fontSize:11,color:"#fff",lineHeight:1}}>✓</span>}
       </div>
+      {!done && prioColor && (
+        <span title={task.priority?.priority} style={{width:6,height:6,borderRadius:"50%",background:prioColor,flexShrink:0}}/>
+      )}
       <span style={{fontSize,color:done?"#334155":"#94A3B8",textDecoration:done?"line-through":"none",lineHeight:1.4}}>{task.name}</span>
     </div>
   );
@@ -44,10 +92,14 @@ function TaskItem({ task, color, onToggle, fontSize=14, isChecked }) {
 // Mini-grafico a barre dell'andamento mensile delle entrate nell'anno in
 // corso, verso l'obiettivo 1M€. Niente librerie esterne: un SVG semplice
 // basta per far vedere il trend a colpo d'occhio dentro la card Revenue.
-function RevenueMiniChart({ data }) {
+function RevenueMiniChart({ data, target }) {
   const W = 220, H = 46, gap = 4;
   const barW = (W - gap * (data.length - 1)) / data.length;
-  const max = Math.max(...data.map(d => d.entrate), 1);
+  // La scala include anche il target, cosi' se il ritmo necessario supera
+  // le entrate reali la linea tratteggiata resta visibile invece di uscire
+  // dal grafico verso l'alto.
+  const max = Math.max(...data.map(d => d.entrate), target||0, 1);
+  const targetY = target ? H - 12 - (target / max) * (H - 12) : null;
   return (
     <div style={{marginTop:10,paddingTop:8,borderTop:"1px solid #1A1A2E"}}>
       <svg width="100%" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{display:"block"}}>
@@ -65,7 +117,13 @@ function RevenueMiniChart({ data }) {
             </g>
           );
         })}
+        {targetY != null && (
+          <line x1={0} y1={targetY} x2={W} y2={targetY} stroke="#3B82F6" strokeWidth="1" strokeDasharray="3,2" />
+        )}
       </svg>
+      {target != null && (
+        <div style={{fontSize:7,color:"#3B82F6",marginTop:2,textAlign:"right"}}>┄ ritmo necessario/mese</div>
+      )}
     </div>
   );
 }
@@ -89,12 +147,19 @@ export default function App() {
   const [homeErrors, setHomeErrors]         = useState({});
   const [syncError, setSyncError]           = useState(null);
   const [lastUpdated, setLastUpdated]       = useState(null);
+  const [theme, setTheme]                   = useState("dark");
+  const [routineStreak, setRoutineStreak]   = useState(0);
+  const [leadDaRicontattare, setLeadDaRicontattare] = useState([]);
+
+  const T = THEMES[theme] || THEMES.dark;
 
   // Load settings
   useEffect(()=>{
     try {
       const sr = localStorage.getItem("dario-settings");
-      if (sr) { const s=JSON.parse(sr); if(s.fontSize) setFontSize(s.fontSize); }
+      if (sr) { const s=JSON.parse(sr); if(s.fontSize) setFontSize(s.fontSize); if(s.theme) setTheme(s.theme); }
+      const st = localStorage.getItem("dario-routine-streak");
+      if (st) { try { setRoutineStreak(JSON.parse(st).count || 0); } catch {} }
       const ct = localStorage.getItem("dario-checked-tasks");
       if (ct) {
         const parsed = JSON.parse(ct);
@@ -113,8 +178,8 @@ export default function App() {
   },[]);
 
   useEffect(()=>{
-    try { localStorage.setItem("dario-settings", JSON.stringify({fontSize})); } catch {}
-  },[fontSize]);
+    try { localStorage.setItem("dario-settings", JSON.stringify({fontSize,theme})); } catch {}
+  },[fontSize,theme]);
 
   useEffect(()=>{
     const check = ()=>setIsMobile(window.innerWidth<640);
@@ -140,16 +205,34 @@ export default function App() {
   const loadHomeData = async ()=>{
     setHomeLoading(true);
     try {
-      const [wRes,tRes,rRes,wgRes] = await Promise.all([
-        fetch("/api/weather",{cache:"no-store"}).then(r=>r.json()).catch(()=>null),
-        fetch("/api/tasks",{cache:"no-store"}).then(r=>r.json()).catch(()=>({todo:[],routine:[],sospeso:[]})),
-        fetch("/api/revenue",{cache:"no-store"}).then(r=>r.json()).catch(()=>null),
-        fetch("/api/weight",{cache:"no-store"}).then(r=>r.json()).catch(()=>null),
+      // fetchWithRetry assorbe un singolo blip di rete (timeout momentaneo)
+      // ritentando una volta prima di arrendersi, cosi' il banner di errore
+      // compare solo quando il problema e' persistente e reale.
+      const [wRes,tRes,rRes,wgRes,pRes] = await Promise.all([
+        fetchWithRetry("/api/weather",{cache:"no-store"}),
+        fetchWithRetry("/api/tasks",{cache:"no-store"}),
+        fetchWithRetry("/api/revenue",{cache:"no-store"}),
+        fetchWithRetry("/api/weight",{cache:"no-store"}),
+        fetchWithRetry("/api/pipeline-data",{cache:"no-store"}),
       ]);
       if (wRes&&!wRes.error)  setWeather(wRes);
       if (tRes)               setHomeData(tRes);
+      else                    setHomeData({todo:[],routine:[],sospeso:[]});
       if (rRes&&!rRes.error)  setRevenue(rRes);
       if (wgRes&&!wgRes.error) setWeightData(wgRes);
+      if (pRes&&!pRes.error && Array.isArray(pRes.entries)) {
+        // Lead ancora aperti (non chiusi/rifiutati) senza contatto da 3+
+        // giorni, o mai contattati: sono quelli a rischio di essere
+        // dimenticati mentre l'attenzione va altrove.
+        const today = new Date();
+        const stale = pRes.entries.filter(e=>{
+          if (e.tipo!=="lead" || ["chiuso","rifiutato"].includes(e.stage)) return false;
+          if (!e.ultimo_contatto) return true;
+          const days = (today - new Date(e.ultimo_contatto)) / 86400000;
+          return days >= 3;
+        });
+        setLeadDaRicontattare(stale);
+      }
       // Teniamo traccia di QUALI dati non si sono caricati, invece di
       // lasciare che un errore silenzioso si travesta da "0€"/"–" senza
       // che sia chiaro se è un dato vuoto legittimo o un fetch fallito.
@@ -162,6 +245,30 @@ export default function App() {
     } catch(e){ console.error("Dashboard error:",e); }
     setHomeLoading(false);
   };
+
+  // Streak routine: se tutte le routine di oggi risultano completate,
+  // registriamo il giorno come "fatto" una sola volta e incrementiamo lo
+  // streak solo se il giorno precedente registrato e' davvero ieri
+  // (altrimenti, se salti un giorno, lo streak si azzera invece di
+  // continuare a salire come se nulla fosse).
+  useEffect(()=>{
+    if (!homeData.routine || homeData.routine.length===0) return;
+    const allDone = homeData.routine.every(t=>{
+      const cur = checkedTasks[t.id] ?? DONE_STATUSES.includes((t.status?.status||"").toLowerCase());
+      return cur;
+    });
+    if (!allDone) return;
+    try {
+      const today = todayBucharest();
+      const raw = localStorage.getItem("dario-routine-streak");
+      const prev = raw ? JSON.parse(raw) : { count:0, lastDate:null };
+      if (prev.lastDate === today) return; // già contato oggi
+      const yesterday = new Date(Date.now()-86400000).toLocaleDateString("en-CA",{timeZone:"Europe/Bucharest"});
+      const newCount = prev.lastDate === yesterday ? (prev.count||0)+1 : 1;
+      localStorage.setItem("dario-routine-streak", JSON.stringify({count:newCount,lastDate:today}));
+      setRoutineStreak(newCount);
+    } catch {}
+  },[homeData.routine, checkedTasks]);
 
   const toggleTask = async (taskId,type)=>{
     const task = homeData[type]?.find(t=>t.id===taskId);
@@ -210,10 +317,10 @@ export default function App() {
   };
 
   const DCard  = ({children,style={}})=>(
-    <div style={{background:"#0F0F1A",border:"1px solid #1A1A2E",borderRadius:14,padding:16,...style}}>{children}</div>
+    <div style={{background:T.panel,border:`1px solid ${T.border}`,borderRadius:14,padding:16,...style}}>{children}</div>
   );
-  const DLabel = ({children})=>(
-    <div style={{fontSize:Math.max(9,fontSize-4),fontWeight:700,color:"#475569",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:10}}>{children}</div>
+  const DLabel = ({children,style={}})=>(
+    <div style={{fontSize:Math.max(9,fontSize-4),fontWeight:700,color:T.textDim,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:10,...style}}>{children}</div>
   );
 
   const SettingsContent = ()=>(
@@ -221,7 +328,7 @@ export default function App() {
       <div style={{fontSize:11,color:"#64748B",marginBottom:6}}>Dimensione testo: {fontSize}px</div>
       <input type="range" min={12} max={18} step={1} value={fontSize} onChange={e=>setFontSize(Number(e.target.value))}
         style={{width:"100%",accentColor:"#8B5CF6",cursor:"pointer",marginBottom:8}}/>
-      <div style={{display:"flex",gap:3}}>
+      <div style={{display:"flex",gap:3,marginBottom:14}}>
         {[12,13,14,15,16,17,18].map(s=>(
           <button key={s} onClick={()=>setFontSize(s)}
             style={{flex:1,padding:"3px 0",borderRadius:4,border:`1px solid ${fontSize===s?"#8B5CF6":"#1A1A2E"}`,background:fontSize===s?"#8B5CF620":"transparent",color:fontSize===s?"#8B5CF6":"#475569",cursor:"pointer",fontSize:9}}>
@@ -229,32 +336,45 @@ export default function App() {
           </button>
         ))}
       </div>
+      <div style={{fontSize:11,color:"#64748B",marginBottom:6}}>Tema (solo dashboard)</div>
+      <div style={{display:"flex",gap:6}}>
+        {[["dark","🌙 Scuro"],["light","☀️ Chiaro"]].map(([id,label])=>(
+          <button key={id} onClick={()=>setTheme(id)}
+            style={{flex:1,padding:"6px 0",borderRadius:6,border:`1px solid ${theme===id?"#8B5CF6":"#1A1A2E"}`,background:theme===id?"#8B5CF620":"transparent",color:theme===id?"#8B5CF6":"#475569",cursor:"pointer",fontSize:10}}>
+            {label}
+          </button>
+        ))}
+      </div>
+      <div style={{fontSize:9,color:"#334155",marginTop:6,lineHeight:1.4}}>Pipeline, Finanze e IAGREX restano scuri per ora.</div>
     </div>
   );
 
   return (
-    <div style={{display:"flex",flexDirection:"column",height:"100dvh",background:"#09090F",color:"#E2E8F0",fontFamily:"system-ui,-apple-system,sans-serif",overflow:"hidden"}}>
+    <div style={{display:"flex",flexDirection:"column",height:"100dvh",background:T.bg,color:T.text,fontFamily:"system-ui,-apple-system,sans-serif",overflow:"hidden"}}>
       <div style={{display:"flex",flex:1,overflow:"hidden"}}>
 
         {/* SIDEBAR DESKTOP */}
         {!isMobile && (
-          <div style={{width:180,background:"#0F0F1A",borderRight:"1px solid #1A1A2E",display:"flex",flexDirection:"column",padding:"16px 10px",flexShrink:0}}>
-            {NAV_ITEMS.map(item=>(
+          <div style={{width:180,background:T.panel,borderRight:`1px solid ${T.border}`,display:"flex",flexDirection:"column",padding:"16px 10px",flexShrink:0}}>
+            {NAV_ITEMS.map(item=>{
+              const c = item.color || T.cardText;
+              return (
               <button key={item.id} onClick={()=>setView(item.id)}
                 style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",marginBottom:4,borderRadius:10,border:"none",
-                  background:view===item.id?`${item.color}15`:"transparent",
-                  borderLeft:`3px solid ${view===item.id?item.color:"transparent"}`,
-                  color:view===item.id?item.color:"#64748B",cursor:"pointer",fontSize:13,fontWeight:600,textAlign:"left"}}>
+                  background:view===item.id?`${c}15`:"transparent",
+                  borderLeft:`3px solid ${view===item.id?c:"transparent"}`,
+                  color:view===item.id?c:T.textDim,cursor:"pointer",fontSize:13,fontWeight:600,textAlign:"left"}}>
                 <span>{item.icon}</span>{item.label}
               </button>
-            ))}
-            <div style={{marginTop:"auto",paddingTop:12,borderTop:"1px solid #1A1A2E"}}>
+              );
+            })}
+            <div style={{marginTop:"auto",paddingTop:12,borderTop:`1px solid ${T.border}`}}>
               <button onClick={()=>setShowSettings(s=>!s)}
-                style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1px solid ${showSettings?"#334155":"#1A1A2E"}`,background:showSettings?"#1A1A2E":"transparent",color:"#64748B",cursor:"pointer",fontSize:12,textAlign:"left"}}>
+                style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1px solid ${showSettings?"#334155":T.border}`,background:showSettings?`${T.border}`:"transparent",color:T.textDim,cursor:"pointer",fontSize:12,textAlign:"left"}}>
                 ⚙️ Impostazioni
               </button>
               {showSettings && (
-                <div style={{marginTop:8,background:"#09090F",borderRadius:8,border:"1px solid #1A1A2E"}}>
+                <div style={{marginTop:8,background:T.bg,borderRadius:8,border:`1px solid ${T.border}`}}>
                   <SettingsContent/>
                 </div>
               )}
@@ -272,8 +392,8 @@ export default function App() {
           {view==="home" && (
             <>
               {/* Header */}
-              <div style={{padding:"14px 20px",borderBottom:"1px solid #1A1A2E",background:"#09090F",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-                <div style={{fontWeight:700,fontSize:15,color:"#F8FAFC"}}>🏠 Dashboard</div>
+              <div style={{padding:"14px 20px",borderBottom:`1px solid ${T.border}`,background:T.bg,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                <div style={{fontWeight:700,fontSize:15,color:T.cardText}}>🏠 Dashboard</div>
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
                   {lastUpdated && !homeLoading && (
                     <div style={{fontSize:10,color:"#334155"}}>
@@ -293,7 +413,7 @@ export default function App() {
               </div>
 
               {isMobile && showSettings && (
-                <div style={{background:"#0F0F1A",borderBottom:"1px solid #1A1A2E",flexShrink:0}}>
+                <div style={{background:T.panel,borderBottom:`1px solid ${T.border}`,flexShrink:0}}>
                   <SettingsContent/>
                 </div>
               )}
@@ -304,10 +424,17 @@ export default function App() {
                 </div>
               )}
 
+              {leadDaRicontattare.length > 0 && (
+                <div onClick={()=>setView("pipeline")}
+                  style={{margin:"10px 16px 0",padding:"8px 12px",borderRadius:8,border:"1px solid #F59E0B40",background:"#F59E0B0D",color:"#F59E0B",fontSize:12,flexShrink:0,cursor:"pointer"}}>
+                  📨 {leadDaRicontattare.length} lead da ricontattare: {leadDaRicontattare.slice(0,3).map(l=>l.nome).join(", ")}{leadDaRicontattare.length>3?"…":""}
+                </div>
+              )}
+
               {/* Dashboard content */}
               <div style={{flex:1,overflowY:"auto",padding:"16px 16px 24px",fontSize}}>
                 <div style={{marginBottom:16}}>
-                  <div style={{fontSize:fontSize+6,fontWeight:700,color:"#F8FAFC"}}>{getGreeting()}, Dario 👋</div>
+                  <div style={{fontSize:fontSize+6,fontWeight:700,color:T.cardText}}>{getGreeting()}, Dario 👋</div>
                   <div style={{color:"#475569",fontSize:fontSize-2,marginTop:3}}>
                     {new Date().toLocaleDateString("it-IT",{timeZone:"Europe/Bucharest",weekday:"long",day:"numeric",month:"long"})}
                   </div>
@@ -317,7 +444,7 @@ export default function App() {
                 <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:10,marginBottom:10}}>
                   <DCard>
                     <DLabel>🕐 Ora</DLabel>
-                    <div style={{fontSize:fontSize+12,fontWeight:800,color:"#F8FAFC",letterSpacing:"0.04em",lineHeight:1}}>{clockBucharest}</div>
+                    <div style={{fontSize:fontSize+12,fontWeight:800,color:T.cardText,letterSpacing:"0.04em",lineHeight:1}}>{clockBucharest}</div>
                     <div style={{fontSize:fontSize-4,color:"#475569",marginTop:3,marginBottom:10}}>Bucarest</div>
                     <div style={{paddingTop:8,borderTop:"1px solid #1A1A2E"}}>
                       <div style={{fontSize:fontSize+2,fontWeight:600,color:"#94A3B8"}}>{clockRome}</div>
@@ -329,7 +456,7 @@ export default function App() {
                     {weather?(
                       <>
                         <div style={{fontSize:32,lineHeight:1,marginBottom:4}}>{getWeatherEmoji(weather.condition)}</div>
-                        <div style={{fontSize:fontSize+12,fontWeight:800,color:"#F8FAFC"}}>{weather.temp}°C</div>
+                        <div style={{fontSize:fontSize+12,fontWeight:800,color:T.cardText}}>{weather.temp}°C</div>
                         <div style={{fontSize:fontSize-3,color:"#64748B",marginTop:2,textTransform:"capitalize"}}>{weather.description}</div>
                         <div style={{fontSize:fontSize-4,color:"#334155",marginTop:4}}>💧{weather.humidity}% · 💨{weather.wind}km/h</div>
                       </>
@@ -345,15 +472,20 @@ export default function App() {
                     <DLabel>✅ To Do Oggi</DLabel>
                     {homeData.todo.length===0?(
                       <div style={{fontSize:fontSize-2,color:"#334155"}}>{homeLoading?"Caricamento...":"Nessun task 🎉"}</div>
-                    ):homeData.todo.map(t=>(
+                    ):sortedByPriority(homeData.todo).map(t=>(
                       <TaskItem key={t.id} task={t} color="#8B5CF6" onToggle={id=>toggleTask(id,"todo")} fontSize={fontSize} isChecked={checkedTasks[t.id]}/>
                     ))}
                   </DCard>
                   <DCard>
-                    <DLabel>🔄 Routine</DLabel>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+                      <DLabel style={{marginBottom:0}}>🔄 Routine</DLabel>
+                      {routineStreak > 0 && (
+                        <span style={{fontSize:fontSize-4,color:"#F97316",fontWeight:700}}>🔥 {routineStreak}g</span>
+                      )}
+                    </div>
                     {homeData.routine.length===0?(
                       <div style={{fontSize:fontSize-2,color:"#334155"}}>{homeLoading?"Caricamento...":"Nessuna routine"}</div>
-                    ):homeData.routine.map(t=>(
+                    ):sortedByPriority(homeData.routine).map(t=>(
                       <TaskItem key={t.id} task={t} color="#10B981" onToggle={id=>toggleTask(id,"routine")} fontSize={fontSize} isChecked={checkedTasks[t.id]}/>
                     ))}
                   </DCard>
@@ -399,10 +531,13 @@ export default function App() {
                           <div style={{height:"100%",background:"#10B981",borderRadius:2,width:`${Math.max(revenue.percentuale||0,1)}%`,transition:"width 0.4s"}}/>
                         </div>
                         <div style={{fontSize:fontSize-5,color:"#334155",marginTop:3}}>{revenue.percentuale}% verso 1.000.000€</div>
-                        {revenue.storico_mensile && revenue.storico_mensile.length>1 && (
-                          <RevenueMiniChart data={revenue.storico_mensile}/>
+                        {/* Su mobile nascondiamo grafico e dettaglio ritmo per non
+                            affollare la card: restano i numeri essenziali + il
+                            pulsante per aprire il tracking completo. */}
+                        {!isMobile && revenue.storico_mensile && revenue.storico_mensile.length>1 && (
+                          <RevenueMiniChart data={revenue.storico_mensile} target={revenue.ritmo_mensile_necessario}/>
                         )}
-                        {revenue.ritmo_mensile_necessario != null && (
+                        {!isMobile && revenue.ritmo_mensile_necessario != null && (
                           <div style={{fontSize:fontSize-4,color:"#3B82F6",marginTop:6,paddingTop:6,borderTop:"1px solid #1A1A2E"}}>
                             🎯 Servono {revenue.ritmo_mensile_necessario.toLocaleString("it-IT")}€/mese per {revenue.mesi_rimanenti} mes{revenue.mesi_rimanenti===1?"e":"i"} per arrivare a 1M€
                           </div>
@@ -439,14 +574,17 @@ export default function App() {
 
       {/* MOBILE BOTTOM NAV */}
       {isMobile && (
-        <div style={{display:"flex",background:"#0F0F1A",borderTop:"1px solid #1A1A2E",padding:"4px 2px",flexShrink:0,zIndex:100}}>
-          {NAV_ITEMS.map(item=>(
+        <div style={{display:"flex",background:T.panel,borderTop:`1px solid ${T.border}`,padding:"4px 2px",flexShrink:0,zIndex:100}}>
+          {NAV_ITEMS.map(item=>{
+            const c = item.color || T.cardText;
+            return (
             <button key={item.id} onClick={()=>setView(item.id)}
-              style={{flex:1,padding:"6px 2px",borderRadius:8,border:"none",background:view===item.id?"#1A1A2E":"transparent",color:view===item.id?item.color:"#475569",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1}}>
+              style={{flex:1,padding:"6px 2px",borderRadius:8,border:"none",background:view===item.id?T.border:"transparent",color:view===item.id?c:T.textDim,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1}}>
               <span style={{fontSize:18}}>{item.icon}</span>
               <span style={{fontSize:8}}>{item.label}</span>
             </button>
-          ))}
+            );
+          })}
         </div>
       )}
 
