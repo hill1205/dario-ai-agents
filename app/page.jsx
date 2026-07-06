@@ -58,6 +58,8 @@ export default function App() {
   const [weightData, setWeightData]         = useState(null);
   const [homeLoading, setHomeLoading]       = useState(false);
   const [homeErrors, setHomeErrors]         = useState({});
+  const [syncError, setSyncError]           = useState(null);
+  const [lastUpdated, setLastUpdated]       = useState(null);
 
   // Load settings
   useEffect(()=>{
@@ -127,6 +129,7 @@ export default function App() {
         revenue: !rRes || !!rRes.error,
         weight:  !wgRes || !!wgRes.error,
       });
+      setLastUpdated(new Date());
     } catch(e){ console.error("Dashboard error:",e); }
     setHomeLoading(false);
   };
@@ -139,9 +142,21 @@ export default function App() {
     const newChecked = {...checkedTasks,[taskId]:next};
     setCheckedTasks(newChecked);
     try { localStorage.setItem("dario-checked-tasks",JSON.stringify({date:todayBucharest(),tasks:newChecked})); } catch {}
+    // Aggiornamento ottimistico: se la scrittura su ClickUp fallisce,
+    // riportiamo indietro la checkbox e lo segnaliamo, invece di lasciare
+    // che la dashboard mostri uno stato "completato" che su ClickUp non
+    // esiste davvero — è esattamente il tipo di disallineamento che ha
+    // fatto partire questo progetto.
     try {
-      await fetch("/api/update-task",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({taskId,status:next?"completata":"da fare"})});
-    } catch {}
+      const res = await fetch("/api/update-task",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({taskId,status:next?"completata":"da fare"})});
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    } catch (e) {
+      const reverted = {...newChecked,[taskId]:cur};
+      setCheckedTasks(reverted);
+      try { localStorage.setItem("dario-checked-tasks",JSON.stringify({date:todayBucharest(),tasks:reverted})); } catch {}
+      setSyncError(task.name || "task");
+      setTimeout(()=>setSyncError(null), 5000);
+    }
   };
 
   const saveWeightModal = async ()=>{
@@ -230,7 +245,12 @@ export default function App() {
               {/* Header */}
               <div style={{padding:"14px 20px",borderBottom:"1px solid #1A1A2E",background:"#09090F",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                 <div style={{fontWeight:700,fontSize:15,color:"#F8FAFC"}}>🏠 Dashboard</div>
-                <div style={{display:"flex",gap:8}}>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  {lastUpdated && !homeLoading && (
+                    <div style={{fontSize:10,color:"#334155"}}>
+                      aggiornato alle {lastUpdated.toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"})}
+                    </div>
+                  )}
                   <button onClick={loadHomeData} style={{padding:"4px 10px",borderRadius:7,border:"1px solid #1A1A2E",background:"transparent",color:"#475569",cursor:"pointer",fontSize:11}}>
                     {homeLoading?"⏳":"↻ Aggiorna"}
                   </button>
@@ -246,6 +266,12 @@ export default function App() {
               {isMobile && showSettings && (
                 <div style={{background:"#0F0F1A",borderBottom:"1px solid #1A1A2E",flexShrink:0}}>
                   <SettingsContent/>
+                </div>
+              )}
+
+              {syncError && (
+                <div style={{margin:"10px 16px 0",padding:"8px 12px",borderRadius:8,border:"1px solid #EF444450",background:"#EF44440D",color:"#EF4444",fontSize:12,flexShrink:0}}>
+                  ⚠️ Non sono riuscito ad aggiornare "{syncError}" su ClickUp — la modifica è stata annullata, riprova.
                 </div>
               )}
 
@@ -309,7 +335,7 @@ export default function App() {
                   <DCard>
                     <DLabel>💪 Progressi Fisici</DLabel>
                     {homeErrors.weight && !homeLoading && (
-                      <div style={{fontSize:fontSize-5,color:"#F59E0B",marginBottom:4}}>⚠️ dati non aggiornati (ClickUp non raggiungibile)</div>
+                      <div style={{fontSize:fontSize-3,color:"#F59E0B",background:"#F59E0B15",border:"1px solid #F59E0B40",borderRadius:6,padding:"4px 8px",marginBottom:6}}>⚠️ dati non aggiornati (ClickUp non raggiungibile)</div>
                     )}
                     {weightData?(
                       <>
@@ -332,7 +358,7 @@ export default function App() {
                   <DCard>
                     <DLabel>💶 Revenue IAGREX</DLabel>
                     {homeErrors.revenue && !homeLoading && (
-                      <div style={{fontSize:fontSize-5,color:"#F59E0B",marginBottom:4}}>⚠️ dati non aggiornati (ClickUp non raggiungibile)</div>
+                      <div style={{fontSize:fontSize-3,color:"#F59E0B",background:"#F59E0B15",border:"1px solid #F59E0B40",borderRadius:6,padding:"4px 8px",marginBottom:6}}>⚠️ dati non aggiornati (ClickUp non raggiungibile)</div>
                     )}
                     {revenue?(
                       <>
