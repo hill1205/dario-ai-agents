@@ -65,6 +65,24 @@ export async function GET() {
     const mancante = Math.max(OBIETTIVO_ANNUALE - ytdRevenue, 0);
     const ritmoMensileNecessario = Math.round(mancante / mesiRimanenti);
 
+    // Storico mensile dell'anno in corso, per il mini-grafico in dashboard:
+    // un punto per ogni mese da gennaio al mese corrente, anche se un mese
+    // non ha ancora dati (in tal caso entrate=0, cosi' il grafico mostra
+    // correttamente "ancora nessun incasso" invece di saltare il mese.
+    const storico_mensile = [];
+    for (let m = 1; m <= currentMonthNum; m++) {
+      const ym = `${year}-${String(m).padStart(2, "0")}`;
+      const d = allData[ym] || { entrate: [], uscite: [] };
+      const entrate = d.entrate.reduce((s, e) => s + (parseFloat(e.importo) || 0), 0);
+      const uscite = d.uscite.reduce((s, e) => s + (parseFloat(e.importo) || 0), 0);
+      storico_mensile.push({
+        mese: ym,
+        label: getMonthLabel(ym).slice(0, 3),
+        entrate,
+        uscite,
+      });
+    }
+
     return Response.json({
       mese: getMonthLabel(month),
       entrate_totali,
@@ -77,6 +95,7 @@ export async function GET() {
       ytd_revenue: ytdRevenue,
       mesi_rimanenti: mesiRimanenti,
       ritmo_mensile_necessario: ritmoMensileNecessario,
+      storico_mensile,
     });
   } catch (error) {
     return Response.json({ error: error.message }, { status: 500 });
