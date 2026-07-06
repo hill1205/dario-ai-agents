@@ -344,6 +344,11 @@ export default function App() {
                           <div style={{height:"100%",background:"#10B981",borderRadius:2,width:`${Math.max(revenue.percentuale||0,1)}%`,transition:"width 0.4s"}}/>
                         </div>
                         <div style={{fontSize:fontSize-5,color:"#334155",marginTop:3}}>{revenue.percentuale}% verso 1.000.000€</div>
+                        {revenue.ritmo_mensile_necessario != null && (
+                          <div style={{fontSize:fontSize-4,color:"#3B82F6",marginTop:6,paddingTop:6,borderTop:"1px solid #1A1A2E"}}>
+                            🎯 Servono {revenue.ritmo_mensile_necessario.toLocaleString("it-IT")}€/mese per {revenue.mesi_rimanenti} mes{revenue.mesi_rimanenti===1?"e":"i"} per arrivare a 1M€
+                          </div>
+                        )}
                         <button onClick={()=>setView("iagrex")}
                           style={{marginTop:10,width:"100%",padding:"6px",borderRadius:7,border:"1px solid #3B82F640",background:"#3B82F610",color:"#3B82F6",cursor:"pointer",fontSize:fontSize-3,fontWeight:600}}>
                           📊 Apri tracking completo
@@ -396,7 +401,7 @@ export default function App() {
               onChange={e=>setWeightInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter") saveWeightModal();}}
               style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #334155",background:"#09090F",color:"#E2E8F0",fontSize:18,outline:"none",marginBottom:12}}/>
             <div style={{display:"flex",gap:8}}>
-              <button onClick={()=>setShowWeightModal(false)} style={{flex:1,padding:10,borderRadius:8,border:"1px solid #1A1A2E",background:"transparent",color:"#475569",cursor:"pointer"}}>Annulla</button>
+              <button onClick={()=>setShowWeightModal(false)} style={{flex:1,padding:10,borderRadius:8,border:"1px solid #1A1A2E",background:"transparent",color:"#475569",cursor:"pointer",fontSize:14}}>Annulla</button>
               <button onClick={saveWeightModal} style={{flex:1,padding:10,borderRadius:8,border:"none",background:"#F97316",color:"#fff",cursor:"pointer",fontSize:14,fontWeight:700}}>Salva</button>
             </div>
           </div>
