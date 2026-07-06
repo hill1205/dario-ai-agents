@@ -508,7 +508,7 @@ export default function App() {
                         </div>
                         <div style={{fontSize:fontSize-5,color:"#334155",marginTop:3}}>Obiettivo: 85 kg</div>
                         <button onClick={()=>{setWeightInput("");setShowWeightModal(true);}}
-                          style={{marginTop:10,width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid #1A1A2E",background:"#09090F",color:"#475569",fontSize:fontSize-2,textAlign:"left",cursor:"pointer"}}>
+                          style={{marginTop:10,width:"100%",padding:"5px 8px",borderRadius:6,border:`1px solid ${T.border}`,background:T.bg,color:T.textDim,fontSize:fontSize-2,textAlign:"left",cursor:"pointer"}}>
                           Registra peso oggi...
                         </button>
                       </>
