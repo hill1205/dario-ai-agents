@@ -23,6 +23,11 @@ function getMonthLabel(ym) {
 function getCurrentMonth() { return new Date().toISOString().slice(0,7); }
 function getCurrentYear() { return new Date().getFullYear().toString(); }
 
+const THEME_VARS = {
+  dark:  { "--c-bg":"#09090F", "--c-panel":"#0F0F1A", "--c-panel2":"#0B0B16", "--c-border":"#1A1A2E", "--c-text-strong":"#F8FAFC", "--c-text":"#E2E8F0", "--c-text-dim":"#64748B", "--c-text-faint":"#475569", "--c-text-faintest":"#334155", "--c-text-muted":"#94A3B8" },
+  light: { "--c-bg":"#F4F5F7", "--c-panel":"#FFFFFF", "--c-panel2":"#F1F2F5", "--c-border":"#E2E4E9", "--c-text-strong":"#0F172A", "--c-text":"#1A1A2E", "--c-text-dim":"#475569", "--c-text-faint":"#94A3B8", "--c-text-faintest":"#CBD5E1", "--c-text-muted":"#64748B" },
+};
+
 // Ultimi N mesi (compreso quello corrente) con entrate/uscite totali,
 // anche se un mese non ha ancora dati (0€, non saltato) per non rompere
 // la continuità visiva del trend.
@@ -53,10 +58,10 @@ function CashFlowMiniChart({ allData }) {
   const barW = groupW/2 - 1;
   const max = Math.max(...data.map(d=>Math.max(d.entrate,d.uscite)), 1);
   return (
-    <div style={{marginTop:12,background:"#0F0F1A",border:"1px solid #1A1A2E",borderRadius:10,padding:"12px 14px"}}>
+    <div style={{marginTop:12,background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,padding:"12px 14px"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-        <div style={{fontSize:11,color:"#64748B",textTransform:"uppercase",letterSpacing:"0.06em"}}>Cash flow ultimi 6 mesi</div>
-        <div style={{fontSize:10,color:"#475569"}}><span style={{color:"#10B981"}}>■</span> entrate <span style={{color:"#EF4444",marginLeft:6}}>■</span> uscite</div>
+        <div style={{fontSize:11,color:"var(--c-text-dim)",textTransform:"uppercase",letterSpacing:"0.06em"}}>Cash flow ultimi 6 mesi</div>
+        <div style={{fontSize:10,color:"var(--c-text-faint)"}}><span style={{color:"#10B981"}}>■</span> entrate <span style={{color:"#EF4444",marginLeft:6}}>■</span> uscite</div>
       </div>
       <svg width="100%" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{display:"block"}}>
         {data.map((d,i)=>{
@@ -67,7 +72,7 @@ function CashFlowMiniChart({ allData }) {
             <g key={d.mese}>
               <rect x={gx} y={H-14-he} width={barW} height={he} rx={1.5} fill="#10B981" />
               <rect x={gx+barW+2} y={H-14-hu} width={barW} height={hu} rx={1.5} fill="#EF4444" />
-              <text x={gx+groupW/2} y={H} textAnchor="middle" fontSize="7" fill="#334155">{d.label}</text>
+              <text x={gx+groupW/2} y={H} textAnchor="middle" fontSize="7" fill="var(--c-text-faintest)">{d.label}</text>
             </g>
           );
         })}
@@ -76,8 +81,9 @@ function CashFlowMiniChart({ allData }) {
   );
 }
 
-export default function IAGREXPage({ fontSize=14, onBack }) {
+export default function IAGREXPage({ fontSize=14, onBack, theme="dark" }) {
   const fs = fontSize;
+  const themeVars = THEME_VARS[theme] || THEME_VARS.dark;
   const [allData, setAllData]     = useState({});
   const [month, setMonth]         = useState(getCurrentMonth());
   const [tab, setTab]             = useState("entrate");
@@ -215,28 +221,28 @@ export default function IAGREXPage({ fontSize=14, onBack }) {
   };
 
   const Cell = ({style={},children}) => (
-    <div style={{padding:"10px 12px",fontSize:fs-2,color:"#94A3B8",display:"flex",alignItems:"center",...style}}>{children}</div>
+    <div style={{padding:"10px 12px",fontSize:fs-2,color:"var(--c-text-muted)",display:"flex",alignItems:"center",...style}}>{children}</div>
   );
 
   return (
-    <div style={{display:"flex",flexDirection:"column",height:"100%",overflow:"hidden",background:"#09090F"}}>
+    <div style={{...themeVars,display:"flex",flexDirection:"column",height:"100%",overflow:"hidden",background:"var(--c-bg)"}}>
 
       {/* Header */}
-      <div style={{padding:"14px 20px",borderBottom:"1px solid #1A1A2E",flexShrink:0}}>
+      <div style={{padding:"14px 20px",borderBottom:"1px solid var(--c-border)",flexShrink:0}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
-            {onBack && <button onClick={onBack} style={{padding:"5px 10px",borderRadius:7,border:"1px solid #1A1A2E",background:"transparent",color:"#64748B",cursor:"pointer",fontSize:12}}>← Home</button>}
-            <div style={{fontWeight:700,fontSize:15,color:"#F8FAFC"}}>📊 Finanze IAGREX</div>
+            {onBack && <button onClick={onBack} style={{padding:"5px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-dim)",cursor:"pointer",fontSize:12}}>← Home</button>}
+            <div style={{fontWeight:700,fontSize:15,color:"var(--c-text-strong)"}}>📊 Finanze IAGREX</div>
             {saveStatus==="saving"  && <span style={{fontSize:11,color:"#F59E0B"}}>☁️ Salvataggio...</span>}
             {saveStatus==="saved"   && <span style={{fontSize:11,color:"#10B981"}}>✅ Salvato</span>}
             {saveStatus==="error"   && <span style={{fontSize:11,color:"#EF4444"}}>❌ Errore</span>}
             {saveStatus==="blocked" && <span style={{fontSize:11,color:"#EF4444"}}>🚫 Salvataggio bloccato: dati non caricati</span>}
           </div>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <button onClick={prevMonth} style={{width:28,height:28,borderRadius:6,border:"1px solid #1A1A2E",background:"transparent",color:"#64748B",cursor:"pointer",fontSize:14}}>‹</button>
-            <span style={{fontSize:fs-1,fontWeight:700,color:"#F8FAFC",minWidth:140,textAlign:"center"}}>{getMonthLabel(month)}</span>
-            <button onClick={nextMonth} style={{width:28,height:28,borderRadius:6,border:"1px solid #1A1A2E",background:"transparent",color:"#64748B",cursor:"pointer",fontSize:14}}>›</button>
-            <button onClick={loadData} style={{padding:"4px 8px",borderRadius:6,border:"1px solid #1A1A2E",background:"transparent",color:"#475569",cursor:"pointer",fontSize:11}}>{loading?"⏳":"↻"}</button>
+            <button onClick={prevMonth} style={{width:28,height:28,borderRadius:6,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-dim)",cursor:"pointer",fontSize:14}}>‹</button>
+            <span style={{fontSize:fs-1,fontWeight:700,color:"var(--c-text-strong)",minWidth:140,textAlign:"center"}}>{getMonthLabel(month)}</span>
+            <button onClick={nextMonth} style={{width:28,height:28,borderRadius:6,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-dim)",cursor:"pointer",fontSize:14}}>›</button>
+            <button onClick={loadData} style={{padding:"4px 8px",borderRadius:6,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-faint)",cursor:"pointer",fontSize:11}}>{loading?"⏳":"↻"}</button>
           </div>
         </div>
         {loadError && (
@@ -246,17 +252,23 @@ export default function IAGREXPage({ fontSize=14, onBack }) {
         )}
 
         {/* YTD Progress */}
-        <div style={{marginTop:12,background:"#0F0F1A",border:"1px solid #10B98130",borderRadius:10,padding:"12px 14px"}}>
+        <div style={{marginTop:12,background:"var(--c-panel)",border:"1px solid #10B98130",borderRadius:10,padding:"12px 14px"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-            <div style={{fontSize:fs-3,color:"#64748B"}}>Progress {year} verso 1.000.000€</div>
+            <div style={{fontSize:fs-3,color:"var(--c-text-dim)"}}>Progress {year} verso 1.000.000€</div>
             <div style={{fontSize:fs-2,fontWeight:700,color:"#10B981"}}>{fmt(ytdRevenue)}€ · {ytdPct}%</div>
           </div>
-          <div style={{height:6,background:"#1A1A2E",borderRadius:3}}>
+          <div style={{height:6,background:"var(--c-border)",borderRadius:3}}>
             <div style={{height:"100%",background:"linear-gradient(90deg,#10B981,#3B82F6)",borderRadius:3,width:`${Math.max(ytdPct,0.5)}%`,transition:"width 0.4s"}}/>
           </div>
-          <div style={{fontSize:fs-4,color:"#334155",marginTop:4}}>Mancano {fmt(OBIETTIVO_ANNUO-ytdRevenue)}€ all'obiettivo annuo</div>
-          <div style={{fontSize:fs-4,color:"#3B82F6",marginTop:6,paddingTop:6,borderTop:"1px solid #1A1A2E"}}>
-            🎯 Servono {fmt(ritmoMensileNecessario)}€/mese per {mesiRimanenti} mes{mesiRimanenti===1?"e":"i"}
+          <div style={{fontSize:fs-4,color:"var(--c-text-faintest)",marginTop:4}}>Mancano {fmt(OBIETTIVO_ANNUO-ytdRevenue)}€ all'obiettivo annuo</div>
+          <div style={{marginTop:6,paddingTop:6,borderTop:"1px solid var(--c-border)"}}>
+            <div style={{fontSize:fs-5,color:"#3B82F6",textTransform:"uppercase",letterSpacing:"0.06em"}}>🎯 Ritmo necessario</div>
+            <div style={{fontSize:fs+3,fontWeight:800,color:"#3B82F6"}}>
+              {fmt(ritmoMensileNecessario)}€<span style={{fontSize:fs-2,fontWeight:400}}>/mese</span>
+            </div>
+            <div style={{fontSize:fs-4,color:"var(--c-text-faint)"}}>
+              ripetuto per ciascuno dei {mesiRimanenti} mes{mesiRimanenti===1?"e rimanente":"i rimanenti"} per arrivare a 1.000.000€
+            </div>
           </div>
         </div>
 
@@ -270,8 +282,8 @@ export default function IAGREXPage({ fontSize=14, onBack }) {
             {label:"Saldo netto",  val:saldoNetto,color:saldoNetto>=0?"#10B981":"#EF4444",prefix:saldoNetto>=0?"+":""},
             {label:"MRR stimato",  val:totEntrate,color:"#3B82F6",prefix:""},
           ].map(c=>(
-            <div key={c.label} style={{background:"#0F0F1A",border:"1px solid #1A1A2E",borderRadius:8,padding:"8px 12px"}}>
-              <div style={{fontSize:fs-4,color:"#475569",marginBottom:3}}>{c.label}</div>
+            <div key={c.label} style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:8,padding:"8px 12px"}}>
+              <div style={{fontSize:fs-4,color:"var(--c-text-faint)",marginBottom:3}}>{c.label}</div>
               <div style={{fontSize:fs+1,fontWeight:800,color:c.color}}>{c.prefix}{fmt(c.val)}€</div>
             </div>
           ))}
@@ -279,13 +291,13 @@ export default function IAGREXPage({ fontSize=14, onBack }) {
       </div>
 
       {/* Tabs */}
-      <div style={{display:"flex",borderBottom:"1px solid #1A1A2E",flexShrink:0,background:"#09090F"}}>
+      <div style={{display:"flex",borderBottom:"1px solid var(--c-border)",flexShrink:0,background:"var(--c-bg)"}}>
         {[["entrate","💚 Entrate"],["uscite","🔴 Uscite"],["saldi","🏦 Saldi"]].map(([t,label])=>(
-          <button key={t} onClick={()=>setTab(t)} style={{padding:"10px 16px",border:"none",background:"transparent",cursor:"pointer",fontSize:fs-2,fontWeight:tab===t?700:400,color:tab===t?"#F8FAFC":"#475569",borderBottom:tab===t?"2px solid #3B82F6":"2px solid transparent"}}>{label}</button>
+          <button key={t} onClick={()=>setTab(t)} style={{padding:"10px 16px",border:"none",background:"transparent",cursor:"pointer",fontSize:fs-2,fontWeight:tab===t?700:400,color:tab===t?"var(--c-text-strong)":"var(--c-text-faint)",borderBottom:tab===t?"2px solid #3B82F6":"2px solid transparent"}}>{label}</button>
         ))}
       </div>
 
-      {loading && <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",color:"#334155"}}>⏳ Caricamento...</div>}
+      {loading && <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",color:"var(--c-text-faintest)"}}>⏳ Caricamento...</div>}
 
       {!loading && (
         <div style={{flex:1,overflowY:"auto",padding:16}}>
@@ -293,20 +305,20 @@ export default function IAGREXPage({ fontSize=14, onBack }) {
           {tab==="entrate" && (
             <div>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-                <div style={{fontSize:fs-2,color:"#64748B"}}>Totale: <span style={{color:"#10B981",fontWeight:700}}>+{fmt(totEntrate)}€</span></div>
+                <div style={{fontSize:fs-2,color:"var(--c-text-dim)"}}>Totale: <span style={{color:"#10B981",fontWeight:700}}>+{fmt(totEntrate)}€</span></div>
                 <button onClick={()=>openAdd("entrata")} style={{padding:"6px 14px",borderRadius:7,border:"none",background:"#10B981",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:600}}>+ Aggiungi</button>
               </div>
-              <div style={{background:"#0F0F1A",border:"1px solid #1A1A2E",borderRadius:10,overflow:"hidden"}}>
+              <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,overflow:"hidden"}}>
                 {monthData.entrate.length===0
-                  ? <div style={{padding:20,textAlign:"center",color:"#334155",fontSize:fs-2}}>Nessuna entrata — aggiungi la prima</div>
+                  ? <div style={{padding:20,textAlign:"center",color:"var(--c-text-faintest)",fontSize:fs-2}}>Nessuna entrata — aggiungi la prima</div>
                   : monthData.entrate.map((e,i)=>(
-                    <div key={e.id} style={{display:"grid",gridTemplateColumns:"1fr auto auto auto",gap:0,borderTop:i===0?"none":"1px solid #1A1A2E",background:i%2===0?"#0F0F1A":"#0B0B16"}}>
+                    <div key={e.id} style={{display:"grid",gridTemplateColumns:"1fr auto auto auto",gap:0,borderTop:i===0?"none":"1px solid var(--c-border)",background:i%2===0?"var(--c-panel)":"var(--c-panel2)"}}>
                       <Cell style={{flexDirection:"column",alignItems:"flex-start",gap:2}}>
-                        <span style={{color:"#E2E8F0",fontWeight:600}}>{e.descrizione}</span>
-                        <span style={{fontSize:fs-4,color:"#475569"}}>{e.categoria}{e.cliente?` · ${e.cliente}`:""}</span>
+                        <span style={{color:"var(--c-text)",fontWeight:600}}>{e.descrizione}</span>
+                        <span style={{fontSize:fs-4,color:"var(--c-text-faint)"}}>{e.categoria}{e.cliente?` · ${e.cliente}`:""}</span>
                       </Cell>
                       <Cell style={{color:"#10B981",fontWeight:700}}>+{fmt(e.importo)}€</Cell>
-                      <Cell><button onClick={()=>openEdit("entrata",e)} style={{width:24,height:24,borderRadius:5,border:"1px solid #1A1A2E",background:"transparent",color:"#64748B",cursor:"pointer",fontSize:10}}>✏️</button></Cell>
+                      <Cell><button onClick={()=>openEdit("entrata",e)} style={{width:24,height:24,borderRadius:5,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-dim)",cursor:"pointer",fontSize:10}}>✏️</button></Cell>
                       <Cell><button onClick={()=>deleteItem("entrata",e.id)} style={{width:24,height:24,borderRadius:5,border:"1px solid #2A1A1A",background:"transparent",color:"#EF4444",cursor:"pointer",fontSize:12,fontWeight:700}}>×</button></Cell>
                     </div>
                   ))
@@ -318,20 +330,20 @@ export default function IAGREXPage({ fontSize=14, onBack }) {
           {tab==="uscite" && (
             <div>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-                <div style={{fontSize:fs-2,color:"#64748B"}}>Totale: <span style={{color:"#EF4444",fontWeight:700}}>-{fmt(totUscite)}€</span></div>
+                <div style={{fontSize:fs-2,color:"var(--c-text-dim)"}}>Totale: <span style={{color:"#EF4444",fontWeight:700}}>-{fmt(totUscite)}€</span></div>
                 <button onClick={()=>openAdd("uscita")} style={{padding:"6px 14px",borderRadius:7,border:"none",background:"#EF4444",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:600}}>+ Aggiungi</button>
               </div>
-              <div style={{background:"#0F0F1A",border:"1px solid #1A1A2E",borderRadius:10,overflow:"hidden"}}>
+              <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,overflow:"hidden"}}>
                 {monthData.uscite.length===0
-                  ? <div style={{padding:20,textAlign:"center",color:"#334155",fontSize:fs-2}}>Nessuna uscita</div>
+                  ? <div style={{padding:20,textAlign:"center",color:"var(--c-text-faintest)",fontSize:fs-2}}>Nessuna uscita</div>
                   : monthData.uscite.map((e,i)=>(
-                    <div key={e.id} style={{display:"grid",gridTemplateColumns:"1fr auto auto auto",gap:0,borderTop:i===0?"none":"1px solid #1A1A2E",background:i%2===0?"#0F0F1A":"#0B0B16"}}>
+                    <div key={e.id} style={{display:"grid",gridTemplateColumns:"1fr auto auto auto",gap:0,borderTop:i===0?"none":"1px solid var(--c-border)",background:i%2===0?"var(--c-panel)":"var(--c-panel2)"}}>
                       <Cell style={{flexDirection:"column",alignItems:"flex-start",gap:2}}>
-                        <span style={{color:"#E2E8F0",fontWeight:600}}>{e.descrizione}</span>
-                        <span style={{fontSize:fs-4,color:"#475569"}}>{e.categoria}</span>
+                        <span style={{color:"var(--c-text)",fontWeight:600}}>{e.descrizione}</span>
+                        <span style={{fontSize:fs-4,color:"var(--c-text-faint)"}}>{e.categoria}</span>
                       </Cell>
                       <Cell style={{color:"#EF4444",fontWeight:700}}>-{fmt(e.importo)}€</Cell>
-                      <Cell><button onClick={()=>openEdit("uscita",e)} style={{width:24,height:24,borderRadius:5,border:"1px solid #1A1A2E",background:"transparent",color:"#64748B",cursor:"pointer",fontSize:10}}>✏️</button></Cell>
+                      <Cell><button onClick={()=>openEdit("uscita",e)} style={{width:24,height:24,borderRadius:5,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-dim)",cursor:"pointer",fontSize:10}}>✏️</button></Cell>
                       <Cell><button onClick={()=>deleteItem("uscita",e.id)} style={{width:24,height:24,borderRadius:5,border:"1px solid #2A1A1A",background:"transparent",color:"#EF4444",cursor:"pointer",fontSize:12,fontWeight:700}}>×</button></Cell>
                     </div>
                   ))
@@ -343,21 +355,21 @@ export default function IAGREXPage({ fontSize=14, onBack }) {
           {tab==="saldi" && (
             <div>
               <div style={{fontSize:fs-3,fontWeight:700,color:"#3B82F6",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}}>🏦 Saldi Conti IAGREX</div>
-              <div style={{background:"#0F0F1A",border:"1px solid #1A1A2E",borderRadius:10,overflow:"hidden"}}>
+              <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,overflow:"hidden"}}>
                 {CONTI_IAGREX.map((c,i)=>(
-                  <div key={c.id} style={{display:"grid",gridTemplateColumns:"1fr auto",borderTop:i===0?"none":"1px solid #1A1A2E",background:i%2===0?"#0F0F1A":"#0B0B16"}}>
-                    <div style={{padding:"10px 12px",fontSize:fs-2,color:"#E2E8F0",display:"flex",alignItems:"center"}}>{c.label}</div>
+                  <div key={c.id} style={{display:"grid",gridTemplateColumns:"1fr auto",borderTop:i===0?"none":"1px solid var(--c-border)",background:i%2===0?"var(--c-panel)":"var(--c-panel2)"}}>
+                    <div style={{padding:"10px 12px",fontSize:fs-2,color:"var(--c-text)",display:"flex",alignItems:"center"}}>{c.label}</div>
                     <div style={{padding:"6px 12px",display:"flex",alignItems:"center",gap:4}}>
                       <input type="number" value={monthData.saldi?.[c.id]||""} onChange={e=>updateSaldo(c.id,e.target.value)} placeholder="0"
-                        style={{width:100,padding:"5px 8px",borderRadius:6,border:"1px solid #1A1A2E",background:"#09090F",color:"#3B82F6",fontSize:fs-2,outline:"none",textAlign:"right",fontWeight:700}}/>
-                      <span style={{fontSize:fs-3,color:"#475569"}}>{c.currency}</span>
+                        style={{width:100,padding:"5px 8px",borderRadius:6,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"#3B82F6",fontSize:fs-2,outline:"none",textAlign:"right",fontWeight:700}}/>
+                      <span style={{fontSize:fs-3,color:"var(--c-text-faint)"}}>{c.currency}</span>
                     </div>
                   </div>
                 ))}
-                <div style={{padding:"10px 12px",borderTop:"1px solid #1A1A2E",background:"#09090F",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+                <div style={{padding:"10px 12px",borderTop:"1px solid var(--c-border)",background:"var(--c-bg)",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
                   <div>
                     <div style={{fontSize:fs-2,fontWeight:700,color:"#3B82F6"}}>Totale liquidità aziendale</div>
-                    <div style={{fontSize:fs-4,color:"#334155",marginTop:2}}>
+                    <div style={{fontSize:fs-4,color:"var(--c-text-faintest)",marginTop:2}}>
                       EUR convertiti a RON (×{(eurRonRate||EUR_RON_FALLBACK).toFixed(2)}{rateIsLive?" · cambio live BCE":" · cambio fisso di riserva"})
                     </div>
                   </div>
@@ -374,34 +386,34 @@ export default function IAGREXPage({ fontSize=14, onBack }) {
       {/* Modal */}
       {modal && (
         <div style={{position:"fixed",inset:0,background:"#00000090",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={closeModal}>
-          <div style={{background:"#0F0F1A",border:"1px solid #1A1A2E",borderRadius:16,padding:24,width:"100%",maxWidth:400,maxHeight:"90vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
-            <div style={{fontSize:15,fontWeight:700,color:"#F8FAFC",marginBottom:20}}>
+          <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:16,padding:24,width:"100%",maxWidth:400,maxHeight:"90vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:15,fontWeight:700,color:"var(--c-text-strong)",marginBottom:20}}>
               {modal.mode==="add"?"➕ Nuova":"✏️ Modifica"} {modal.tipo==="entrata"?"Entrata":"Uscita"}
             </div>
             <div style={{display:"flex",flexDirection:"column",gap:12}}>
               <div>
-                <div style={{fontSize:11,color:"#64748B",marginBottom:4}}>Descrizione *</div>
+                <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:4}}>Descrizione *</div>
                 <input type="text" value={form.descrizione||""} onChange={e=>setForm(p=>({...p,descrizione:e.target.value}))}
-                  style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid #1A1A2E",background:"#09090F",color:"#E2E8F0",fontSize:13,outline:"none"}}/>
+                  style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:13,outline:"none"}}/>
               </div>
               {modal.tipo==="entrata" && (
                 <div>
-                  <div style={{fontSize:11,color:"#64748B",marginBottom:4}}>Cliente</div>
+                  <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:4}}>Cliente</div>
                   <input type="text" value={form.cliente||""} onChange={e=>setForm(p=>({...p,cliente:e.target.value}))} placeholder="Nome cliente..."
-                    style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid #1A1A2E",background:"#09090F",color:"#E2E8F0",fontSize:13,outline:"none"}}/>
+                    style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:13,outline:"none"}}/>
                 </div>
               )}
               <div>
-                <div style={{fontSize:11,color:"#64748B",marginBottom:4}}>Importo € *</div>
+                <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:4}}>Importo € *</div>
                 <input type="number" value={form.importo||""} onChange={e=>setForm(p=>({...p,importo:e.target.value}))}
-                  style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid #1A1A2E",background:"#09090F",color:"#E2E8F0",fontSize:13,outline:"none"}}/>
+                  style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:13,outline:"none"}}/>
               </div>
               <div>
-                <div style={{fontSize:11,color:"#64748B",marginBottom:6}}>Categoria</div>
+                <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:6}}>Categoria</div>
                 <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                   {(modal.tipo==="entrata"?CAT_ENTRATE:CAT_USCITE).map(c=>(
                     <button key={c} onClick={()=>setForm(p=>({...p,categoria:c}))}
-                      style={{padding:"4px 10px",borderRadius:6,border:`1px solid ${form.categoria===c?(modal.tipo==="entrata"?"#10B981":"#EF4444"):"#1A1A2E"}`,background:form.categoria===c?(modal.tipo==="entrata"?"#10B98120":"#EF444420"):"transparent",color:form.categoria===c?(modal.tipo==="entrata"?"#10B981":"#EF4444"):"#475569",cursor:"pointer",fontSize:11}}>
+                      style={{padding:"4px 10px",borderRadius:6,border:`1px solid ${form.categoria===c?(modal.tipo==="entrata"?"#10B981":"#EF4444"):"var(--c-border)"}`,background:form.categoria===c?(modal.tipo==="entrata"?"#10B98120":"#EF444420"):"transparent",color:form.categoria===c?(modal.tipo==="entrata"?"#10B981":"#EF4444"):"var(--c-text-faint)",cursor:"pointer",fontSize:11}}>
                       {c}
                     </button>
                   ))}
@@ -409,9 +421,9 @@ export default function IAGREXPage({ fontSize=14, onBack }) {
               </div>
               {modal.tipo==="uscita" && (
                 <div>
-                  <div style={{fontSize:11,color:"#64748B",marginBottom:4}}>Pagato da 🏦</div>
+                  <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:4}}>Pagato da 🏦</div>
                   <select value={form.conto||""} onChange={e=>setForm(p=>({...p,conto:e.target.value}))}
-                    style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid #1A1A2E",background:"#09090F",color:"#E2E8F0",fontSize:13,outline:"none"}}>
+                    style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:13,outline:"none"}}>
                     <option value="">-- Seleziona conto --</option>
                     {CONTI_IAGREX.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
                   </select>
@@ -419,7 +431,7 @@ export default function IAGREXPage({ fontSize=14, onBack }) {
               )}
             </div>
             <div style={{display:"flex",gap:8,marginTop:20}}>
-              <button onClick={closeModal} style={{flex:1,padding:10,borderRadius:8,border:"1px solid #1A1A2E",background:"transparent",color:"#475569",cursor:"pointer",fontSize:13}}>Annulla</button>
+              <button onClick={closeModal} style={{flex:1,padding:10,borderRadius:8,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-faint)",cursor:"pointer",fontSize:13}}>Annulla</button>
               <button onClick={saveItem} style={{flex:2,padding:10,borderRadius:8,border:"none",background:modal.tipo==="entrata"?"#10B981":"#EF4444",color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700}}>Salva</button>
             </div>
           </div>

@@ -2,17 +2,17 @@
 import { useState, useEffect, useCallback } from "react";
 
 const LEAD_STAGES = [
-  { id:"da_contattare",    label:"Da Contattare",   color:"#475569" },
+  { id:"da_contattare",    label:"Da Contattare",   color:"var(--c-text-faint)" },
   { id:"contattato",       label:"Contattato",       color:"#3B82F6" },
   { id:"proposta_inviata", label:"Proposta Inviata", color:"#F59E0B" },
   { id:"in_trattativa",    label:"In Trattativa",    color:"#F97316" },
-  { id:"chiuso",            label:"Chiuso 🎉",          color:"#10B981" },
-  { id:"rifiutato",            label:"Rifiutato",             color:"#EF4444" },
+  { id:"chiuso",           label:"Chiuso 🎉",         color:"#10B981" },
+  { id:"rifiutato",        label:"Rifiutato",         color:"#EF4444" },
 ];
 const CLIENT_STAGES = [
   { id:"attivo",   label:"Attivo ✅", color:"#10B981" },
   { id:"in_pausa", label:"In Pausa",  color:"#F59E0B" },
-  { id:"concluso", label:"Concluso",  color:"#475569" },
+  { id:"concluso", label:"Concluso",  color:"var(--c-text-faint)" },
 ];
 const EMPTY_FORM = {
   id:null, tipo:"lead", nome:"", settore:"", contatto:"",
@@ -22,8 +22,17 @@ const EMPTY_FORM = {
   data:new Date().toISOString().slice(0,10), note:"",
 };
 
+// Variabili CSS per il tema chiaro/scuro: i colori di sfondo/testo neutri
+// sono stati sostituiti nel resto del file con var(--c-...), mentre i
+// colori "accent" (verde/rosso/blu/viola/arancio degli stage) restano
+// hardcoded perché restano leggibili su entrambi gli sfondi.
+const THEME_VARS = {
+  dark:  { "--c-bg":"#09090F", "--c-panel":"#0F0F1A", "--c-panel2":"#0B0B16", "--c-border":"#1A1A2E", "--c-text-strong":"#F8FAFC", "--c-text":"#E2E8F0", "--c-text-dim":"#64748B", "--c-text-faint":"#475569", "--c-text-faintest":"#334155", "--c-text-muted":"#94A3B8" },
+  light: { "--c-bg":"#F4F5F7", "--c-panel":"#FFFFFF", "--c-panel2":"#F1F2F5", "--c-border":"#E2E4E9", "--c-text-strong":"#0F172A", "--c-text":"#1A1A2E", "--c-text-dim":"#475569", "--c-text-faint":"#94A3B8", "--c-text-faintest":"#CBD5E1", "--c-text-muted":"#64748B" },
+};
+
 function genId() { return Math.random().toString(36).slice(2,10); }
-function stageColor(s,t) { return (t==="cliente"?CLIENT_STAGES:LEAD_STAGES).find(x=>x.id===s)?.color||"#475569"; }
+function stageColor(s,t) { return (t==="cliente"?CLIENT_STAGES:LEAD_STAGES).find(x=>x.id===s)?.color||"var(--c-text-faint)"; }
 function stageLabel(s,t) { return (t==="cliente"?CLIENT_STAGES:LEAD_STAGES).find(x=>x.id===s)?.label||s; }
 function lsGet() { try { const s=localStorage.getItem("dario-pipeline"); return s?JSON.parse(s):[]; } catch { return []; } }
 function lsSet(d) { try { localStorage.setItem("dario-pipeline",JSON.stringify(d)); } catch {} }
@@ -31,15 +40,15 @@ function lsSet(d) { try { localStorage.setItem("dario-pipeline",JSON.stringify(d
 function InputField({ label, value, onChange, type="text", full=false, placeholder="" }) {
   return (
     <div style={{gridColumn:full?"1 / -1":undefined}}>
-      <div style={{fontSize:11,color:"#64748B",marginBottom:4}}>{label}</div>
+      <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:4}}>{label}</div>
       <input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}
-        style={{width:"100%",padding:"7px 10px",borderRadius:7,border:"1px solid #1A1A2E",background:"#09090F",color:"#E2E8F0",fontSize:13,outline:"none"}}/>
+        style={{width:"100%",padding:"7px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:13,outline:"none"}}/>
     </div>
   );
 }
 
 function InfoRow({ icon, value, href, dim=false, fs }) {
-  const style = { fontSize:fs-4, color: dim ? "#334155" : "#64748B", marginBottom:3, display:"flex", alignItems:"center", gap:5, lineHeight:1.3 };
+  const style = { fontSize:fs-4, color: dim ? "var(--c-text-faintest)" : "var(--c-text-dim)", marginBottom:3, display:"flex", alignItems:"center", gap:5, lineHeight:1.3 };
   if (href && value) return (
     <div style={style}>
       <span style={{flexShrink:0}}>{icon}</span>
@@ -52,7 +61,7 @@ function InfoRow({ icon, value, href, dim=false, fs }) {
   return (
     <div style={style}>
       <span style={{flexShrink:0}}>{icon}</span>
-      <span style={{color: value ? "#94A3B8" : "#2A3A4A", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>
+      <span style={{color: value ? "var(--c-text-muted)" : "#2A3A4A", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>
         {value || "—"}
       </span>
     </div>
@@ -66,7 +75,7 @@ function EntryCard({ entry, onEdit, onDelete, onGenMsg, fs, onDragStart, isDragg
       draggable
       onDragStart={e => onDragStart(e, entry)}
       style={{
-        background:"#0F0F1A", border:"1px solid #1A1A2E",
+        background:"var(--c-panel)", border:"1px solid var(--c-border)",
         borderLeft:`3px solid ${color}`, borderRadius:9, padding:11,
         cursor:"grab", opacity: isDragging ? 0.4 : 1,
         transition:"opacity 0.15s", userSelect:"none",
@@ -83,9 +92,9 @@ function EntryCard({ entry, onEdit, onDelete, onGenMsg, fs, onDragStart, isDragg
         </div>
         <div style={{display:"flex",gap:3,flexShrink:0}}>
           <button onMouseDown={e=>e.stopPropagation()} onClick={()=>onEdit(entry)}
-            style={{width:22,height:22,borderRadius:4,border:"none",background:"#1A1A2E",color:"#64748B",cursor:"pointer",fontSize:10}}>✏️</button>
+            style={{width:22,height:22,borderRadius:4,border:"none",background:"var(--c-border)",color:"var(--c-text-dim)",cursor:"pointer",fontSize:10}}>✏️</button>
           <button onMouseDown={e=>e.stopPropagation()} onClick={()=>onDelete(entry.id)}
-            style={{width:22,height:22,borderRadius:4,border:"none",background:"#1A1A2E",color:"#EF4444",cursor:"pointer",fontSize:12,fontWeight:700}}>×</button>
+            style={{width:22,height:22,borderRadius:4,border:"none",background:"var(--c-border)",color:"#EF4444",cursor:"pointer",fontSize:12,fontWeight:700}}>×</button>
         </div>
       </div>
 
@@ -104,12 +113,12 @@ function EntryCard({ entry, onEdit, onDelete, onGenMsg, fs, onDragStart, isDragg
           {entry.budget ? `💶 ${parseFloat(entry.budget).toLocaleString("it-IT")}€/mese` : "💶 budget —"}
         </div>
         <div style={{display:"flex",alignItems:"center",gap:5}}>
-          <span style={{fontSize:fs-5,color:"#334155"}}>
+          <span style={{fontSize:fs-5,color:"var(--c-text-faintest)"}}>
             📨 {entry.tentativi||0} tentativi
           </span>
           {entry.tipo==="lead" && (
             <button onMouseDown={e=>e.stopPropagation()} onClick={()=>onIncrTentativi(entry.id)}
-              style={{width:18,height:18,borderRadius:4,border:"1px solid #1A1A2E",background:"#0A0F1A",color:"#475569",cursor:"pointer",fontSize:9,display:"flex",alignItems:"center",justifyContent:"center"}}>
+              style={{width:18,height:18,borderRadius:4,border:"1px solid var(--c-border)",background:"#0A0F1A",color:"var(--c-text-faint)",cursor:"pointer",fontSize:9,display:"flex",alignItems:"center",justifyContent:"center"}}>
               +1
             </button>
           )}
@@ -118,14 +127,14 @@ function EntryCard({ entry, onEdit, onDelete, onGenMsg, fs, onDragStart, isDragg
 
       {/* Ultimo contatto */}
       {entry.tipo==="lead" && (
-        <div style={{fontSize:fs-5,color: entry.ultimo_contatto ? "#475569" : "#1E2A3A",marginBottom:6}}>
+        <div style={{fontSize:fs-5,color: entry.ultimo_contatto ? "var(--c-text-faint)" : "#1E2A3A",marginBottom:6}}>
           📅 Ultimo contatto: {entry.ultimo_contatto || "—"}
         </div>
       )}
 
       {/* Note */}
       {entry.note && (
-        <div style={{fontSize:fs-4,color:"#334155",lineHeight:1.4,marginBottom:6,borderTop:"1px solid #0F1A24",paddingTop:5}}>
+        <div style={{fontSize:fs-4,color:"var(--c-text-faintest)",lineHeight:1.4,marginBottom:6,borderTop:"1px solid #0F1A24",paddingTop:5}}>
           {entry.note.slice(0,80)}{entry.note.length>80?"…":""}
         </div>
       )}
@@ -190,7 +199,7 @@ function KanbanView({ entries, filter, fs, onEdit, onDelete, openAdd, onGenMsg, 
                   fs={fs} onDragStart={handleDragStart} isDragging={draggedId===e.id} onIncrTentativi={onIncrTentativi}/>
               ))}
               {colEntries.length===0 && (
-                <div style={{fontSize:fs-4,color:"#1E293B",textAlign:"center",padding:"20px 0",border:"1px dashed #1A1A2E",borderRadius:7,marginTop:4}}>
+                <div style={{fontSize:fs-4,color:"#1E293B",textAlign:"center",padding:"20px 0",border:"1px dashed var(--c-border)",borderRadius:7,marginTop:4}}>
                   Trascina qui
                 </div>
               )}
@@ -208,32 +217,32 @@ function KanbanView({ entries, filter, fs, onEdit, onDelete, openAdd, onGenMsg, 
 
 function ListView({ entries, fs, onEdit, onDelete, onGenMsg }) {
   if (!entries.length) return (
-    <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",color:"#334155",fontSize:fs-2}}>
+    <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",color:"var(--c-text-faintest)",fontSize:fs-2}}>
       Nessun record — aggiungi il primo lead o importa da ClickUp!
     </div>
   );
   return (
     <div style={{flex:1,overflowY:"auto",padding:16}}>
-      <div style={{background:"#0F0F1A",border:"1px solid #1A1A2E",borderRadius:10,overflow:"hidden"}}>
-        <div style={{display:"grid",gridTemplateColumns:"2fr 90px 140px 70px 110px 100px 80px",background:"#09090F",borderBottom:"1px solid #1A1A2E"}}>
+      <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,overflow:"hidden"}}>
+        <div style={{display:"grid",gridTemplateColumns:"2fr 90px 140px 70px 110px 100px 80px",background:"var(--c-bg)",borderBottom:"1px solid var(--c-border)"}}>
           {["Nome / Settore","Tipo","Stage","Budget","Contatto","Sito / LinkedIn",""].map(h=>(
-            <div key={h} style={{padding:"9px 10px",fontSize:10,fontWeight:700,color:"#475569",textTransform:"uppercase",letterSpacing:"0.07em"}}>{h}</div>
+            <div key={h} style={{padding:"9px 10px",fontSize:10,fontWeight:700,color:"var(--c-text-faint)",textTransform:"uppercase",letterSpacing:"0.07em"}}>{h}</div>
           ))}
         </div>
         {entries.map((entry,i)=>{
           const color = stageColor(entry.stage,entry.tipo);
-          const cell  = {padding:"10px 10px",fontSize:fs-2,color:"#94A3B8",borderTop:i===0?"none":"1px solid #1A1A2E",background:i%2===0?"#0F0F1A":"#0B0B16",display:"flex",alignItems:"center"};
+          const cell  = {padding:"10px 10px",fontSize:fs-2,color:"var(--c-text-muted)",borderTop:i===0?"none":"1px solid var(--c-border)",background:i%2===0?"var(--c-panel)":"var(--c-panel2)",display:"flex",alignItems:"center"};
           return (
             <div key={entry.id} style={{display:"grid",gridTemplateColumns:"2fr 90px 140px 70px 110px 100px 80px"}}>
               <div style={{...cell,flexDirection:"column",alignItems:"flex-start",gap:2}}>
-                <span style={{color:"#E2E8F0",fontWeight:600}}>{entry.nome}</span>
+                <span style={{color:"var(--c-text)",fontWeight:600}}>{entry.nome}</span>
                 {entry.settore && <span style={{fontSize:fs-5,color:color,fontWeight:600}}>🏷️ {entry.settore}</span>}
               </div>
               <div style={cell}><span style={{padding:"2px 7px",borderRadius:10,background:entry.tipo==="lead"?"#3B82F620":"#10B98120",color:entry.tipo==="lead"?"#3B82F6":"#10B981",fontSize:10,fontWeight:600}}>{entry.tipo==="lead"?"Lead":"Cliente"}</span></div>
               <div style={cell}><span style={{padding:"2px 7px",borderRadius:10,background:`${color}20`,color,fontSize:10,fontWeight:600}}>{stageLabel(entry.stage,entry.tipo)}</span></div>
               <div style={{...cell,color:"#10B981",fontWeight:700}}>{entry.budget?`${parseFloat(entry.budget).toLocaleString("it-IT")}€`:"—"}</div>
               <div style={{...cell,flexDirection:"column",alignItems:"flex-start",gap:2}}>
-                <span style={{color:entry.contatto?"#94A3B8":"#2A3A4A"}}>{entry.contatto||"—"}</span>
+                <span style={{color:entry.contatto?"var(--c-text-muted)":"#2A3A4A"}}>{entry.contatto||"—"}</span>
                 {entry.email && <a href={`mailto:${entry.email}`} onClick={e=>e.stopPropagation()} style={{fontSize:fs-5,color:"#3B82F6",textDecoration:"none"}}>{entry.email}</a>}
               </div>
               <div style={{...cell,flexDirection:"column",alignItems:"flex-start",gap:2}}>
@@ -241,7 +250,7 @@ function ListView({ entries, fs, onEdit, onDelete, onGenMsg }) {
                 {entry.linkedin ? <a href={entry.linkedin} target="_blank" rel="noreferrer" onClick={e=>e.stopPropagation()} style={{fontSize:fs-5,color:"#3B82F6",textDecoration:"none"}}>💼 LinkedIn</a> : <span style={{color:"#2A3A4A",fontSize:fs-5}}>💼 —</span>}
               </div>
               <div style={{...cell,gap:4}}>
-                <button onClick={()=>onEdit(entry)} style={{width:24,height:24,borderRadius:5,border:"1px solid #1A1A2E",background:"transparent",color:"#64748B",cursor:"pointer",fontSize:10}}>✏️</button>
+                <button onClick={()=>onEdit(entry)} style={{width:24,height:24,borderRadius:5,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-dim)",cursor:"pointer",fontSize:10}}>✏️</button>
                 <button onClick={()=>onDelete(entry.id)} style={{width:24,height:24,borderRadius:5,border:"1px solid #2A1A1A",background:"transparent",color:"#EF4444",cursor:"pointer",fontSize:12,fontWeight:700}}>×</button>
                 {entry.tipo==="lead" && <button onClick={()=>onGenMsg(entry)} title="Genera messaggio" style={{width:24,height:24,borderRadius:5,border:"1px solid #3B82F640",background:"#3B82F610",color:"#3B82F6",cursor:"pointer",fontSize:11}}>🤖</button>}
               </div>
@@ -253,8 +262,9 @@ function ListView({ entries, fs, onEdit, onDelete, onGenMsg }) {
   );
 }
 
-export default function PipelinePage({ fontSize=14 }) {
+export default function PipelinePage({ fontSize=14, theme="dark" }) {
   const fs = fontSize;
+  const themeVars = THEME_VARS[theme] || THEME_VARS.dark;
   const [entries, setEntries]       = useState([]);
   const [view, setView]             = useState("kanban");
   const [filter, setFilter]         = useState("tutti");
@@ -357,41 +367,41 @@ export default function PipelinePage({ fontSize=14 }) {
   const f = (key)=>(val)=>setForm(p=>({...p,[key]:val}));
 
   return (
-    <div style={{display:"flex",flexDirection:"column",height:"100%",overflow:"hidden",background:"#09090F"}}>
+    <div style={{...themeVars,display:"flex",flexDirection:"column",height:"100%",overflow:"hidden",background:"var(--c-bg)"}}>
 
       {/* HEADER */}
-      <div style={{padding:"12px 20px",borderBottom:"1px solid #1A1A2E",flexShrink:0}}>
+      <div style={{padding:"12px 20px",borderBottom:"1px solid var(--c-border)",flexShrink:0}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
           <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-            <div style={{fontWeight:700,fontSize:15,color:"#F8FAFC"}}>🎯 Pipeline IAGREX</div>
-            {syncing               && <span style={{fontSize:11,color:"#64748B"}}>🔄</span>}
+            <div style={{fontWeight:700,fontSize:15,color:"var(--c-text-strong)"}}>🎯 Pipeline IAGREX</div>
+            {syncing               && <span style={{fontSize:11,color:"var(--c-text-dim)"}}>🔄</span>}
             {saveStatus==="saving" && <span style={{fontSize:11,color:"#F59E0B"}}>☁️ Salvando...</span>}
             {saveStatus==="saved"  && <span style={{fontSize:11,color:"#10B981"}}>✅ Salvato</span>}
             {saveStatus==="error"  && <span style={{fontSize:11,color:"#EF4444"}}>❌ Errore</span>}
           </div>
           <div style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap"}}>
             {["tutti","lead","cliente"].map(fi=>(
-              <button key={fi} onClick={()=>setFilter(fi)} style={{padding:"4px 9px",borderRadius:7,border:`1px solid ${filter===fi?"#8B5CF6":"#1A1A2E"}`,background:filter===fi?"#8B5CF620":"transparent",color:filter===fi?"#8B5CF6":"#475569",cursor:"pointer",fontSize:11}}>
+              <button key={fi} onClick={()=>setFilter(fi)} style={{padding:"4px 9px",borderRadius:7,border:`1px solid ${filter===fi?"#8B5CF6":"var(--c-border)"}`,background:filter===fi?"#8B5CF620":"transparent",color:filter===fi?"#8B5CF6":"var(--c-text-faint)",cursor:"pointer",fontSize:11}}>
                 {fi==="tutti"?"Tutti":fi==="lead"?"Lead":"Clienti"}
               </button>
             ))}
-            <div style={{width:1,height:16,background:"#1A1A2E"}}/>
+            <div style={{width:1,height:16,background:"var(--c-border)"}}/>
             {[["kanban","📊"],["lista","📋"]].map(([v,icon])=>(
-              <button key={v} onClick={()=>setView(v)} style={{padding:"4px 9px",borderRadius:7,border:`1px solid ${view===v?"#F97316":"#1A1A2E"}`,background:view===v?"#F9731620":"transparent",color:view===v?"#F97316":"#475569",cursor:"pointer",fontSize:11}}>{icon} {v==="kanban"?"Kanban":"Lista"}</button>
+              <button key={v} onClick={()=>setView(v)} style={{padding:"4px 9px",borderRadius:7,border:`1px solid ${view===v?"#F97316":"var(--c-border)"}`,background:view===v?"#F9731620":"transparent",color:view===v?"#F97316":"var(--c-text-faint)",cursor:"pointer",fontSize:11}}>{icon} {v==="kanban"?"Kanban":"Lista"}</button>
             ))}
-            <div style={{width:1,height:16,background:"#1A1A2E"}}/>
+            <div style={{width:1,height:16,background:"var(--c-border)"}}/>
             <button onClick={()=>openAdd("lead")}    style={{padding:"4px 9px",borderRadius:7,border:"none",background:"#3B82F6",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:600}}>+ Lead</button>
             <button onClick={()=>openAdd("cliente")} style={{padding:"4px 9px",borderRadius:7,border:"none",background:"#10B981",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:600}}>+ Cliente</button>
-            <button onClick={syncNow} style={{padding:"4px 9px",borderRadius:7,border:"1px solid #1A1A2E",background:"transparent",color:"#475569",cursor:"pointer",fontSize:11}}>{syncing?"⏳":"↻"}</button>
+            <button onClick={syncNow} style={{padding:"4px 9px",borderRadius:7,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-faint)",cursor:"pointer",fontSize:11}}>{syncing?"⏳":"↻"}</button>
           </div>
         </div>
         <div style={{display:"flex",gap:20,marginTop:6}}>
-          <div style={{fontSize:fs-3,color:"#64748B"}}><span style={{color:"#3B82F6",fontWeight:700}}>{entries.filter(e=>e.tipo==="lead").length}</span> lead · pipeline <span style={{color:"#F59E0B",fontWeight:700}}>{pipelineValue.toLocaleString("it-IT")}€/mese</span></div>
-          <div style={{fontSize:fs-3,color:"#64748B"}}><span style={{color:"#10B981",fontWeight:700}}>{activeClients.length}</span> clienti · MRR <span style={{color:"#10B981",fontWeight:700}}>{mrr.toLocaleString("it-IT")}€</span></div>
+          <div style={{fontSize:fs-3,color:"var(--c-text-dim)"}}><span style={{color:"#3B82F6",fontWeight:700}}>{entries.filter(e=>e.tipo==="lead").length}</span> lead · pipeline <span style={{color:"#F59E0B",fontWeight:700}}>{pipelineValue.toLocaleString("it-IT")}€/mese</span></div>
+          <div style={{fontSize:fs-3,color:"var(--c-text-dim)"}}><span style={{color:"#10B981",fontWeight:700}}>{activeClients.length}</span> clienti · MRR <span style={{color:"#10B981",fontWeight:700}}>{mrr.toLocaleString("it-IT")}€</span></div>
         </div>
       </div>
 
-      {loading && <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",color:"#334155",fontSize:fs-2}}>⏳ Caricamento...</div>}
+      {loading && <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",color:"var(--c-text-faintest)",fontSize:fs-2}}>⏳ Caricamento...</div>}
 
       {!loading && (view==="kanban"
         ? <KanbanView entries={filtered} filter={filter} fs={fs} onEdit={openEdit} onDelete={deleteEntry} openAdd={openAdd} onGenMsg={openGenMsg} onDropToStage={handleDropToStage} onIncrTentativi={handleIncrTentativi}/>
@@ -401,12 +411,12 @@ export default function PipelinePage({ fontSize=14 }) {
       {/* MODAL FORM */}
       {modal && (
         <div style={{position:"fixed",inset:0,background:"#00000090",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={closeModal}>
-          <div style={{background:"#0F0F1A",border:"1px solid #1A1A2E",borderRadius:16,padding:24,width:"100%",maxWidth:520,maxHeight:"90vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
-            <div style={{fontSize:15,fontWeight:700,color:"#F8FAFC",marginBottom:16}}>{modal==="add"?"➕ Nuovo":"✏️ Modifica"} {form.tipo==="lead"?"Lead":"Cliente"}</div>
+          <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:16,padding:24,width:"100%",maxWidth:520,maxHeight:"90vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:15,fontWeight:700,color:"var(--c-text-strong)",marginBottom:16}}>{modal==="add"?"➕ Nuovo":"✏️ Modifica"} {form.tipo==="lead"?"Lead":"Cliente"}</div>
             <div style={{display:"flex",gap:8,marginBottom:16}}>
               {[["lead","🎯 Lead","#3B82F6"],["cliente","✅ Cliente","#10B981"]].map(([t,label,color])=>(
                 <button key={t} onClick={()=>setForm(p=>({...p,tipo:t,stage:t==="lead"?"da_contattare":"attivo"}))}
-                  style={{flex:1,padding:9,borderRadius:8,border:`1px solid ${form.tipo===t?color:"#1A1A2E"}`,background:form.tipo===t?`${color}20`:"transparent",color:form.tipo===t?color:"#475569",cursor:"pointer",fontSize:12,fontWeight:600}}>{label}</button>
+                  style={{flex:1,padding:9,borderRadius:8,border:`1px solid ${form.tipo===t?color:"var(--c-border)"}`,background:form.tipo===t?`${color}20`:"transparent",color:form.tipo===t?color:"var(--c-text-faint)",cursor:"pointer",fontSize:12,fontWeight:600}}>{label}</button>
               ))}
             </div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
@@ -421,24 +431,24 @@ export default function PipelinePage({ fontSize=14 }) {
               <InputField label="Data"             value={form.data}         onChange={f("data")}     type="date"/>
               <InputField label="Ultimo contatto"  value={form.ultimo_contatto||""} onChange={f("ultimo_contatto")} type="date"/>
               <div style={{gridColumn:"1 / -1"}}>
-                <div style={{fontSize:11,color:"#64748B",marginBottom:6}}>Stage</div>
+                <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:6}}>Stage</div>
                 <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                   {(form.tipo==="lead"?LEAD_STAGES:CLIENT_STAGES).map(s=>(
                     <button key={s.id} onClick={()=>setForm(p=>({...p,stage:s.id}))}
-                      style={{padding:"5px 10px",borderRadius:6,border:`1px solid ${form.stage===s.id?s.color:"#1A1A2E"}`,background:form.stage===s.id?`${s.color}20`:"transparent",color:form.stage===s.id?s.color:"#475569",cursor:"pointer",fontSize:11}}>
+                      style={{padding:"5px 10px",borderRadius:6,border:`1px solid ${form.stage===s.id?s.color:"var(--c-border)"}`,background:form.stage===s.id?`${s.color}20`:"transparent",color:form.stage===s.id?s.color:"var(--c-text-faint)",cursor:"pointer",fontSize:11}}>
                       {s.label}
                     </button>
                   ))}
                 </div>
               </div>
               <div style={{gridColumn:"1 / -1"}}>
-                <div style={{fontSize:11,color:"#64748B",marginBottom:4}}>Note</div>
+                <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:4}}>Note</div>
                 <textarea value={form.note||""} onChange={e=>setForm(p=>({...p,note:e.target.value}))} rows={3}
-                  style={{width:"100%",padding:"7px 10px",borderRadius:7,border:"1px solid #1A1A2E",background:"#09090F",color:"#E2E8F0",fontSize:13,outline:"none",resize:"vertical",fontFamily:"inherit"}}/>
+                  style={{width:"100%",padding:"7px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:13,outline:"none",resize:"vertical",fontFamily:"inherit"}}/>
               </div>
             </div>
             <div style={{display:"flex",gap:8,marginTop:20}}>
-              <button onClick={closeModal} style={{flex:1,padding:10,borderRadius:8,border:"1px solid #1A1A2E",background:"transparent",color:"#475569",cursor:"pointer",fontSize:13}}>Annulla</button>
+              <button onClick={closeModal} style={{flex:1,padding:10,borderRadius:8,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-faint)",cursor:"pointer",fontSize:13}}>Annulla</button>
               <button onClick={saveEntry}  style={{flex:2,padding:10,borderRadius:8,border:"none",background:"#8B5CF6",color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700}}>Salva</button>
             </div>
           </div>
@@ -448,36 +458,36 @@ export default function PipelinePage({ fontSize=14 }) {
       {/* MODAL GENERATORE MESSAGGIO */}
       {msgLead && (
         <div style={{position:"fixed",inset:0,background:"#00000095",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setMsgLead(null)}>
-          <div style={{background:"#0F0F1A",border:"1px solid #3B82F640",borderRadius:16,padding:24,width:"100%",maxWidth:560,maxHeight:"90vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
+          <div style={{background:"var(--c-panel)",border:"1px solid #3B82F640",borderRadius:16,padding:24,width:"100%",maxWidth:560,maxHeight:"90vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
-              <div style={{fontSize:15,fontWeight:700,color:"#F8FAFC"}}>🤖 Generatore Messaggio AI</div>
-              <button onClick={()=>setMsgLead(null)} style={{width:28,height:28,borderRadius:6,border:"none",background:"#1A1A2E",color:"#64748B",cursor:"pointer",fontSize:14}}>×</button>
+              <div style={{fontSize:15,fontWeight:700,color:"var(--c-text-strong)"}}>🤖 Generatore Messaggio AI</div>
+              <button onClick={()=>setMsgLead(null)} style={{width:28,height:28,borderRadius:6,border:"none",background:"var(--c-border)",color:"var(--c-text-dim)",cursor:"pointer",fontSize:14}}>×</button>
             </div>
-            <div style={{fontSize:12,color:"#475569",marginBottom:16}}>{msgLead.nome}{msgLead.settore?` · ${msgLead.settore}`:""} {msgLead.tentativi>0?`· ${msgLead.tentativi} tentativi`:""}</div>
+            <div style={{fontSize:12,color:"var(--c-text-faint)",marginBottom:16}}>{msgLead.nome}{msgLead.settore?` · ${msgLead.settore}`:""} {msgLead.tentativi>0?`· ${msgLead.tentativi} tentativi`:""}</div>
             <div style={{display:"flex",gap:8,marginBottom:14}}>
               {[["primo_contatto","✉️ Primo Contatto"],["follow_up","🔄 Follow-Up"],["proposta","📄 Proposta"]].map(([val,label])=>(
                 <button key={val} onClick={()=>setMsgType(val)}
-                  style={{flex:1,padding:"8px 4px",borderRadius:8,border:`1px solid ${msgType===val?"#3B82F6":"#1A1A2E"}`,background:msgType===val?"#3B82F620":"transparent",color:msgType===val?"#3B82F6":"#475569",cursor:"pointer",fontSize:11,fontWeight:msgType===val?600:400}}>
+                  style={{flex:1,padding:"8px 4px",borderRadius:8,border:`1px solid ${msgType===val?"#3B82F6":"var(--c-border)"}`,background:msgType===val?"#3B82F620":"transparent",color:msgType===val?"#3B82F6":"var(--c-text-faint)",cursor:"pointer",fontSize:11,fontWeight:msgType===val?600:400}}>
                   {label}
                 </button>
               ))}
             </div>
             <div style={{marginBottom:14}}>
-              <div style={{fontSize:11,color:"#64748B",marginBottom:4}}>Contesto aggiuntivo</div>
+              <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:4}}>Contesto aggiuntivo</div>
               <textarea value={msgExtra} onChange={e=>setMsgExtra(e.target.value)} rows={2} placeholder="es. hanno appena lanciato una nuova linea..."
-                style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid #1A1A2E",background:"#09090F",color:"#E2E8F0",fontSize:12,outline:"none",resize:"vertical",fontFamily:"inherit"}}/>
+                style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:12,outline:"none",resize:"vertical",fontFamily:"inherit"}}/>
             </div>
             <button onClick={generateMessage} disabled={msgLoading}
-              style={{width:"100%",padding:"11px",borderRadius:8,border:"none",background:msgLoading?"#1A1A2E":"#3B82F6",color:msgLoading?"#475569":"#fff",cursor:msgLoading?"not-allowed":"pointer",fontSize:13,fontWeight:700,marginBottom:14}}>
+              style={{width:"100%",padding:"11px",borderRadius:8,border:"none",background:msgLoading?"var(--c-border)":"#3B82F6",color:msgLoading?"var(--c-text-faint)":"#fff",cursor:msgLoading?"not-allowed":"pointer",fontSize:13,fontWeight:700,marginBottom:14}}>
               {msgLoading?"⏳ Generazione in corso...":"🤖 Genera Messaggio"}
             </button>
             {msgText && (
               <>
-                <div style={{background:"#09090F",border:"1px solid #1A1A2E",borderRadius:8,padding:14,marginBottom:10}}>
-                  <pre style={{margin:0,fontSize:13,color:"#E2E8F0",lineHeight:1.7,whiteSpace:"pre-wrap",fontFamily:"inherit"}}>{msgText}</pre>
+                <div style={{background:"var(--c-bg)",border:"1px solid var(--c-border)",borderRadius:8,padding:14,marginBottom:10}}>
+                  <pre style={{margin:0,fontSize:13,color:"var(--c-text)",lineHeight:1.7,whiteSpace:"pre-wrap",fontFamily:"inherit"}}>{msgText}</pre>
                 </div>
                 <div style={{display:"flex",gap:8}}>
-                  <button onClick={copyMessage} style={{flex:1,padding:"9px",borderRadius:8,border:`1px solid ${msgCopied?"#10B981":"#1A1A2E"}`,background:msgCopied?"#10B98120":"transparent",color:msgCopied?"#10B981":"#94A3B8",cursor:"pointer",fontSize:12,fontWeight:600}}>
+                  <button onClick={copyMessage} style={{flex:1,padding:"9px",borderRadius:8,border:`1px solid ${msgCopied?"#10B981":"var(--c-border)"}`,background:msgCopied?"#10B98120":"transparent",color:msgCopied?"#10B981":"var(--c-text-muted)",cursor:"pointer",fontSize:12,fontWeight:600}}>
                     {msgCopied?"✅ Copiato!":"📋 Copia"}
                   </button>
                   <button onClick={generateMessage} disabled={msgLoading} style={{flex:1,padding:"9px",borderRadius:8,border:"1px solid #3B82F640",background:"#3B82F610",color:"#3B82F6",cursor:"pointer",fontSize:12,fontWeight:600}}>🔄 Rigenera</button>
@@ -492,7 +502,7 @@ export default function PipelinePage({ fontSize=14 }) {
         * { box-sizing: border-box; }
         ::-webkit-scrollbar { width:3px; height:3px; }
         ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #1A1A2E; border-radius: 2px; }
+        ::-webkit-scrollbar-thumb { background: var(--c-border); border-radius: 2px; }
         button:hover { filter: brightness(1.08); }
       `}</style>
     </div>
