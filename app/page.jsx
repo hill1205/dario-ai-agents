@@ -14,7 +14,7 @@ const NAV_ITEMS = [
 ];
 
 function todayBucharest() {
-    return new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Bucharest" }); // YYYY-MM-DD
+  return new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Bucharest" }); // YYYY-MM-DD
 }
 
 function getWeatherEmoji(condition) {
@@ -57,6 +57,7 @@ export default function App() {
   const [revenue, setRevenue]               = useState(null);
   const [weightData, setWeightData]         = useState(null);
   const [homeLoading, setHomeLoading]       = useState(false);
+  const [homeErrors, setHomeErrors]         = useState({});
 
   // Load settings
   useEffect(()=>{
@@ -65,17 +66,17 @@ export default function App() {
       if (sr) { const s=JSON.parse(sr); if(s.fontSize) setFontSize(s.fontSize); }
       const ct = localStorage.getItem("dario-checked-tasks");
       if (ct) {
-                  const parsed = JSON.parse(ct);
-                  // Nuovo formato: { date, tasks }. Se la data salvata non è oggi
-                  // (fuso Bucarest, stesso usato dal cron di reset notturno),
-                  // scartiamo lo stato vecchio: la dashboard deve ripartire dallo
-                  // stato reale di ClickUp, non da un "completata" di ieri rimasto
-                  // bloccato nel browser dopo il reset delle routine.
-                  if (parsed && parsed.date === todayBucharest()) {
-                                setCheckedTasks(parsed.tasks || {});
-                  } else {
-                                localStorage.removeItem("dario-checked-tasks");
-                  }
+        const parsed = JSON.parse(ct);
+        // Nuovo formato: { date, tasks }. Se la data salvata non è oggi
+        // (fuso Bucarest, stesso usato dal cron di reset notturno),
+        // scartiamo lo stato vecchio: la dashboard deve ripartire dallo
+        // stato reale di ClickUp, non da un "completata" di ieri rimasto
+        // bloccato nel browser dopo il reset delle routine.
+        if (parsed && parsed.date === todayBucharest()) {
+          setCheckedTasks(parsed.tasks || {});
+        } else {
+          localStorage.removeItem("dario-checked-tasks");
+        }
       }
     } catch {}
   },[]);
@@ -118,6 +119,14 @@ export default function App() {
       if (tRes)               setHomeData(tRes);
       if (rRes&&!rRes.error)  setRevenue(rRes);
       if (wgRes&&!wgRes.error) setWeightData(wgRes);
+      // Teniamo traccia di QUALI dati non si sono caricati, invece di
+      // lasciare che un errore silenzioso si travesta da "0€"/"–" senza
+      // che sia chiaro se è un dato vuoto legittimo o un fetch fallito.
+      setHomeErrors({
+        weather: !wRes || !!wRes.error,
+        revenue: !rRes || !!rRes.error,
+        weight:  !wgRes || !!wgRes.error,
+      });
     } catch(e){ console.error("Dashboard error:",e); }
     setHomeLoading(false);
   };
@@ -129,7 +138,7 @@ export default function App() {
     const next = !cur;
     const newChecked = {...checkedTasks,[taskId]:next};
     setCheckedTasks(newChecked);
-        try { localStorage.setItem("dario-checked-tasks",JSON.stringify({date:todayBucharest(),tasks:newChecked})); } catch {}
+    try { localStorage.setItem("dario-checked-tasks",JSON.stringify({date:todayBucharest(),tasks:newChecked})); } catch {}
     try {
       await fetch("/api/update-task",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({taskId,status:next?"completata":"da fare"})});
     } catch {}
@@ -299,6 +308,9 @@ export default function App() {
                 <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:10,marginBottom:16}}>
                   <DCard>
                     <DLabel>💪 Progressi Fisici</DLabel>
+                    {homeErrors.weight && !homeLoading && (
+                      <div style={{fontSize:fontSize-5,color:"#F59E0B",marginBottom:4}}>⚠️ dati non aggiornati (ClickUp non raggiungibile)</div>
+                    )}
                     {weightData?(
                       <>
                         <div style={{fontSize:fontSize+12,fontWeight:800,color:"#F97316"}}>{weightData.ultimo?.peso}<span style={{fontSize:fontSize-1,fontWeight:400}}> kg</span></div>
@@ -319,6 +331,9 @@ export default function App() {
                   </DCard>
                   <DCard>
                     <DLabel>💶 Revenue IAGREX</DLabel>
+                    {homeErrors.revenue && !homeLoading && (
+                      <div style={{fontSize:fontSize-5,color:"#F59E0B",marginBottom:4}}>⚠️ dati non aggiornati (ClickUp non raggiungibile)</div>
+                    )}
                     {revenue?(
                       <>
                         <div style={{fontSize:fontSize-3,color:"#475569",marginBottom:4}}>{revenue.mese}</div>
@@ -381,7 +396,7 @@ export default function App() {
               onChange={e=>setWeightInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter") saveWeightModal();}}
               style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #334155",background:"#09090F",color:"#E2E8F0",fontSize:18,outline:"none",marginBottom:12}}/>
             <div style={{display:"flex",gap:8}}>
-              <button onClick={()=>setShowWeightModal(false)} style={{flex:1,padding:10,borderRadius:8,border:"1px solid #1A1A2E",background:"transparent",color:"#475569",cursor:"pointer",fontSize:14}}>Annulla</button>
+              <button onClick={()=>setShowWeightModal(false)} style={{flex:1,padding:10,borderRadius:8,border:"1px solid #1A1A2E",background:"transparent",color:"#475569",cursor:"pointer"}}>Annulla</button>
               <button onClick={saveWeightModal} style={{flex:1,padding:10,borderRadius:8,border:"none",background:"#F97316",color:"#fff",cursor:"pointer",fontSize:14,fontWeight:700}}>Salva</button>
             </div>
           </div>
