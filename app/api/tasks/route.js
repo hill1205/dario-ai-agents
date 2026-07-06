@@ -1,3 +1,6 @@
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 const CLICKUP_API_KEY = process.env.CLICKUP_API_KEY;
 const LIST_IDS = {
   todo: "901218950374",
@@ -7,7 +10,7 @@ const LIST_IDS = {
 async function fetchTasks(listId) {
   const res = await fetch(
     `https://api.clickup.com/api/v2/list/${listId}/task?include_closed=false`,
-    { headers: { Authorization: CLICKUP_API_KEY } }
+    { headers: { Authorization: CLICKUP_API_KEY }, cache: "no-store" }
   );
   if (!res.ok) {
     const errorText = await res.text();
@@ -33,3 +36,4 @@ export async function GET() {
     return Response.json({ error: error.message }, { status: 500 });
   }
 }
+
