@@ -97,6 +97,8 @@ export default function IAGREXPage({ fontSize=14, onBack }) {
     .filter(([k])=>k.startsWith(year))
     .reduce((s,[,v])=>s+(v.entrate||[]).reduce((ss,e)=>ss+(parseFloat(e.importo)||0),0),0);
   const ytdPct = Math.min(Math.round((ytdRevenue/OBIETTIVO_ANNUO)*100*10)/10, 100);
+  const mesiRimanenti = 13 - (new Date().getMonth()+1); // dicembre incluso = 1
+  const ritmoMensileNecessario = Math.round(Math.max(OBIETTIVO_ANNUO-ytdRevenue,0)/mesiRimanenti);
 
   // Month totals
   const totEntrate = monthData.entrate.reduce((s,e)=>s+(parseFloat(e.importo)||0),0);
@@ -186,6 +188,9 @@ export default function IAGREXPage({ fontSize=14, onBack }) {
             <div style={{height:"100%",background:"linear-gradient(90deg,#10B981,#3B82F6)",borderRadius:3,width:`${Math.max(ytdPct,0.5)}%`,transition:"width 0.4s"}}/>
           </div>
           <div style={{fontSize:fs-4,color:"#334155",marginTop:4}}>Mancano {fmt(OBIETTIVO_ANNUO-ytdRevenue)}€ all'obiettivo annuo</div>
+          <div style={{fontSize:fs-4,color:"#3B82F6",marginTop:6,paddingTop:6,borderTop:"1px solid #1A1A2E"}}>
+            🎯 Servono {fmt(ritmoMensileNecessario)}€/mese per {mesiRimanenti} mes{mesiRimanenti===1?"e":"i"}
+          </div>
         </div>
 
         {/* Month summary */}
