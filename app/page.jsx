@@ -137,32 +137,65 @@ function RevenueMiniChart({ data, target }) {
 
 // Mini-grafico peso: usa lo storico gia' presente in weightData.entries
 // (viene scritto ad ogni "Registra peso" ma finora non era mai visualizzato
-// come trend, solo come numero singolo). Mostra le ultime N misurazioni
-// cosi' si vede l'andamento reale invece del solo ultimo valore.
+// come trend, solo come numero singolo). Mostra le ultime N misurazioni con
+// riferimenti espliciti (kg sull'asse, date agli estremi, valore su primo/
+// ultimo/minimo/massimo) cosi' i pallini non restano muti: si legge subito
+// cosa rappresentano senza dover indovinare.
 function WeightMiniChart({ entries, obiettivo }) {
   const data = (entries||[]).slice(-14);
   if (data.length < 2) return null;
-  const W = 220, H = 46;
+  const W = 220, H = 70;
+  const padTop = 14, padBottom = 16, padLeft = 2, padRight = 2;
   const pesi = data.map(d=>d.peso);
   const max = Math.max(...pesi, obiettivo||0);
   const min = Math.min(...pesi, obiettivo||max);
   const range = Math.max(max - min, 1);
-  const x = i => (i/(data.length-1)) * W;
-  const y = p => H - 10 - ((p - min)/range) * (H - 14);
+  const plotW = W - padLeft - padRight;
+  const plotH = H - padTop - padBottom;
+  const x = i => padLeft + (i/(data.length-1)) * plotW;
+  const y = p => padTop + plotH - ((p - min)/range) * plotH;
   const points = data.map((d,i)=>`${x(i)},${y(d.peso)}`).join(" ");
   const objY = obiettivo!=null ? y(obiettivo) : null;
+
+  // Indici da etichettare: primo, ultimo, minimo e massimo (senza duplicati)
+  // cosi' si capisce a colpo d'occhio a quale misurazione corrisponde ogni
+  // pallino evidenziato, invece di doverlo dedurre.
+  const maxIdx = pesi.indexOf(Math.max(...pesi));
+  const minIdx = pesi.indexOf(Math.min(...pesi));
+  const labelIdx = Array.from(new Set([0, data.length-1, maxIdx, minIdx]));
+  const fmtData = ds => { const [,m,g] = ds.split("-"); return `${g}/${m}`; };
+
   return (
     <div style={{marginTop:8,paddingTop:8,borderTop:"1px solid #1A1A2E"}}>
-      <svg width="100%" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{display:"block"}}>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:7,color:"#475569",marginBottom:2}}>
+        <span>{fmtData(data[0].data)}</span>
+        <span>{fmtData(data[data.length-1].data)}</span>
+      </div>
+      <svg width="100%" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{display:"block",overflow:"visible"}}>
         {objY!=null && (
-          <line x1={0} y1={objY} x2={W} y2={objY} stroke="#10B981" strokeWidth="1" strokeDasharray="3,2" />
+          <>
+            <line x1={0} y1={objY} x2={W} y2={objY} stroke="#10B981" strokeWidth="1" strokeDasharray="3,2" />
+            <text x={W} y={objY-2} textAnchor="end" fontSize="6" fill="#10B981">obiettivo {obiettivo}</text>
+          </>
         )}
+        <text x={0} y={y(max)-2} fontSize="6" fill="#334155">{max}kg</text>
+        <text x={0} y={y(min)+7} fontSize="6" fill="#334155">{min}kg</text>
         <polyline points={points} fill="none" stroke="#F97316" strokeWidth="1.5" />
-        {data.map((d,i)=>(
-          <circle key={d.data} cx={x(i)} cy={y(d.peso)} r={i===data.length-1?2.5:1.5} fill="#F97316" />
-        ))}
+        {data.map((d,i)=>{
+          const labeled = labelIdx.includes(i);
+          return (
+            <g key={d.data}>
+              <circle cx={x(i)} cy={y(d.peso)} r={labeled?2.5:1.2} fill="#F97316" />
+              {labeled && (
+                <text x={x(i)} y={y(d.peso)-4} textAnchor={i===0?"start":i===data.length-1?"end":"middle"} fontSize="6.5" fontWeight="700" fill="#F8FAFC">
+                  {d.peso}
+                </text>
+              )}
+            </g>
+          );
+        })}
       </svg>
-      <div style={{fontSize:7,color:"#10B981",marginTop:2,textAlign:"right"}}>┄ obiettivo {obiettivo} kg — ultime {data.length} misurazioni</div>
+      <div style={{fontSize:7,color:"#475569",marginTop:2,textAlign:"center"}}>peso (kg) nelle ultime {data.length} misurazioni registrate</div>
     </div>
   );
 }
