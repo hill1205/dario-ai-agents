@@ -47,24 +47,34 @@ export default function BrunoPage({ fontSize=14 }) {
   const [modal, setModal]       = useState(null); // {tipo:"entrata"|"uscita", mode:"add"|"edit", item?}
   const [form, setForm]         = useState({});
   const [customCat, setCustomCat] = useState("");
+  // Stessa protezione introdotta su IAGREXPage: finché non confermiamo di
+  // aver letto lo storico vero da ClickUp, blocchiamo il salvataggio per
+  // non rischiare di sovrascrivere tutti i mesi con dati vuoti.
+  const [loadOk, setLoadOk]       = useState(false);
+  const [loadError, setLoadError] = useState(null);
 
   useEffect(()=>{ loadData(); }, []);
 
   const loadData = async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const res = await fetch("/api/bruno-finance");
-      if (res.ok) {
-        const json = await res.json();
-        setAllData(json.data || {});
-      }
-    } catch {}
+      const json = await res.json();
+      if (res.ok) { setAllData(json.data || {}); setLoadOk(true); }
+      else { setLoadError(json.error || `Errore ${res.status}`); setLoadOk(false); }
+    } catch (e) { setLoadError(e.message); setLoadOk(false); }
     setLoading(false);
   };
 
   const monthData = allData[month] || EMPTY_MONTH;
 
   const saveData = useCallback(async (newAllData) => {
+    if (!loadOk) {
+      setSaveStatus("blocked");
+      setTimeout(()=>setSaveStatus(null), 3500);
+      return;
+    }
     setAllData(newAllData);
     setSaveStatus("saving");
     try {
@@ -76,7 +86,7 @@ export default function BrunoPage({ fontSize=14 }) {
       setSaveStatus(res.ok ? "saved" : "error");
     } catch { setSaveStatus("error"); }
     setTimeout(()=>setSaveStatus(null), 2500);
-  }, []);
+  }, [loadOk]);
 
   const updateMonth = (updated) => {
     saveData({ ...allData, [month]: updated });
@@ -174,9 +184,10 @@ export default function BrunoPage({ fontSize=14 }) {
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:8 }}>
           <div style={{ display:"flex", alignItems:"center", gap:10 }}>
             <div style={{ fontWeight:700, fontSize:15, color:"#F8FAFC" }}>💰 Finanze Personali</div>
-            {saveStatus==="saving" && <span style={{ fontSize:11, color:"#F59E0B" }}>☁️ Salvataggio...</span>}
-            {saveStatus==="saved"  && <span style={{ fontSize:11, color:"#10B981" }}>✅ Salvato</span>}
-            {saveStatus==="error"  && <span style={{ fontSize:11, color:"#EF4444" }}>❌ Errore</span>}
+            {saveStatus==="saving"  && <span style={{ fontSize:11, color:"#F59E0B" }}>☁️ Salvataggio...</span>}
+            {saveStatus==="saved"   && <span style={{ fontSize:11, color:"#10B981" }}>✅ Salvato</span>}
+            {saveStatus==="error"   && <span style={{ fontSize:11, color:"#EF4444" }}>❌ Errore</span>}
+            {saveStatus==="blocked" && <span style={{ fontSize:11, color:"#EF4444" }}>🚫 Salvataggio bloccato: dati non caricati</span>}
           </div>
           {/* Month selector */}
           <div style={{ display:"flex", alignItems:"center", gap:8 }}>
@@ -186,6 +197,11 @@ export default function BrunoPage({ fontSize=14 }) {
             <button onClick={loadData} style={{ padding:"4px 8px", borderRadius:6, border:"1px solid #1A1A2E", background:"transparent", color:"#475569", cursor:"pointer", fontSize:11 }}>{loading?"⏳":"↻"}</button>
           </div>
         </div>
+        {loadError && (
+          <div style={{marginTop:8,padding:"8px 10px",borderRadius:7,border:"1px solid #EF444440",background:"#EF44440D",color:"#EF4444",fontSize:12}}>
+            ⚠️ Impossibile caricare i dati da ClickUp ({loadError}). Le modifiche sono bloccate finché non si ricarica correttamente, per non rischiare di cancellare lo storico. Prova "↻".
+          </div>
+        )}
 
         {/* Summary cards */}
         <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:8, marginTop:12 }}>
@@ -306,7 +322,7 @@ export default function BrunoPage({ fontSize=14 }) {
               <div>
                 <div style={{ fontSize:fs-3, fontWeight:700, color:"#F59E0B", textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:8 }}>🎯 Obiettivi</div>
                 <div style={{ background:"#0F0F1A", border:"1px solid #1A1A2E", borderRadius:10, overflow:"hidden" }}>
-                  {[
+                  {(
                     { key:"investimenti", label:"📈 Investimenti", color:"#3B82F6" },
                     { key:"risparmi",     label:"🐷 Risparmi",     color:"#10B981" },
                   ].map((item,i)=>(
