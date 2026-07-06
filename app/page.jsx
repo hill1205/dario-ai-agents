@@ -135,6 +135,38 @@ function RevenueMiniChart({ data, target }) {
   );
 }
 
+// Mini-grafico peso: usa lo storico gia' presente in weightData.entries
+// (viene scritto ad ogni "Registra peso" ma finora non era mai visualizzato
+// come trend, solo come numero singolo). Mostra le ultime N misurazioni
+// cosi' si vede l'andamento reale invece del solo ultimo valore.
+function WeightMiniChart({ entries, obiettivo }) {
+  const data = (entries||[]).slice(-14);
+  if (data.length < 2) return null;
+  const W = 220, H = 46;
+  const pesi = data.map(d=>d.peso);
+  const max = Math.max(...pesi, obiettivo||0);
+  const min = Math.min(...pesi, obiettivo||max);
+  const range = Math.max(max - min, 1);
+  const x = i => (i/(data.length-1)) * W;
+  const y = p => H - 10 - ((p - min)/range) * (H - 14);
+  const points = data.map((d,i)=>`${x(i)},${y(d.peso)}`).join(" ");
+  const objY = obiettivo!=null ? y(obiettivo) : null;
+  return (
+    <div style={{marginTop:8,paddingTop:8,borderTop:"1px solid #1A1A2E"}}>
+      <svg width="100%" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{display:"block"}}>
+        {objY!=null && (
+          <line x1={0} y1={objY} x2={W} y2={objY} stroke="#10B981" strokeWidth="1" strokeDasharray="3,2" />
+        )}
+        <polyline points={points} fill="none" stroke="#F97316" strokeWidth="1.5" />
+        {data.map((d,i)=>(
+          <circle key={d.data} cx={x(i)} cy={y(d.peso)} r={i===data.length-1?2.5:1.5} fill="#F97316" />
+        ))}
+      </svg>
+      <div style={{fontSize:7,color:"#10B981",marginTop:2,textAlign:"right"}}>┄ obiettivo {obiettivo} kg — ultime {data.length} misurazioni</div>
+    </div>
+  );
+}
+
 export default function App() {
   const [view, setView]                   = useState("home");
   const [fontSize, setFontSize]           = useState(14);
@@ -156,6 +188,7 @@ export default function App() {
   const [lastUpdated, setLastUpdated]       = useState(null);
   const [theme, setTheme]                   = useState("dark");
   const [routineStreak, setRoutineStreak]   = useState(0);
+  const [streakHistory, setStreakHistory]   = useState([]); // ultimi 30 giorni, da ClickUp
   const [leadDaRicontattare, setLeadDaRicontattare] = useState([]);
   const [inactivityDays, setInactivityDays] = useState(0);
   const [showIdeaModal, setShowIdeaModal]   = useState(false);
@@ -237,18 +270,26 @@ export default function App() {
       // fetchWithRetry assorbe un singolo blip di rete (timeout momentaneo)
       // ritentando una volta prima di arrendersi, cosi' il banner di errore
       // compare solo quando il problema e' persistente e reale.
-      const [wRes,tRes,rRes,wgRes,pRes] = await Promise.all([
+      const [wRes,tRes,rRes,wgRes,pRes,skRes] = await Promise.all([
         fetchWithRetry("/api/weather",{cache:"no-store"}),
         fetchWithRetry("/api/tasks",{cache:"no-store"}),
         fetchWithRetry("/api/revenue",{cache:"no-store"}),
         fetchWithRetry("/api/weight",{cache:"no-store"}),
         fetchWithRetry("/api/pipeline-data",{cache:"no-store"}),
+        fetchWithRetry("/api/streak",{cache:"no-store"}),
       ]);
       if (wRes&&!wRes.error)  setWeather(wRes);
       if (tRes)               setHomeData(tRes);
       else                    setHomeData({todo:[],routine:[],sospeso:[]});
       if (rRes&&!rRes.error)  setRevenue(rRes);
       if (wgRes&&!wgRes.error) setWeightData(wgRes);
+      // Lo streak vive ora sul Doc ClickUp (persiste cross-dispositivo):
+      // il valore server e' la fonte di verita', localStorage resta solo
+      // come cache per mostrare qualcosa mentre la fetch e' in corso.
+      if (skRes&&!skRes.error) {
+        setRoutineStreak(skRes.streak||0);
+        setStreakHistory(skRes.ultimi_30||[]);
+      }
       if (pRes&&!pRes.error && Array.isArray(pRes.entries)) {
         // Lead ancora aperti (non chiusi/rifiutati) senza contatto da 3+
         // giorni, o mai contattati: sono quelli a rischio di essere
@@ -276,10 +317,10 @@ export default function App() {
   };
 
   // Streak routine: se tutte le routine di oggi risultano completate,
-  // registriamo il giorno come "fatto" una sola volta e incrementiamo lo
-  // streak solo se il giorno precedente registrato e' davvero ieri
-  // (altrimenti, se salti un giorno, lo streak si azzera invece di
-  // continuare a salire come se nulla fosse).
+  // segnaliamo il giorno come "fatto" sul Doc ClickUp (una sola volta per
+  // giorno) cosi' lo streak sopravvive a cambio browser/dispositivo invece
+  // di vivere solo in localStorage. Il conteggio vero e proprio (quanti
+  // giorni consecutivi) lo calcola il server in /api/streak.
   useEffect(()=>{
     if (!homeData.routine || homeData.routine.length===0) return;
     const allDone = homeData.routine.every(t=>{
@@ -287,17 +328,23 @@ export default function App() {
       return cur;
     });
     if (!allDone) return;
-    try {
-      const today = todayBucharest();
-      const raw = localStorage.getItem("dario-routine-streak");
-      const prev = raw ? JSON.parse(raw) : { count:0, lastDate:null };
-      if (prev.lastDate === today) return; // già contato oggi
-      const yesterday = new Date(Date.now()-86400000).toLocaleDateString("en-CA",{timeZone:"Europe/Bucharest"});
-      const newCount = prev.lastDate === yesterday ? (prev.count||0)+1 : 1;
-      localStorage.setItem("dario-routine-streak", JSON.stringify({count:newCount,lastDate:today}));
-      setRoutineStreak(newCount);
-    } catch {}
-  },[homeData.routine, checkedTasks]);
+    const today = todayBucharest();
+    if (streakHistory.some(d=>d.data===today && d.completed)) return; // già segnato oggi
+    (async ()=>{
+      try {
+        const res = await fetch("/api/streak",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({data:today,completed:true})});
+        const data = await res.json();
+        if (res.ok) {
+          setRoutineStreak(data.streak||0);
+          setStreakHistory(prev=>{
+            const next = prev.filter(d=>d.data!==today);
+            next.push({data:today,completed:true});
+            return next;
+          });
+        }
+      } catch {}
+    })();
+  },[homeData.routine, checkedTasks, streakHistory]);
 
   const toggleTask = async (taskId,type)=>{
     const task = homeData[type]?.find(t=>t.id===taskId);
@@ -582,6 +629,7 @@ export default function App() {
                           <div style={{height:"100%",background:"#F97316",borderRadius:2,width:`${Math.min(Math.round(((121.6-(weightData.ultimo?.peso||121.6))/(121.6-85))*100),100)}%`,transition:"width 0.4s"}}/>
                         </div>
                         <div style={{fontSize:fontSize-5,color:"#334155",marginTop:3}}>Obiettivo: 85 kg</div>
+                        {!isMobile && <WeightMiniChart entries={weightData.entries} obiettivo={85}/>}
                         <button onClick={()=>{setWeightInput("");setShowWeightModal(true);}}
                           style={{marginTop:10,width:"100%",padding:"5px 8px",borderRadius:6,border:`1px solid ${T.border}`,background:T.bg,color:T.textDim,fontSize:fontSize-2,textAlign:"left",cursor:"pointer"}}>
                           Registra peso oggi...
