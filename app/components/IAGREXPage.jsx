@@ -49,7 +49,7 @@ export default function IAGREXPage({ fontSize=14, onBack }) {
 
   const loadRate = async () => {
     try {
-      const res = await fetch("https://api.frankfurter.app/latest?from=EUR&to=RON");
+      const res = await fetch("https://api.frankfurter.dev/v1/latest?from=EUR&to=RON");
       const j = await res.json();
       if (res.ok && j.rates?.RON) { setEurRonRate(j.rates.RON); setRateIsLive(true); }
       else { setEurRonRate(EUR_RON_FALLBACK); setRateIsLive(false); }
