@@ -184,13 +184,20 @@ export default function BrunoPage({ fontSize=14, theme="dark" }) {
   };
 
   // SUMMARY
-  const totEntrate  = monthData.entrate.reduce((s,e)=>s+(parseFloat(e.importo)||0),0);
-  const totUscite   = monthData.uscite.reduce((s,e)=>s+(parseFloat(e.importo)||0),0);
-  const saldoNetto  = totEntrate - totUscite;
-  // I saldi in RON (Revolut) vengono convertiti in EUR al cambio live
-  // prima di sommarli: senza questo, il patrimonio totale confonderebbe
-  // RON e EUR come se fossero la stessa valuta.
+  // I saldi/uscite in RON (Revolut) vengono convertiti in EUR al cambio
+  // live prima di essere sommati ai totali aggregati: senza questo, i
+  // totali confonderebbero RON e EUR come se fossero la stessa valuta.
+  // L'importo della singola uscita resta invece nella sua valuta nativa
+  // (quella del conto con cui è stata pagata) — vedi contoCurrency/toEur.
   const rate = eurRonRate || EUR_RON_FALLBACK;
+  const contoCurrency = (contoId) => CONTI_BY_ID[contoId]?.currency || "€";
+  const toEur = (item) => {
+    const val = parseFloat(item.importo)||0;
+    return contoCurrency(item.conto)==="RON" ? val/rate : val;
+  };
+  const totEntrate  = monthData.entrate.reduce((s,e)=>s+(parseFloat(e.importo)||0),0);
+  const totUscite   = monthData.uscite.reduce((s,e)=>s+toEur(e),0);
+  const saldoNetto  = totEntrate - totUscite;
   const totPatrimonio = Object.entries(monthData.saldi||{}).reduce((s,[id,v])=>{
     const val = parseFloat(v)||0;
     const isRon = CONTI_BY_ID[id]?.currency === "RON";
@@ -361,13 +368,13 @@ export default function BrunoPage({ fontSize=14, theme="dark" }) {
                 <div key={cat} style={{ marginBottom:12 }}>
                   <div style={{ fontSize:fs-3, fontWeight:700, color:"var(--c-text-dim)", textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:6, display:"flex", justifyContent:"space-between" }}>
                     <span>{cat}</span>
-                    <span style={{ color:"#EF4444" }}>-{fmt(items.reduce((s,e)=>s+(parseFloat(e.importo)||0),0))}€</span>
+                    <span style={{ color:"#EF4444" }}>-{fmt(items.reduce((s,e)=>s+toEur(e),0))}€</span>
                   </div>
                   <div style={{ background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10, overflow:"hidden" }}>
                     {items.map((e,i)=>(
                       <div key={e.id} style={{ display:"grid", gridTemplateColumns:"1fr auto auto auto", gap:0, borderTop:i===0?"none":"1px solid var(--c-border)", background:i%2===0?"var(--c-panel)":"var(--c-panel2)" }}>
                         <Cell style={{ color:"var(--c-text)" }}>{e.descrizione}</Cell>
-                        <Cell style={{ color:"#EF4444", fontWeight:700 }}>-{fmt(e.importo)}€</Cell>
+                        <Cell style={{ color:"#EF4444", fontWeight:700 }}>-{fmt(e.importo)}{contoCurrency(e.conto)==="RON"?" RON":"€"}</Cell>
                         <Cell><button onClick={()=>openEdit("uscita",e)} style={{ width:24, height:24, borderRadius:5, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-dim)", cursor:"pointer", fontSize:10 }}>✏️</button></Cell>
                         <Cell><button onClick={()=>deleteItem("uscita",e.id)} style={{ width:24, height:24, borderRadius:5, border:"1px solid #2A1A1A", background:"transparent", color:"#EF4444", cursor:"pointer", fontSize:12, fontWeight:700 }}>×</button></Cell>
                       </div>
@@ -459,11 +466,6 @@ export default function BrunoPage({ fontSize=14, theme="dark" }) {
                   style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:13, outline:"none" }}/>
               </div>
               <div>
-                <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:4 }}>Importo € *</div>
-                <input type="number" value={form.importo||""} onChange={e=>setForm(p=>({...p,importo:e.target.value}))}
-                  style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:13, outline:"none" }}/>
-              </div>
-              <div>
                 <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:6 }}>Categoria</div>
                 {modal.tipo==="uscita" ? (
                   <>
@@ -493,6 +495,17 @@ export default function BrunoPage({ fontSize=14, theme="dark" }) {
                   </select>
                 </div>
               )}
+              <div>
+                {/* La valuta segue il conto selezionato: se paghi da Revolut
+                    RON scrivi l'importo in RON, non serve convertirlo a
+                    mano — la conversione in € avviene solo nei totali
+                    aggregati (vedi toEur). */}
+                <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:4 }}>
+                  Importo {modal.tipo==="uscita" ? contoCurrency(form.conto) : "€"} *
+                </div>
+                <input type="number" value={form.importo||""} onChange={e=>setForm(p=>({...p,importo:e.target.value}))}
+                  style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:13, outline:"none" }}/>
+              </div>
             </div>
 
             <div style={{ display:"flex", gap:8, marginTop:20 }}>
