@@ -63,20 +63,24 @@ function CashFlowMiniChart({ allData }) {
         <div style={{fontSize:11,color:"var(--c-text-dim)",textTransform:"uppercase",letterSpacing:"0.06em"}}>Cash flow ultimi 6 mesi</div>
         <div style={{fontSize:10,color:"var(--c-text-faint)"}}><span style={{color:"#10B981"}}>■</span> entrate <span style={{color:"#EF4444",marginLeft:6}}>■</span> uscite</div>
       </div>
-      <svg width="100%" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{display:"block"}}>
+      <svg width="100%" viewBox={`0 0 ${W} ${H-14}`} preserveAspectRatio="none" style={{display:"block"}}>
         {data.map((d,i)=>{
           const gx = i*(groupW+gap);
-          const he = Math.max((d.entrate/max)*(H-14), d.entrate>0?2:0);
-          const hu = Math.max((d.uscite/max)*(H-14), d.uscite>0?2:0);
+          const he = Math.max((d.entrate/max)*(H-24), d.entrate>0?2:0);
+          const hu = Math.max((d.uscite/max)*(H-24), d.uscite>0?2:0);
           return (
             <g key={d.mese}>
-              <rect x={gx} y={H-14-he} width={barW} height={he} rx={1.5} fill="#10B981" />
-              <rect x={gx+barW+2} y={H-14-hu} width={barW} height={hu} rx={1.5} fill="#EF4444" />
-              <text x={gx+groupW/2} y={H} textAnchor="middle" fontSize="7" fill="var(--c-text-faintest)">{d.label}</text>
+              <rect x={gx} y={H-24-he} width={barW} height={he} rx={1.5} fill="#10B981" />
+              <rect x={gx+barW+2} y={H-24-hu} width={barW} height={hu} rx={1.5} fill="#EF4444" />
             </g>
           );
         })}
       </svg>
+      <div style={{display:"flex",marginTop:4}}>
+        {data.map(d=>(
+          <div key={d.mese} style={{flex:1,textAlign:"center",fontSize:10,fontWeight:500,color:"var(--c-text-faint)",letterSpacing:"0.01em"}}>{d.label}</div>
+        ))}
+      </div>
     </div>
   );
 }
