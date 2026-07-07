@@ -11,8 +11,7 @@ const CONTI = [
   { id: "revolut_ron",   label: "Revolut — RON",        currency: "RON" },
   { id: "postepay",      label: "PostePay Evolution",   currency: "€" },
   { id: "hype",          label: "HYPE / Banca Sella",   currency: "€" },
-  { id: "unicredit_eur", label: "UniCredit Romania — EUR", currency: "€" },
-  { id: "unicredit_ron", label: "UniCredit Romania — RON", currency: "RON" },
+  { id: "unicredit_ron", label: "UniCredit Romania",    currency: "RON" },
 ];
 const CONTI_BY_ID = Object.fromEntries(CONTI.map(c=>[c.id,c]));
 const EUR_RON_FALLBACK = 5; // usato solo se il fetch del cambio live fallisce
@@ -22,23 +21,26 @@ const CAT_USCITE_FISSE = ["Affitto","Cibo","Palestra","Trasporti","Abbonamenti",
 const EMPTY_MONTH = {
   entrate: [],
   uscite: [],
-  saldi: { bdm:0, trade_republic:0, revolut_eur:0, revolut_ron:0, postepay:0, hype:0, unicredit_eur:0, unicredit_ron:0 },
+  saldi: { bdm:0, trade_republic:0, revolut_eur:0, revolut_ron:0, postepay:0, hype:0, unicredit_ron:0 },
   investimenti: 0,
   risparmi: 0,
 };
 
-// Migrazione morbida: vecchie voci salvate con conto "unicredit" (prima
-// dello split EUR/RON) vengono lette come unicredit_eur, così lo storico
-// non si rompe quando riapriamo mesi già salvati.
-function migrateConto(id) { return id === "unicredit" ? "unicredit_eur" : id; }
+// Migrazione morbida: UniCredit Romania è solo RON, non c'è mai stato un
+// vero conto EUR separato. Vecchie voci con conto "unicredit" o
+// "unicredit_eur" (nomi usati prima di questo fix) vengono lette come
+// unicredit_ron, così lo storico non si rompe quando riapriamo mesi salvati.
+function migrateConto(id) { return (id === "unicredit" || id === "unicredit_eur") ? "unicredit_ron" : id; }
 function migrateMonth(md) {
   if (!md) return md;
+  const strayEur = parseFloat(md.saldi?.unicredit_eur)||0;
+  const strayOld = parseFloat(md.saldi?.unicredit)||0;
   return {
     ...md,
     entrate: (md.entrate||[]).map(e => e.conto ? { ...e, conto: migrateConto(e.conto) } : e),
     uscite:  (md.uscite||[]).map(e => e.conto ? { ...e, conto: migrateConto(e.conto) } : e),
-    saldi: md.saldi?.unicredit !== undefined
-      ? { ...md.saldi, unicredit_eur: (md.saldi.unicredit_eur||0) + md.saldi.unicredit, unicredit: undefined }
+    saldi: (strayEur || strayOld)
+      ? { ...md.saldi, unicredit_ron: (parseFloat(md.saldi.unicredit_ron)||0) + strayEur + strayOld, unicredit_eur: undefined, unicredit: undefined }
       : md.saldi,
   };
 }
