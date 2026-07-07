@@ -78,7 +78,7 @@ function CashFlowMiniChart({ allData }) {
       </svg>
       <div style={{display:"flex",marginTop:4}}>
         {data.map(d=>(
-          <div key={d.mese} style={{flex:1,textAlign:"center",fontSize:10,fontWeight:500,color:"var(--c-text-faint)",letterSpacing:"0.01em"}}>{d.label}</div>
+          <div key={d.mese} style={{flex:1,textAlign:"center",fontSize:12,fontWeight:500,color:"var(--c-text-faint)",letterSpacing:"0.01em"}}>{d.label}</div>
         ))}
       </div>
     </div>
