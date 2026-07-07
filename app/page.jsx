@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import PipelinePage from "./components/PipelinePage";
 import BrunoPage from "./components/BrunoPage";
 import IAGREXPage from "./components/IAGREXPage";
@@ -484,12 +484,18 @@ export default function App() {
     setListening(true);
   };
 
-  const DCard  = ({children,style={}})=>(
+  // DCard/DLabel sono avvolti in useMemo con dipendenze stabili (T,
+  // fontSize) invece di essere ridefiniti a ogni render: l'orologio in
+  // homepage aggiorna lo stato ogni secondo, e se questi componenti
+  // venissero ricreati ogni volta React li smonterebbe e rimonterebbe da
+  // capo — su mobile questo chiude la tastiera virtuale ogni secondo,
+  // rendendo impossibile scrivere negli input (es. "Nuovo task...").
+  const DCard = useMemo(()=> ({children,style={}})=>(
     <div style={{background:T.panel,border:`1px solid ${T.border}`,borderRadius:14,padding:16,...style}}>{children}</div>
-  );
-  const DLabel = ({children,style={}})=>(
+  ), [T]);
+  const DLabel = useMemo(()=> ({children,style={}})=>(
     <div style={{fontSize:Math.max(9,fontSize-4),fontWeight:700,color:T.textDim,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:10,...style}}>{children}</div>
-  );
+  ), [T,fontSize]);
 
   const SettingsContent = ()=>(
     <div style={{padding:12}}>
