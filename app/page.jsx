@@ -109,27 +109,27 @@ function RevenueMiniChart({ data, target }) {
   const targetY = target ? H - 12 - (target / max) * (H - 12) : null;
   return (
     <div style={{marginTop:10,paddingTop:8,borderTop:"1px solid #1A1A2E"}}>
-      <svg width="100%" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{display:"block"}}>
+      <svg width="100%" viewBox={`0 0 ${W} ${H - 10}`} preserveAspectRatio="none" style={{display:"block"}}>
         {data.map((d, i) => {
-          const h = Math.max((d.entrate / max) * (H - 12), d.entrate > 0 ? 2 : 0);
+          const h = Math.max((d.entrate / max) * (H - 22), d.entrate > 0 ? 2 : 0);
           const x = i * (barW + gap);
           const isLast = i === data.length - 1;
           return (
-            <g key={d.mese}>
-              <rect x={x} y={H - 12 - h} width={barW} height={h} rx={1.5}
-                fill={isLast ? "#10B981" : "#10B98155"} />
-              <text x={x + barW / 2} y={H} textAnchor="middle" fontSize="6" fill="#334155">
-                {d.label}
-              </text>
-            </g>
+            <rect key={d.mese} x={x} y={H - 22 - h} width={barW} height={h} rx={1.5}
+              fill={isLast ? "#10B981" : "#10B98155"} />
           );
         })}
         {targetY != null && (
           <line x1={0} y1={targetY} x2={W} y2={targetY} stroke="#3B82F6" strokeWidth="1" strokeDasharray="3,2" />
         )}
       </svg>
+      <div style={{display:"flex",marginTop:3}}>
+        {data.map((d,i)=>(
+          <div key={d.mese} style={{flex:1,textAlign:"center",fontSize:9,fontWeight:500,color:"#64748B",letterSpacing:"0.01em"}}>{d.label}</div>
+        ))}
+      </div>
       {target != null && (
-        <div style={{fontSize:7,color:"#3B82F6",marginTop:2,textAlign:"right"}}>┄ ritmo necessario/mese</div>
+        <div style={{fontSize:9,color:"#3B82F6",marginTop:4,textAlign:"right"}}>┄ ritmo necessario/mese</div>
       )}
     </div>
   );
@@ -144,8 +144,15 @@ function RevenueMiniChart({ data, target }) {
 function WeightMiniChart({ entries, obiettivo }) {
   const data = (entries||[]).slice(-14);
   if (data.length < 2) return null;
-  const W = 220, H = 70;
-  const padTop = 14, padBottom = 16, padLeft = 2, padRight = 2;
+  // Nota: niente <text> dentro l'SVG. Con preserveAspectRatio="none" e
+  // width 100% il fontSize in "unita' viewBox" viene moltiplicato per il
+  // fattore di scala del contenitore reale (che su desktop puo' essere
+  // 4-5 volte piu' largo del viewBox): risultato, scritte enormi e
+  // sballate. Le etichette vanno quindi renderizzate come HTML normale,
+  // sovrapposte in percentuale, cosi' il font-size resta sempre quello
+  // dichiarato in px.
+  const W = 220, H = 76;
+  const padTop = 20, padBottom = 16, padLeft = 4, padRight = 4;
   const pesi = data.map(d=>d.peso);
   const max = Math.max(...pesi, obiettivo||0);
   const min = Math.min(...pesi, obiettivo||max);
@@ -156,46 +163,39 @@ function WeightMiniChart({ entries, obiettivo }) {
   const y = p => padTop + plotH - ((p - min)/range) * plotH;
   const points = data.map((d,i)=>`${x(i)},${y(d.peso)}`).join(" ");
   const objY = obiettivo!=null ? y(obiettivo) : null;
-
-  // Indici da etichettare: primo, ultimo, minimo e massimo (senza duplicati)
-  // cosi' si capisce a colpo d'occhio a quale misurazione corrisponde ogni
-  // pallino evidenziato, invece di doverlo dedurre.
-  const maxIdx = pesi.indexOf(Math.max(...pesi));
-  const minIdx = pesi.indexOf(Math.min(...pesi));
-  const labelIdx = Array.from(new Set([0, data.length-1, maxIdx, minIdx]));
   const fmtData = ds => { const [,m,g] = ds.split("-"); return `${g}/${m}`; };
+  const pct = (v,total) => `${(v/total)*100}%`;
+  const first = data[0], last = data[data.length-1];
 
   return (
     <div style={{marginTop:8,paddingTop:8,borderTop:"1px solid #1A1A2E"}}>
-      <div style={{display:"flex",justifyContent:"space-between",fontSize:7,color:"#475569",marginBottom:2}}>
-        <span>{fmtData(data[0].data)}</span>
-        <span>{fmtData(data[data.length-1].data)}</span>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:"#64748B",marginBottom:2,fontWeight:500,letterSpacing:"0.02em"}}>
+        <span>{fmtData(first.data)}</span>
+        <span>{fmtData(last.data)}</span>
       </div>
-      <svg width="100%" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{display:"block",overflow:"visible"}}>
-        {objY!=null && (
-          <>
+      <div style={{position:"relative"}}>
+        <svg width="100%" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{display:"block",overflow:"visible"}}>
+          {objY!=null && (
             <line x1={0} y1={objY} x2={W} y2={objY} stroke="#10B981" strokeWidth="1" strokeDasharray="3,2" />
-            <text x={W} y={objY-2} textAnchor="end" fontSize="6" fill="#10B981">obiettivo {obiettivo}</text>
-          </>
+          )}
+          <polyline points={points} fill="none" stroke="#F97316" strokeWidth="1.5" />
+          {data.map((d,i)=>(
+            <circle key={d.data} cx={x(i)} cy={y(d.peso)} r={i===0||i===data.length-1?2.5:1.2} fill="#F97316" />
+          ))}
+        </svg>
+        {objY!=null && (
+          <div style={{position:"absolute",right:0,top:pct(objY,H),transform:"translateY(-100%)",fontSize:9,fontWeight:600,color:"#10B981",background:"var(--c-panel,#0F0F1A)",padding:"0 3px"}}>
+            obiettivo {obiettivo} kg
+          </div>
         )}
-        <text x={0} y={y(max)-2} fontSize="6" fill="#334155">{max}kg</text>
-        <text x={0} y={y(min)+7} fontSize="6" fill="#334155">{min}kg</text>
-        <polyline points={points} fill="none" stroke="#F97316" strokeWidth="1.5" />
-        {data.map((d,i)=>{
-          const labeled = labelIdx.includes(i);
-          return (
-            <g key={d.data}>
-              <circle cx={x(i)} cy={y(d.peso)} r={labeled?2.5:1.2} fill="#F97316" />
-              {labeled && (
-                <text x={x(i)} y={y(d.peso)-4} textAnchor={i===0?"start":i===data.length-1?"end":"middle"} fontSize="6.5" fontWeight="700" fill="#F8FAFC">
-                  {d.peso}
-                </text>
-              )}
-            </g>
-          );
-        })}
-      </svg>
-      <div style={{fontSize:7,color:"#475569",marginTop:2,textAlign:"center"}}>peso (kg) nelle ultime {data.length} misurazioni registrate</div>
+        <div style={{position:"absolute",left:pct(x(0),W),top:pct(y(first.peso),H),transform:"translate(0,-130%)",fontSize:10,fontWeight:700,color:"#F1F5F9",background:"#0B0B16",padding:"1px 4px",borderRadius:4,whiteSpace:"nowrap"}}>
+          {first.peso} kg
+        </div>
+        <div style={{position:"absolute",left:pct(x(data.length-1),W),top:pct(y(last.peso),H),transform:"translate(-100%,-130%)",fontSize:10,fontWeight:700,color:"#F1F5F9",background:"#0B0B16",padding:"1px 4px",borderRadius:4,whiteSpace:"nowrap"}}>
+          {last.peso} kg
+        </div>
+      </div>
+      <div style={{fontSize:9,color:"#475569",marginTop:4,textAlign:"center"}}>peso (kg) nelle ultime {data.length} misurazioni registrate</div>
     </div>
   );
 }
