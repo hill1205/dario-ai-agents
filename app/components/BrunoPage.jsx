@@ -102,6 +102,31 @@ function CashFlowMiniChart({ allData }) {
   );
 }
 
+// Barre orizzontali per il recap "dove vanno i soldi": una riga per
+// categoria, ordinate dalla piu' alta alla piu' bassa, con importo e
+// percentuale sul totale. Componente a livello di modulo (non ridefinito
+// ad ogni render) per evitare lo stesso bug di remount gia' risolto altrove.
+function CategoryBars({ data, total, color, fs, fmt }) {
+  const entries = Object.entries(data).sort((a,b)=>b[1]-a[1]);
+  if (entries.length===0) {
+    return <div style={{fontSize:fs-2,color:"var(--c-text-faintest)",padding:"8px 0"}}>Nessun dato per questo mese</div>;
+  }
+  return entries.map(([cat,val])=>{
+    const pct = total>0 ? (val/total*100) : 0;
+    return (
+      <div key={cat} style={{marginBottom:10}}>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:fs-2,marginBottom:4}}>
+          <span style={{color:"var(--c-text)"}}>{cat}</span>
+          <span style={{color:"var(--c-text-dim)",fontWeight:600}}>{fmt(val)}€ · {pct.toFixed(1)}%</span>
+        </div>
+        <div style={{height:8,background:"var(--c-border)",borderRadius:4,overflow:"hidden"}}>
+          <div style={{height:"100%",width:`${Math.min(pct,100)}%`,background:color,borderRadius:4}}/>
+        </div>
+      </div>
+    );
+  });
+}
+
 export default function BrunoPage({ fontSize=14, theme="dark" }) {
   const fs = fontSize;
   const themeVars = THEME_VARS[theme] || THEME_VARS.dark;
@@ -198,6 +223,10 @@ export default function BrunoPage({ fontSize=14, theme="dark" }) {
   const totEntrate  = monthData.entrate.reduce((s,e)=>s+(parseFloat(e.importo)||0),0);
   const totUscite   = monthData.uscite.reduce((s,e)=>s+toEur(e),0);
   const saldoNetto  = totEntrate - totUscite;
+  // Recap "dove vanno i soldi": uscite convertite in EUR (toEur gestisce
+  // già Revolut RON) prima di raggrupparle per categoria.
+  const usciteByCat  = monthData.uscite.reduce((acc,e)=>{ acc[e.categoria]=(acc[e.categoria]||0)+toEur(e); return acc; },{});
+  const entrateByCat = monthData.entrate.reduce((acc,e)=>{ acc[e.categoria]=(acc[e.categoria]||0)+(parseFloat(e.importo)||0); return acc; },{});
   const totPatrimonio = Object.entries(monthData.saldi||{}).reduce((s,[id,v])=>{
     const val = parseFloat(v)||0;
     const isRon = CONTI_BY_ID[id]?.currency === "RON";
@@ -318,7 +347,7 @@ export default function BrunoPage({ fontSize=14, theme="dark" }) {
 
       {/* Tabs */}
       <div style={{ display:"flex", borderBottom:"1px solid var(--c-border)", flexShrink:0, background:"var(--c-bg)" }}>
-        {[["entrate","💚 Entrate"],["uscite","🔴 Uscite"],["saldi","🏦 Saldi & Obiettivi"]].map(([t,label])=>(
+        {[["entrate","💚 Entrate"],["uscite","🔴 Uscite"],["saldi","🏦 Saldi & Obiettivi"],["recap","📊 Recap"]].map(([t,label])=>(
           <button key={t} onClick={()=>setTab(t)} style={{ padding:"10px 16px", border:"none", background:"transparent", cursor:"pointer", fontSize:fs-2, fontWeight:tab===t?700:400, color:tab===t?"var(--c-text-strong)":"var(--c-text-faint)", borderBottom:tab===t?"2px solid #F59E0B":"2px solid transparent" }}>{label}</button>
         ))}
       </div>
@@ -445,6 +474,29 @@ export default function BrunoPage({ fontSize=14, theme="dark" }) {
                     <span style={{ fontSize:fs-1, fontWeight:800, color:"#F59E0B" }}>{fmt(totPatrimonio)}€</span>
                   </div>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* RECAP: dove vanno i soldi, mese per mese */}
+          {tab==="recap" && (
+            <div>
+              <div style={{ fontSize:fs-1, fontWeight:700, color:"var(--c-text-strong)", marginBottom:16 }}>
+                📊 Recap {getMonthLabel(month)}
+              </div>
+
+              <div style={{ marginBottom:24 }}>
+                <div style={{ fontSize:fs-3, fontWeight:700, color:"#EF4444", textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:10 }}>
+                  🔴 Uscite per categoria — totale {fmt(totUscite)}€
+                </div>
+                <CategoryBars data={usciteByCat} total={totUscite} color="#EF4444" fs={fs} fmt={fmt}/>
+              </div>
+
+              <div>
+                <div style={{ fontSize:fs-3, fontWeight:700, color:"#10B981", textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:10 }}>
+                  💚 Entrate per categoria — totale {fmt(totEntrate)}€
+                </div>
+                <CategoryBars data={entrateByCat} total={totEntrate} color="#10B981" fs={fs} fmt={fmt}/>
               </div>
             </div>
           )}
