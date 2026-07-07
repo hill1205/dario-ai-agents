@@ -193,32 +193,34 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark" }) {
     setMonth(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`);
   };
 
-  // YTD progress
-  const year = getCurrentYear();
-  const ytdRevenue = Object.entries(allData)
-    .filter(([k])=>k.startsWith(year))
-    .reduce((s,[,v])=>s+(v.entrate||[]).reduce((ss,e)=>ss+(parseFloat(e.importo)||0),0),0);
-  const ytdPct = Math.min(Math.round((ytdRevenue/OBIETTIVO_ANNUO)*100*10)/10, 100);
-  const mesiRimanenti = 13 - (new Date().getMonth()+1); // dicembre incluso = 1
-  const ritmoMensileNecessario = Math.round(Math.max(OBIETTIVO_ANNUO-ytdRevenue,0)/mesiRimanenti);
-
   // Month totals
-  // Le uscite pagate da UniCredit RON restano in RON (stessa logica di
-  // BrunoPage): il totale mensile in € le converte al cambio live.
+  // Le entrate/uscite in UniCredit RON restano in RON (stessa logica di
+  // BrunoPage): la conversione in € avviene solo nei totali aggregati.
   const rate = eurRonRate || EUR_RON_FALLBACK;
   const contoCurrency = (contoId) => CONTI_IAGREX_BY_ID[contoId]?.currency || "€";
   const toEur = (item) => {
     const val = parseFloat(item.importo)||0;
     return contoCurrency(item.conto)==="RON" ? val/rate : val;
   };
-  const totEntrate = monthData.entrate.reduce((s,e)=>s+(parseFloat(e.importo)||0),0);
+
+  // YTD progress — converte anche le entrate storiche in RON prima di
+  // sommarle, altrimenti il progresso verso 1.000.000€ mischierebbe RON e EUR.
+  const year = getCurrentYear();
+  const ytdRevenue = Object.entries(allData)
+    .filter(([k])=>k.startsWith(year))
+    .reduce((s,[,v])=>s+(v.entrate||[]).reduce((ss,e)=>ss+toEur(e),0),0);
+  const ytdPct = Math.min(Math.round((ytdRevenue/OBIETTIVO_ANNUO)*100*10)/10, 100);
+  const mesiRimanenti = 13 - (new Date().getMonth()+1); // dicembre incluso = 1
+  const ritmoMensileNecessario = Math.round(Math.max(OBIETTIVO_ANNUO-ytdRevenue,0)/mesiRimanenti);
+
+  const totEntrate = monthData.entrate.reduce((s,e)=>s+toEur(e),0);
   const totUscite  = monthData.uscite.reduce((s,e)=>s+toEur(e),0);
   const saldoNetto = totEntrate - totUscite;
   // Recap "dove vanno i soldi": aggregato per categoria del mese selezionato.
   const usciteByCat  = monthData.uscite.reduce((acc,e)=>{ acc[e.categoria]=(acc[e.categoria]||0)+toEur(e); return acc; },{});
-  const entrateByCat = monthData.entrate.reduce((acc,e)=>{ acc[e.categoria]=(acc[e.categoria]||0)+(parseFloat(e.importo)||0); return acc; },{});
+  const entrateByCat = monthData.entrate.reduce((acc,e)=>{ acc[e.categoria]=(acc[e.categoria]||0)+toEur(e); return acc; },{});
 
-  const openAdd = (tipo) => { setForm({descrizione:"",importo:"",categoria:tipo==="entrata"?CAT_ENTRATE[0]:CAT_USCITE[0],cliente:"",conto:tipo==="uscita"?CONTI_IAGREX[0].id:""}); setModal({tipo,mode:"add"}); };
+  const openAdd = (tipo) => { setForm({descrizione:"",importo:"",categoria:tipo==="entrata"?CAT_ENTRATE[0]:CAT_USCITE[0],cliente:"",conto:CONTI_IAGREX[0].id}); setModal({tipo,mode:"add"}); };
   const openEdit = (tipo,item) => { setForm({...item}); setModal({tipo,mode:"edit",item}); };
   const closeModal = () => { setModal(null); setForm({}); };
 
@@ -235,6 +237,13 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark" }) {
       }
       updated.uscite = modal.mode==="add"?[...updated.uscite,item]:updated.uscite.map(e=>e.id===item.id?item:e);
     } else {
+      // L'entrata accredita il conto scelto (logica speculare alle uscite).
+      if (modal.mode==="edit" && modal.item?.conto) {
+        updated.saldi[modal.item.conto] = (parseFloat(updated.saldi[modal.item.conto])||0) - (parseFloat(modal.item.importo)||0);
+      }
+      if (item.conto && updated.saldi[item.conto] !== undefined) {
+        updated.saldi[item.conto] = (parseFloat(updated.saldi[item.conto])||0) + parseFloat(item.importo);
+      }
       updated.entrate = modal.mode==="add"?[...updated.entrate,item]:updated.entrate.map(e=>e.id===item.id?item:e);
     }
     updateMonth(updated);
@@ -251,6 +260,10 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark" }) {
       }
       updated.uscite = updated.uscite.filter(e=>e.id!==id);
     } else {
+      const item = updated.entrate.find(e=>e.id===id);
+      if (item?.conto && updated.saldi[item.conto] !== undefined) {
+        updated.saldi[item.conto] = (parseFloat(updated.saldi[item.conto])||0) - parseFloat(item.importo);
+      }
       updated.entrate = updated.entrate.filter(e=>e.id!==id);
     }
     updateMonth(updated);
@@ -355,9 +368,9 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark" }) {
                     <div key={e.id} style={{display:"grid",gridTemplateColumns:"1fr auto auto auto",gap:0,borderTop:i===0?"none":"1px solid var(--c-border)",background:i%2===0?"var(--c-panel)":"var(--c-panel2)"}}>
                       <Cell style={{flexDirection:"column",alignItems:"flex-start",gap:2}}>
                         <span style={{color:"var(--c-text)",fontWeight:600}}>{e.descrizione}</span>
-                        <span style={{fontSize:fs-4,color:"var(--c-text-faint)"}}>{e.categoria}{e.cliente?` · ${e.cliente}`:""}</span>
+                        <span style={{fontSize:fs-4,color:"var(--c-text-faint)"}}>{e.categoria}{e.cliente?` · ${e.cliente}`:""}{e.conto?` · ${CONTI_IAGREX_BY_ID[e.conto]?.label||e.conto}`:""}</span>
                       </Cell>
-                      <Cell style={{color:"#10B981",fontWeight:700}}>+{fmt(e.importo)}€</Cell>
+                      <Cell style={{color:"#10B981",fontWeight:700}}>+{fmt(e.importo)}{contoCurrency(e.conto)==="RON"?" RON":"€"}</Cell>
                       <Cell><button onClick={()=>openEdit("entrata",e)} style={{width:24,height:24,borderRadius:5,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-dim)",cursor:"pointer",fontSize:10}}>✏️</button></Cell>
                       <Cell><button onClick={()=>deleteItem("entrata",e.id)} style={{width:24,height:24,borderRadius:5,border:"1px solid #2A1A1A",background:"transparent",color:"#EF4444",cursor:"pointer",fontSize:12,fontWeight:700}}>×</button></Cell>
                     </div>
@@ -477,22 +490,20 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark" }) {
                   ))}
                 </div>
               </div>
-              {modal.tipo==="uscita" && (
-                <div>
-                  <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:4}}>Pagato da 🏦</div>
-                  <select value={form.conto||""} onChange={e=>setForm(p=>({...p,conto:e.target.value}))}
-                    style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:13,outline:"none"}}>
-                    <option value="">-- Seleziona conto --</option>
-                    {CONTI_IAGREX.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
-                  </select>
-                </div>
-              )}
               <div>
-                {/* La valuta segue il conto selezionato: se paghi da
+                <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:4}}>{modal.tipo==="uscita"?"Pagato da 🏦":"Accreditato su 🏦"}</div>
+                <select value={form.conto||""} onChange={e=>setForm(p=>({...p,conto:e.target.value}))}
+                  style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:13,outline:"none"}}>
+                  <option value="">-- Seleziona conto --</option>
+                  {CONTI_IAGREX.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
+                </select>
+              </div>
+              <div>
+                {/* La valuta segue il conto selezionato: se incassi/paghi su
                     UniCredit RON scrivi l'importo in RON, la conversione
                     in € avviene solo nei totali aggregati (vedi toEur). */}
                 <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:4}}>
-                  Importo {modal.tipo==="uscita" ? contoCurrency(form.conto) : "€"} *
+                  Importo {contoCurrency(form.conto)} *
                 </div>
                 <input type="number" value={form.importo||""} onChange={e=>setForm(p=>({...p,importo:e.target.value}))}
                   style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:13,outline:"none"}}/>

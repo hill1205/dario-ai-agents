@@ -11,7 +11,8 @@ const CONTI = [
   { id: "revolut_ron",   label: "Revolut — RON",        currency: "RON" },
   { id: "postepay",      label: "PostePay Evolution",   currency: "€" },
   { id: "hype",          label: "HYPE / Banca Sella",   currency: "€" },
-  { id: "unicredit",     label: "UniCredit Romania",    currency: "€" },
+  { id: "unicredit_eur", label: "UniCredit Romania — EUR", currency: "€" },
+  { id: "unicredit_ron", label: "UniCredit Romania — RON", currency: "RON" },
 ];
 const CONTI_BY_ID = Object.fromEntries(CONTI.map(c=>[c.id,c]));
 const EUR_RON_FALLBACK = 5; // usato solo se il fetch del cambio live fallisce
@@ -21,10 +22,26 @@ const CAT_USCITE_FISSE = ["Affitto","Cibo","Palestra","Trasporti","Abbonamenti",
 const EMPTY_MONTH = {
   entrate: [],
   uscite: [],
-  saldi: { bdm:0, trade_republic:0, revolut_eur:0, revolut_ron:0, postepay:0, hype:0, unicredit:0 },
+  saldi: { bdm:0, trade_republic:0, revolut_eur:0, revolut_ron:0, postepay:0, hype:0, unicredit_eur:0, unicredit_ron:0 },
   investimenti: 0,
   risparmi: 0,
 };
+
+// Migrazione morbida: vecchie voci salvate con conto "unicredit" (prima
+// dello split EUR/RON) vengono lette come unicredit_eur, così lo storico
+// non si rompe quando riapriamo mesi già salvati.
+function migrateConto(id) { return id === "unicredit" ? "unicredit_eur" : id; }
+function migrateMonth(md) {
+  if (!md) return md;
+  return {
+    ...md,
+    entrate: (md.entrate||[]).map(e => e.conto ? { ...e, conto: migrateConto(e.conto) } : e),
+    uscite:  (md.uscite||[]).map(e => e.conto ? { ...e, conto: migrateConto(e.conto) } : e),
+    saldi: md.saldi?.unicredit !== undefined
+      ? { ...md.saldi, unicredit_eur: (md.saldi.unicredit_eur||0) + md.saldi.unicredit, unicredit: undefined }
+      : md.saldi,
+  };
+}
 
 function genId() { return Math.random().toString(36).slice(2,10); }
 
@@ -166,7 +183,12 @@ export default function BrunoPage({ fontSize=14, theme="dark" }) {
     try {
       const res = await fetch("/api/bruno-finance");
       const json = await res.json();
-      if (res.ok) { setAllData(json.data || {}); setLoadOk(true); }
+      if (res.ok) {
+        const raw = json.data || {};
+        const migrated = Object.fromEntries(Object.entries(raw).map(([ym,md])=>[ym, migrateMonth(md)]));
+        setAllData(migrated);
+        setLoadOk(true);
+      }
       else { setLoadError(json.error || `Errore ${res.status}`); setLoadOk(false); }
     } catch (e) { setLoadError(e.message); setLoadOk(false); }
     setLoading(false);
@@ -220,13 +242,13 @@ export default function BrunoPage({ fontSize=14, theme="dark" }) {
     const val = parseFloat(item.importo)||0;
     return contoCurrency(item.conto)==="RON" ? val/rate : val;
   };
-  const totEntrate  = monthData.entrate.reduce((s,e)=>s+(parseFloat(e.importo)||0),0);
+  const totEntrate  = monthData.entrate.reduce((s,e)=>s+toEur(e),0);
   const totUscite   = monthData.uscite.reduce((s,e)=>s+toEur(e),0);
   const saldoNetto  = totEntrate - totUscite;
-  // Recap "dove vanno i soldi": uscite convertite in EUR (toEur gestisce
-  // già Revolut RON) prima di raggrupparle per categoria.
+  // Recap "dove vanno i soldi": uscite/entrate convertite in EUR (toEur
+  // gestisce già i conti in RON) prima di raggrupparle per categoria.
   const usciteByCat  = monthData.uscite.reduce((acc,e)=>{ acc[e.categoria]=(acc[e.categoria]||0)+toEur(e); return acc; },{});
-  const entrateByCat = monthData.entrate.reduce((acc,e)=>{ acc[e.categoria]=(acc[e.categoria]||0)+(parseFloat(e.importo)||0); return acc; },{});
+  const entrateByCat = monthData.entrate.reduce((acc,e)=>{ acc[e.categoria]=(acc[e.categoria]||0)+toEur(e); return acc; },{});
   const totPatrimonio = Object.entries(monthData.saldi||{}).reduce((s,[id,v])=>{
     const val = parseFloat(v)||0;
     const isRon = CONTI_BY_ID[id]?.currency === "RON";
@@ -237,7 +259,7 @@ export default function BrunoPage({ fontSize=14, theme="dark" }) {
 
   // MODAL HANDLERS
   const openAdd = (tipo) => {
-    setForm({ descrizione:"", importo:"", categoria: tipo==="uscita"?CAT_USCITE_FISSE[0]:"Stipendio", conto: tipo==="uscita"?CONTI[0].id:"" });
+    setForm({ descrizione:"", importo:"", categoria: tipo==="uscita"?CAT_USCITE_FISSE[0]:"Stipendio", conto: CONTI[0].id });
     setCustomCat("");
     setModal({ tipo, mode:"add" });
   };
@@ -265,6 +287,15 @@ export default function BrunoPage({ fontSize=14, theme="dark" }) {
       }
       updated.uscite = modal.mode==="add" ? [...updated.uscite, item] : updated.uscite.map(e=>e.id===item.id?item:e);
     } else {
+      // Stessa logica delle uscite ma al contrario: l'entrata accredita
+      // il conto scelto (in edit prima si toglie il vecchio importo dal
+      // vecchio conto, poi si aggiunge il nuovo al nuovo conto).
+      if (modal.mode==="edit" && modal.item?.conto) {
+        updated.saldi[modal.item.conto] = (parseFloat(updated.saldi[modal.item.conto])||0) - (parseFloat(modal.item.importo)||0);
+      }
+      if (item.conto && updated.saldi[item.conto] !== undefined) {
+        updated.saldi[item.conto] = (parseFloat(updated.saldi[item.conto])||0) + parseFloat(item.importo);
+      }
       updated.entrate = modal.mode==="add" ? [...updated.entrate, item] : updated.entrate.map(e=>e.id===item.id?item:e);
     }
     updateMonth(updated);
@@ -281,6 +312,10 @@ export default function BrunoPage({ fontSize=14, theme="dark" }) {
       }
       updated.uscite = updated.uscite.filter(e=>e.id!==id);
     } else {
+      const item = updated.entrate.find(e=>e.id===id);
+      if (item?.conto && updated.saldi[item.conto] !== undefined) {
+        updated.saldi[item.conto] = (parseFloat(updated.saldi[item.conto])||0) - parseFloat(item.importo);
+      }
       updated.entrate = updated.entrate.filter(e=>e.id!==id);
     }
     updateMonth(updated);
@@ -371,9 +406,9 @@ export default function BrunoPage({ fontSize=14, theme="dark" }) {
                     <div key={e.id} style={{ display:"grid", gridTemplateColumns:"1fr auto auto auto", gap:0, borderTop:i===0?"none":"1px solid var(--c-border)", background:i%2===0?"var(--c-panel)":"var(--c-panel2)" }}>
                       <Cell style={{ flexDirection:"column", alignItems:"flex-start", gap:2 }}>
                         <span style={{ color:"var(--c-text)", fontWeight:600 }}>{e.descrizione}</span>
-                        <span style={{ fontSize:fs-4, color:"var(--c-text-faint)" }}>{e.categoria}</span>
+                        <span style={{ fontSize:fs-4, color:"var(--c-text-faint)" }}>{e.categoria}{e.conto?` · ${CONTI_BY_ID[e.conto]?.label||e.conto}`:""}</span>
                       </Cell>
-                      <Cell style={{ color:"#10B981", fontWeight:700 }}>+{fmt(e.importo)}€</Cell>
+                      <Cell style={{ color:"#10B981", fontWeight:700 }}>+{fmt(e.importo)}{contoCurrency(e.conto)==="RON"?" RON":"€"}</Cell>
                       <Cell><button onClick={()=>openEdit("entrata",e)} style={{ width:24, height:24, borderRadius:5, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-dim)", cursor:"pointer", fontSize:10 }}>✏️</button></Cell>
                       <Cell><button onClick={()=>deleteItem("entrata",e.id)} style={{ width:24, height:24, borderRadius:5, border:"1px solid #2A1A1A", background:"transparent", color:"#EF4444", cursor:"pointer", fontSize:12, fontWeight:700 }}>×</button></Cell>
                     </div>
@@ -438,7 +473,7 @@ export default function BrunoPage({ fontSize=14, theme="dark" }) {
                     </div>
                   ))}
                   <div style={{ padding:"8px 12px", borderTop:"1px solid var(--c-border)", fontSize:fs-4, color:"var(--c-text-faintest)" }}>
-                    Revolut RON convertiti a EUR (÷{rate.toFixed(2)}{rateIsLive?" · cambio live BCE":" · cambio fisso di riserva"})
+                    Conti in RON convertiti a EUR (÷{rate.toFixed(2)}{rateIsLive?" · cambio live BCE":" · cambio fisso di riserva"})
                   </div>
                   <div style={{ padding:"10px 12px", borderTop:"1px solid var(--c-border)", display:"flex", justifyContent:"space-between", background:"var(--c-bg)" }}>
                     <span style={{ fontSize:fs-2, fontWeight:700, color:"#8B5CF6" }}>Totale liquidità</span>
@@ -537,23 +572,21 @@ export default function BrunoPage({ fontSize=14, theme="dark" }) {
                     style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:13, outline:"none" }}/>
                 )}
               </div>
-              {modal.tipo==="uscita" && (
-                <div>
-                  <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:4 }}>Pagato da 🏦</div>
-                  <select value={form.conto||""} onChange={e=>setForm(p=>({...p,conto:e.target.value}))}
-                    style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:13, outline:"none" }}>
-                    <option value="">-- Seleziona conto --</option>
-                    {CONTI.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
-                  </select>
-                </div>
-              )}
               <div>
-                {/* La valuta segue il conto selezionato: se paghi da Revolut
-                    RON scrivi l'importo in RON, non serve convertirlo a
-                    mano — la conversione in € avviene solo nei totali
+                <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:4 }}>{modal.tipo==="uscita"?"Pagato da 🏦":"Accreditato su 🏦"}</div>
+                <select value={form.conto||""} onChange={e=>setForm(p=>({...p,conto:e.target.value}))}
+                  style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:13, outline:"none" }}>
+                  <option value="">-- Seleziona conto --</option>
+                  {CONTI.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
+                </select>
+              </div>
+              <div>
+                {/* La valuta segue il conto selezionato: se paghi/incassi su
+                    un conto RON scrivi l'importo in RON, non serve convertirlo
+                    a mano — la conversione in € avviene solo nei totali
                     aggregati (vedi toEur). */}
                 <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:4 }}>
-                  Importo {modal.tipo==="uscita" ? contoCurrency(form.conto) : "€"} *
+                  Importo {contoCurrency(form.conto)} *
                 </div>
                 <input type="number" value={form.importo||""} onChange={e=>setForm(p=>({...p,importo:e.target.value}))}
                   style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:13, outline:"none" }}/>
