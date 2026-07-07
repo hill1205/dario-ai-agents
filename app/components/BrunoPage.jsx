@@ -1,21 +1,27 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
 
+// Revolut è diviso in due saldi (EUR/RON) perché Dario spende in RON da
+// quel conto: stessa idea di UniCredit Romania su IAGREXPage, con
+// conversione automatica nel totale patrimonio (vedi eurRonRate sotto).
 const CONTI = [
-  { id: "bdm",           label: "BdM Banca" },
-  { id: "trade_republic",label: "Trade Republic" },
-  { id: "revolut",       label: "Revolut" },
-  { id: "postepay",      label: "PostePay Evolution" },
-  { id: "hype",          label: "HYPE / Banca Sella" },
-  { id: "unicredit",     label: "UniCredit Romania" },
+  { id: "bdm",           label: "BdM Banca",            currency: "€" },
+  { id: "trade_republic",label: "Trade Republic",       currency: "€" },
+  { id: "revolut_eur",   label: "Revolut — EUR",        currency: "€" },
+  { id: "revolut_ron",   label: "Revolut — RON",        currency: "RON" },
+  { id: "postepay",      label: "PostePay Evolution",   currency: "€" },
+  { id: "hype",          label: "HYPE / Banca Sella",   currency: "€" },
+  { id: "unicredit",     label: "UniCredit Romania",    currency: "€" },
 ];
+const CONTI_BY_ID = Object.fromEntries(CONTI.map(c=>[c.id,c]));
+const EUR_RON_FALLBACK = 5; // usato solo se il fetch del cambio live fallisce
 
 const CAT_USCITE_FISSE = ["Affitto","Cibo","Palestra","Trasporti","Abbonamenti","Utenze","Salute","Personale","Extra"];
 
 const EMPTY_MONTH = {
   entrate: [],
   uscite: [],
-  saldi: { bdm:0, trade_republic:0, revolut:0, postepay:0, hype:0, unicredit:0 },
+  saldi: { bdm:0, trade_republic:0, revolut_eur:0, revolut_ron:0, postepay:0, hype:0, unicredit:0 },
   investimenti: 0,
   risparmi: 0,
 };
@@ -74,20 +80,24 @@ function CashFlowMiniChart({ allData }) {
         <div style={{fontSize:11,color:"var(--c-text-dim)",textTransform:"uppercase",letterSpacing:"0.06em"}}>Cash flow ultimi 6 mesi</div>
         <div style={{fontSize:10,color:"var(--c-text-faint)"}}><span style={{color:"#10B981"}}>■</span> entrate <span style={{color:"#EF4444",marginLeft:6}}>■</span> uscite</div>
       </div>
-      <svg width="100%" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{display:"block"}}>
+      <svg width="100%" viewBox={`0 0 ${W} ${H-14}`} preserveAspectRatio="none" style={{display:"block"}}>
         {data.map((d,i)=>{
           const gx = i*(groupW+gap);
-          const he = Math.max((d.entrate/max)*(H-14), d.entrate>0?2:0);
-          const hu = Math.max((d.uscite/max)*(H-14), d.uscite>0?2:0);
+          const he = Math.max((d.entrate/max)*(H-24), d.entrate>0?2:0);
+          const hu = Math.max((d.uscite/max)*(H-24), d.uscite>0?2:0);
           return (
             <g key={d.mese}>
-              <rect x={gx} y={H-14-he} width={barW} height={he} rx={1.5} fill="#10B981" />
-              <rect x={gx+barW+2} y={H-14-hu} width={barW} height={hu} rx={1.5} fill="#EF4444" />
-              <text x={gx+groupW/2} y={H} textAnchor="middle" fontSize="7" fill="var(--c-text-faintest)">{d.label}</text>
+              <rect x={gx} y={H-24-he} width={barW} height={he} rx={1.5} fill="#10B981" />
+              <rect x={gx+barW+2} y={H-24-hu} width={barW} height={hu} rx={1.5} fill="#EF4444" />
             </g>
           );
         })}
       </svg>
+      <div style={{display:"flex",marginTop:4}}>
+        {data.map(d=>(
+          <div key={d.mese} style={{flex:1,textAlign:"center",fontSize:12,fontWeight:500,color:"var(--c-text-faint)",letterSpacing:"0.01em"}}>{d.label}</div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -108,8 +118,22 @@ export default function BrunoPage({ fontSize=14, theme="dark" }) {
   // non rischiare di sovrascrivere tutti i mesi con dati vuoti.
   const [loadOk, setLoadOk]       = useState(false);
   const [loadError, setLoadError] = useState(null);
+  // Cambio EUR->RON live (stesso meccanismo di IAGREXPage): Frankfurter
+  // API, gratuita e senza chiave. Se fallisce usiamo il fisso di riserva,
+  // segnalandolo chiaramente invece di spacciarlo per live.
+  const [eurRonRate, setEurRonRate] = useState(null);
+  const [rateIsLive, setRateIsLive] = useState(false);
 
-  useEffect(()=>{ loadData(); }, []);
+  useEffect(()=>{ loadData(); loadRate(); }, []);
+
+  const loadRate = async () => {
+    try {
+      const res = await fetch("https://api.frankfurter.dev/v1/latest?from=EUR&to=RON");
+      const j = await res.json();
+      if (res.ok && j.rates?.RON) { setEurRonRate(j.rates.RON); setRateIsLive(true); }
+      else { setEurRonRate(EUR_RON_FALLBACK); setRateIsLive(false); }
+    } catch { setEurRonRate(EUR_RON_FALLBACK); setRateIsLive(false); }
+  };
 
   const loadData = async () => {
     setLoading(true);
@@ -163,7 +187,15 @@ export default function BrunoPage({ fontSize=14, theme="dark" }) {
   const totEntrate  = monthData.entrate.reduce((s,e)=>s+(parseFloat(e.importo)||0),0);
   const totUscite   = monthData.uscite.reduce((s,e)=>s+(parseFloat(e.importo)||0),0);
   const saldoNetto  = totEntrate - totUscite;
-  const totPatrimonio = Object.values(monthData.saldi||{}).reduce((s,v)=>s+(parseFloat(v)||0),0)
+  // I saldi in RON (Revolut) vengono convertiti in EUR al cambio live
+  // prima di sommarli: senza questo, il patrimonio totale confonderebbe
+  // RON e EUR come se fossero la stessa valuta.
+  const rate = eurRonRate || EUR_RON_FALLBACK;
+  const totPatrimonio = Object.entries(monthData.saldi||{}).reduce((s,[id,v])=>{
+    const val = parseFloat(v)||0;
+    const isRon = CONTI_BY_ID[id]?.currency === "RON";
+    return s + (isRon ? val/rate : val);
+  },0)
     + (parseFloat(monthData.investimenti)||0)
     + (parseFloat(monthData.risparmi)||0);
 
@@ -365,10 +397,13 @@ export default function BrunoPage({ fontSize=14, theme="dark" }) {
                           placeholder="0"
                           style={{ width:100, padding:"5px 8px", borderRadius:6, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"#8B5CF6", fontSize:fs-2, outline:"none", textAlign:"right", fontWeight:700 }}
                         />
-                        <span style={{ fontSize:fs-3, color:"var(--c-text-faint)" }}>€</span>
+                        <span style={{ fontSize:fs-3, color:"var(--c-text-faint)" }}>{c.currency||"€"}</span>
                       </div>
                     </div>
                   ))}
+                  <div style={{ padding:"8px 12px", borderTop:"1px solid var(--c-border)", fontSize:fs-4, color:"var(--c-text-faintest)" }}>
+                    Revolut RON convertiti a EUR (÷{rate.toFixed(2)}{rateIsLive?" · cambio live BCE":" · cambio fisso di riserva"})
+                  </div>
                   <div style={{ padding:"10px 12px", borderTop:"1px solid var(--c-border)", display:"flex", justifyContent:"space-between", background:"var(--c-bg)" }}>
                     <span style={{ fontSize:fs-2, fontWeight:700, color:"#8B5CF6" }}>Totale liquidità</span>
                     <span style={{ fontSize:fs-1, fontWeight:800, color:"#8B5CF6" }}>{fmt(totPatrimonio - (parseFloat(monthData.investimenti)||0) - (parseFloat(monthData.risparmi)||0))}€</span>
