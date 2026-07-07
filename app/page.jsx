@@ -125,11 +125,11 @@ function RevenueMiniChart({ data, target }) {
       </svg>
       <div style={{display:"flex",marginTop:3}}>
         {data.map((d,i)=>(
-          <div key={d.mese} style={{flex:1,textAlign:"center",fontSize:9,fontWeight:500,color:"#64748B",letterSpacing:"0.01em"}}>{d.label}</div>
+          <div key={d.mese} style={{flex:1,textAlign:"center",fontSize:11,fontWeight:500,color:"#64748B",letterSpacing:"0.01em"}}>{d.label}</div>
         ))}
       </div>
       {target != null && (
-        <div style={{fontSize:9,color:"#3B82F6",marginTop:4,textAlign:"right"}}>┄ ritmo necessario/mese</div>
+        <div style={{fontSize:11,color:"#3B82F6",marginTop:4,textAlign:"right"}}>┄ ritmo necessario/mese</div>
       )}
     </div>
   );
@@ -169,7 +169,7 @@ function WeightMiniChart({ entries, obiettivo }) {
 
   return (
     <div style={{marginTop:8,paddingTop:8,borderTop:"1px solid #1A1A2E"}}>
-      <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:"#64748B",marginBottom:2,fontWeight:500,letterSpacing:"0.02em"}}>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"#64748B",marginBottom:2,fontWeight:500,letterSpacing:"0.02em"}}>
         <span>{fmtData(first.data)}</span>
         <span>{fmtData(last.data)}</span>
       </div>
@@ -184,18 +184,18 @@ function WeightMiniChart({ entries, obiettivo }) {
           ))}
         </svg>
         {objY!=null && (
-          <div style={{position:"absolute",right:0,top:pct(objY,H),transform:"translateY(-100%)",fontSize:9,fontWeight:600,color:"#10B981",background:"var(--c-panel,#0F0F1A)",padding:"0 3px"}}>
+          <div style={{position:"absolute",right:0,top:pct(objY,H),transform:"translateY(-100%)",fontSize:11,fontWeight:600,color:"#10B981",background:"var(--c-panel,#0F0F1A)",padding:"0 3px"}}>
             obiettivo {obiettivo} kg
           </div>
         )}
-        <div style={{position:"absolute",left:pct(x(0),W),top:pct(y(first.peso),H),transform:"translate(0,-130%)",fontSize:10,fontWeight:700,color:"#F1F5F9",background:"#0B0B16",padding:"1px 4px",borderRadius:4,whiteSpace:"nowrap"}}>
+        <div style={{position:"absolute",left:pct(x(0),W),top:pct(y(first.peso),H),transform:"translate(0,-130%)",fontSize:12,fontWeight:700,color:"#F1F5F9",background:"#0B0B16",padding:"1px 5px",borderRadius:4,whiteSpace:"nowrap"}}>
           {first.peso} kg
         </div>
-        <div style={{position:"absolute",left:pct(x(data.length-1),W),top:pct(y(last.peso),H),transform:"translate(-100%,-130%)",fontSize:10,fontWeight:700,color:"#F1F5F9",background:"#0B0B16",padding:"1px 4px",borderRadius:4,whiteSpace:"nowrap"}}>
+        <div style={{position:"absolute",left:pct(x(data.length-1),W),top:pct(y(last.peso),H),transform:"translate(-100%,-130%)",fontSize:12,fontWeight:700,color:"#F1F5F9",background:"#0B0B16",padding:"1px 5px",borderRadius:4,whiteSpace:"nowrap"}}>
           {last.peso} kg
         </div>
       </div>
-      <div style={{fontSize:9,color:"#475569",marginTop:4,textAlign:"center"}}>peso (kg) nelle ultime {data.length} misurazioni registrate</div>
+      <div style={{fontSize:10,color:"#475569",marginTop:4,textAlign:"center"}}>peso (kg) nelle ultime {data.length} misurazioni registrate</div>
     </div>
   );
 }
