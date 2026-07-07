@@ -10,6 +10,7 @@ const CONTI_IAGREX = [
   { id: "unicredit_eur", label: "UniCredit Romania — EUR", currency: "€" },
   { id: "unicredit_ron", label: "UniCredit Romania — RON", currency: "RON" },
 ];
+const CONTI_IAGREX_BY_ID = Object.fromEntries(CONTI_IAGREX.map(c=>[c.id,c]));
 
 const EMPTY_MONTH = { entrate: [], uscite: [], saldi: { unicredit_eur: 0, unicredit_ron: 0 } };
 
@@ -202,11 +203,19 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark" }) {
   const ritmoMensileNecessario = Math.round(Math.max(OBIETTIVO_ANNUO-ytdRevenue,0)/mesiRimanenti);
 
   // Month totals
+  // Le uscite pagate da UniCredit RON restano in RON (stessa logica di
+  // BrunoPage): il totale mensile in € le converte al cambio live.
+  const rate = eurRonRate || EUR_RON_FALLBACK;
+  const contoCurrency = (contoId) => CONTI_IAGREX_BY_ID[contoId]?.currency || "€";
+  const toEur = (item) => {
+    const val = parseFloat(item.importo)||0;
+    return contoCurrency(item.conto)==="RON" ? val/rate : val;
+  };
   const totEntrate = monthData.entrate.reduce((s,e)=>s+(parseFloat(e.importo)||0),0);
-  const totUscite  = monthData.uscite.reduce((s,e)=>s+(parseFloat(e.importo)||0),0);
+  const totUscite  = monthData.uscite.reduce((s,e)=>s+toEur(e),0);
   const saldoNetto = totEntrate - totUscite;
   // Recap "dove vanno i soldi": aggregato per categoria del mese selezionato.
-  const usciteByCat  = monthData.uscite.reduce((acc,e)=>{ acc[e.categoria]=(acc[e.categoria]||0)+(parseFloat(e.importo)||0); return acc; },{});
+  const usciteByCat  = monthData.uscite.reduce((acc,e)=>{ acc[e.categoria]=(acc[e.categoria]||0)+toEur(e); return acc; },{});
   const entrateByCat = monthData.entrate.reduce((acc,e)=>{ acc[e.categoria]=(acc[e.categoria]||0)+(parseFloat(e.importo)||0); return acc; },{});
 
   const openAdd = (tipo) => { setForm({descrizione:"",importo:"",categoria:tipo==="entrata"?CAT_ENTRATE[0]:CAT_USCITE[0],cliente:"",conto:tipo==="uscita"?CONTI_IAGREX[0].id:""}); setModal({tipo,mode:"add"}); };
@@ -373,7 +382,7 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark" }) {
                         <span style={{color:"var(--c-text)",fontWeight:600}}>{e.descrizione}</span>
                         <span style={{fontSize:fs-4,color:"var(--c-text-faint)"}}>{e.categoria}</span>
                       </Cell>
-                      <Cell style={{color:"#EF4444",fontWeight:700}}>-{fmt(e.importo)}€</Cell>
+                      <Cell style={{color:"#EF4444",fontWeight:700}}>-{fmt(e.importo)}{contoCurrency(e.conto)==="RON"?" RON":"€"}</Cell>
                       <Cell><button onClick={()=>openEdit("uscita",e)} style={{width:24,height:24,borderRadius:5,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-dim)",cursor:"pointer",fontSize:10}}>✏️</button></Cell>
                       <Cell><button onClick={()=>deleteItem("uscita",e.id)} style={{width:24,height:24,borderRadius:5,border:"1px solid #2A1A1A",background:"transparent",color:"#EF4444",cursor:"pointer",fontSize:12,fontWeight:700}}>×</button></Cell>
                     </div>
@@ -458,11 +467,6 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark" }) {
                 </div>
               )}
               <div>
-                <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:4}}>Importo € *</div>
-                <input type="number" value={form.importo||""} onChange={e=>setForm(p=>({...p,importo:e.target.value}))}
-                  style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:13,outline:"none"}}/>
-              </div>
-              <div>
                 <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:6}}>Categoria</div>
                 <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                   {(modal.tipo==="entrata"?CAT_ENTRATE:CAT_USCITE).map(c=>(
@@ -483,6 +487,16 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark" }) {
                   </select>
                 </div>
               )}
+              <div>
+                {/* La valuta segue il conto selezionato: se paghi da
+                    UniCredit RON scrivi l'importo in RON, la conversione
+                    in € avviene solo nei totali aggregati (vedi toEur). */}
+                <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:4}}>
+                  Importo {modal.tipo==="uscita" ? contoCurrency(form.conto) : "€"} *
+                </div>
+                <input type="number" value={form.importo||""} onChange={e=>setForm(p=>({...p,importo:e.target.value}))}
+                  style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:13,outline:"none"}}/>
+              </div>
             </div>
             <div style={{display:"flex",gap:8,marginTop:20}}>
               <button onClick={closeModal} style={{flex:1,padding:10,borderRadius:8,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-faint)",cursor:"pointer",fontSize:13}}>Annulla</button>
