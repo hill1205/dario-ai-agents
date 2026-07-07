@@ -228,6 +228,8 @@ export default function App() {
   const [ideaText, setIdeaText]             = useState("");
   const [ideas, setIdeas]                   = useState([]);
   const [listening, setListening]           = useState(false);
+  const [newTaskText, setNewTaskText]       = useState("");
+  const [addingTask, setAddingTask]         = useState(false);
 
   const T = THEMES[theme] || THEMES.dark;
 
@@ -402,6 +404,27 @@ export default function App() {
       setSyncError(task.name || "task");
       setTimeout(()=>setSyncError(null), 5000);
     }
+  };
+
+  // Crea un nuovo task direttamente su ClickUp (lista To Do Daily) e lo
+  // aggiunge subito alla card, cosi' non serve un refresh manuale per
+  // vederlo. Nessuno stato ottimistico "finto": il task in lista è quello
+  // che torna indietro da ClickUp, quindi id/priorità sono già reali.
+  const addTodoTask = async () => {
+    const name = newTaskText.trim();
+    if (!name || addingTask) return;
+    setAddingTask(true);
+    try {
+      const res = await fetch("/api/create-task",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name,list:"todo"})});
+      const data = await res.json();
+      if (!res.ok || !data.id) throw new Error("create failed");
+      setHomeData(prev=>({...prev, todo:[...(prev.todo||[]), data]}));
+      setNewTaskText("");
+    } catch (e) {
+      setSyncError(`aggiunta "${name}"`);
+      setTimeout(()=>setSyncError(null), 5000);
+    }
+    setAddingTask(false);
   };
 
   const saveWeightModal = async ()=>{
@@ -630,6 +653,16 @@ export default function App() {
                     ):sortedByPriority(homeData.todo).map(t=>(
                       <TaskItem key={t.id} task={t} color="#8B5CF6" onToggle={id=>toggleTask(id,"todo")} fontSize={fontSize} isChecked={checkedTasks[t.id]}/>
                     ))}
+                    <div style={{display:"flex",gap:6,marginTop:homeData.todo.length===0?0:8,paddingTop:8,borderTop:"1px solid #1A1A2E"}}>
+                      <input value={newTaskText} onChange={e=>setNewTaskText(e.target.value)}
+                        onKeyDown={e=>{if(e.key==="Enter") addTodoTask();}}
+                        placeholder="Nuovo task..." disabled={addingTask}
+                        style={{flex:1,minWidth:0,padding:"6px 8px",borderRadius:6,border:`1px solid ${T.border}`,background:T.bg,color:T.text,fontSize:fontSize-2,outline:"none"}}/>
+                      <button onClick={addTodoTask} disabled={addingTask||!newTaskText.trim()}
+                        style={{padding:"6px 14px",borderRadius:6,border:"none",background:"#8B5CF6",color:"#fff",cursor:addingTask||!newTaskText.trim()?"default":"pointer",fontSize:fontSize-2,fontWeight:700,opacity:addingTask||!newTaskText.trim()?0.5:1,flexShrink:0}}>
+                        {addingTask?"...":"+"}
+                      </button>
+                    </div>
                   </DCard>
                   <DCard>
                     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
