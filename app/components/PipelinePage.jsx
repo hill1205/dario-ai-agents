@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
 const LEAD_STAGES = [
   { id:"da_contattare",    label:"Da Contattare",   color:"var(--c-text-faint)" },
@@ -32,6 +32,77 @@ const THEME_VARS = {
 };
 
 function genId() { return Math.random().toString(36).slice(2,10); }
+
+// --- Import CSV -------------------------------------------------------
+// Parser CSV minimale ma robusto: gestisce virgole dentro campi tra
+// virgolette e virgolette doppie escaped (""), sia per file separati da
+// virgola che da punto e virgola (Excel IT esporta spesso con ";").
+function parseCSV(text) {
+  const delimiter = (text.split("\n")[0].split(";").length > text.split("\n")[0].split(",").length) ? ";" : ",";
+  const rows = [];
+  let row = [], field = "", inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i], next = text[i+1];
+    if (inQuotes) {
+      if (c === '"' && next === '"') { field += '"'; i++; }
+      else if (c === '"') { inQuotes = false; }
+      else { field += c; }
+    } else {
+      if (c === '"') inQuotes = true;
+      else if (c === delimiter) { row.push(field); field = ""; }
+      else if (c === "\n" || c === "\r") {
+        if (field !== "" || row.length) { row.push(field); rows.push(row); row = []; field = ""; }
+        if (c === "\r" && next === "\n") i++;
+      } else { field += c; }
+    }
+  }
+  if (field !== "" || row.length) { row.push(field); rows.push(row); }
+  return rows.filter(r => r.some(f => f.trim() !== ""));
+}
+
+const CSV_FIELD_ALIASES = {
+  nome:     ["nome","azienda","company","name","ragione sociale","nome azienda"],
+  settore:  ["settore","sector","industry","categoria"],
+  contatto: ["contatto","referente","contact","nome contatto","persona"],
+  email:    ["email","e-mail","mail"],
+  telefono: ["telefono","phone","tel","cellulare"],
+  sito:     ["sito","sito web","website","url","web"],
+  linkedin: ["linkedin","instagram","social"],
+  budget:   ["budget","budget mensile","budget €/mese"],
+  note:     ["note","notes","commenti"],
+};
+function normalizeHeader(h) {
+  return h.toLowerCase().trim().normalize("NFD").replace(/[̀-ͯ]/g,"");
+}
+function mapCsvToEntries(rows) {
+  if (!rows.length) return [];
+  const headers = rows[0].map(normalizeHeader);
+  const colIndex = {};
+  Object.entries(CSV_FIELD_ALIASES).forEach(([field, aliases]) => {
+    const idx = headers.findIndex(h => aliases.includes(h));
+    if (idx !== -1) colIndex[field] = idx;
+  });
+  const today = new Date().toISOString().slice(0,10);
+  return rows.slice(1).map(r => {
+    const get = (field) => colIndex[field] != null ? (r[colIndex[field]]||"").trim() : "";
+    const nome = get("nome");
+    if (!nome) return null;
+    return {
+      ...EMPTY_FORM,
+      id: genId(),
+      nome,
+      settore: get("settore"),
+      contatto: get("contatto"),
+      email: get("email"),
+      telefono: get("telefono"),
+      sito: get("sito"),
+      linkedin: get("linkedin"),
+      budget: get("budget"),
+      note: get("note"),
+      data: today,
+    };
+  }).filter(Boolean);
+}
 function stageColor(s,t) { return (t==="cliente"?CLIENT_STAGES:LEAD_STAGES).find(x=>x.id===s)?.color||"var(--c-text-faint)"; }
 function stageLabel(s,t) { return (t==="cliente"?CLIENT_STAGES:LEAD_STAGES).find(x=>x.id===s)?.label||s; }
 function lsGet() { try { const s=localStorage.getItem("dario-pipeline"); return s?JSON.parse(s):[]; } catch { return []; } }
@@ -279,6 +350,9 @@ export default function PipelinePage({ fontSize=14, theme="dark" }) {
   const [msgLoading, setMsgLoading] = useState(false);
   const [msgText, setMsgText]       = useState("");
   const [msgCopied, setMsgCopied]   = useState(false);
+  const [csvPreview, setCsvPreview] = useState(null); // entries parsate, in attesa di conferma
+  const [csvImporting, setCsvImporting] = useState(false);
+  const fileInputRef = useRef(null);
 
   useEffect(()=>{
     // Fix una tantum: pulisce cache locale pre-Notion per evitare doppioni
@@ -341,6 +415,32 @@ export default function PipelinePage({ fontSize=14, theme="dark" }) {
     saveData(updated); closeModal();
   };
   const deleteEntry = (id)=>{ if(!confirm("Eliminare questo record?")) return; saveData(entries.filter(e=>e.id!==id)); };
+
+  const handleCsvFile = (e)=>{
+    const file = e.target.files?.[0];
+    e.target.value = ""; // permette di ricaricare lo stesso file due volte
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev)=>{
+      try {
+        const rows = parseCSV(String(ev.target.result));
+        const parsed = mapCsvToEntries(rows);
+        setCsvPreview(parsed); // apre il modal di anteprima, anche se vuoto (mostra l'errore all'utente)
+      } catch (err) {
+        alert("Errore leggendo il CSV: " + err.message);
+      }
+    };
+    reader.readAsText(file, "UTF-8");
+  };
+
+  const confirmCsvImport = async ()=>{
+    if (!csvPreview || !csvPreview.length) return;
+    setCsvImporting(true);
+    const updated = [...entries, ...csvPreview];
+    await saveData(updated);
+    setCsvImporting(false);
+    setCsvPreview(null);
+  };
   const openGenMsg  = (entry)=>{ setMsgLead(entry);setMsgType("primo_contatto");setMsgExtra("");setMsgText("");setMsgCopied(false); };
 
   const generateMessage = async ()=>{
@@ -412,6 +512,8 @@ export default function PipelinePage({ fontSize=14, theme="dark" }) {
             <div style={{width:1,height:16,background:"var(--c-border)"}}/>
             <button onClick={()=>openAdd("lead")}    style={{padding:"4px 9px",borderRadius:7,border:"none",background:"#3B82F6",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:600}}>+ Lead</button>
             <button onClick={()=>openAdd("cliente")} style={{padding:"4px 9px",borderRadius:7,border:"none",background:"#10B981",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:600}}>+ Cliente</button>
+            <button onClick={()=>fileInputRef.current?.click()} style={{padding:"4px 9px",borderRadius:7,border:"1px solid #8B5CF640",background:"#8B5CF610",color:"#8B5CF6",cursor:"pointer",fontSize:11,fontWeight:600}}>📥 Importa CSV</button>
+            <input ref={fileInputRef} type="file" accept=".csv,text/csv" onChange={handleCsvFile} style={{display:"none"}}/>
             <button onClick={syncNow} style={{padding:"4px 9px",borderRadius:7,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-faint)",cursor:"pointer",fontSize:11}}>{syncing?"⏳":"↻"}</button>
           </div>
         </div>
@@ -514,6 +616,52 @@ export default function PipelinePage({ fontSize=14, theme="dark" }) {
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* MODAL ANTEPRIMA IMPORT CSV */}
+      {csvPreview && (
+        <div style={{position:"fixed",inset:0,background:"#00000090",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>!csvImporting && setCsvPreview(null)}>
+          <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:16,padding:24,width:"100%",maxWidth:640,maxHeight:"85vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:15,fontWeight:700,color:"var(--c-text-strong)",marginBottom:6}}>📥 Anteprima Import CSV</div>
+            {csvPreview.length === 0 ? (
+              <div style={{fontSize:13,color:"#EF4444",marginBottom:16}}>
+                Nessuna riga valida trovata. Controlla che il CSV abbia una colonna "Nome" (o "Azienda") con l'intestazione nella prima riga.
+              </div>
+            ) : (
+              <>
+                <div style={{fontSize:12,color:"var(--c-text-dim)",marginBottom:14}}>
+                  Trovate <b style={{color:"#8B5CF6"}}>{csvPreview.length}</b> righe valide. Verranno aggiunte come nuovi <b>Lead</b> in stage "Da Contattare". Controlla l'anteprima prima di confermare.
+                </div>
+                <div style={{border:"1px solid var(--c-border)",borderRadius:10,overflow:"hidden",marginBottom:16}}>
+                  <div style={{display:"grid",gridTemplateColumns:"1.5fr 1fr 1.2fr 1fr",background:"var(--c-bg)",borderBottom:"1px solid var(--c-border)"}}>
+                    {["Nome","Settore","Email","Budget"].map(h=>(
+                      <div key={h} style={{padding:"7px 9px",fontSize:10,fontWeight:700,color:"var(--c-text-faint)",textTransform:"uppercase"}}>{h}</div>
+                    ))}
+                  </div>
+                  {csvPreview.slice(0,20).map((r,i)=>(
+                    <div key={r.id} style={{display:"grid",gridTemplateColumns:"1.5fr 1fr 1.2fr 1fr",borderTop:i===0?"none":"1px solid var(--c-border)",background:i%2===0?"var(--c-panel)":"var(--c-panel2)"}}>
+                      <div style={{padding:"7px 9px",fontSize:12,color:"var(--c-text)"}}>{r.nome}</div>
+                      <div style={{padding:"7px 9px",fontSize:12,color:"var(--c-text-dim)"}}>{r.settore||"—"}</div>
+                      <div style={{padding:"7px 9px",fontSize:12,color:"var(--c-text-dim)"}}>{r.email||"—"}</div>
+                      <div style={{padding:"7px 9px",fontSize:12,color:"var(--c-text-dim)"}}>{r.budget||"—"}</div>
+                    </div>
+                  ))}
+                </div>
+                {csvPreview.length > 20 && (
+                  <div style={{fontSize:11,color:"var(--c-text-faintest)",marginBottom:16,marginTop:-8}}>...e altre {csvPreview.length-20} righe.</div>
+                )}
+              </>
+            )}
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={()=>setCsvPreview(null)} disabled={csvImporting} style={{flex:1,padding:10,borderRadius:8,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-faint)",cursor:"pointer",fontSize:13}}>Annulla</button>
+              {csvPreview.length > 0 && (
+                <button onClick={confirmCsvImport} disabled={csvImporting} style={{flex:2,padding:10,borderRadius:8,border:"none",background:csvImporting?"var(--c-border)":"#8B5CF6",color:"#fff",cursor:csvImporting?"not-allowed":"pointer",fontSize:13,fontWeight:700}}>
+                  {csvImporting?"⏳ Importazione...":`✅ Conferma import (${csvPreview.length})`}
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}
