@@ -384,19 +384,28 @@ export default function App() {
 
   const loadHomeData = async ()=>{
     setHomeLoading(true);
+    // Il meteo (OpenWeather, piano gratuito) può impiegare 8-10s a rispondere
+    // — misurato: le altre 5 chiamate insieme ci mettono meno di 1.5s. Prima
+    // era dentro lo stesso Promise.all delle altre, quindi bastava il meteo
+    // lento a tenere ferma l'intera dashboard per 10 secondi. Ora parte in
+    // parallelo ma FUORI dal blocco che decide quando homeLoading torna
+    // false: il resto della home appare subito, il meteo si aggiorna da solo
+    // (con un piccolo "..." mentre arriva) appena pronto.
+    fetchWithRetry("/api/weather",{cache:"no-store"}).then(wRes=>{
+      if (wRes&&!wRes.error) setWeather(wRes);
+      setHomeErrors(prev=>({...prev, weather: !wRes || !!wRes.error}));
+    });
     try {
       // fetchWithRetry assorbe un singolo blip di rete (timeout momentaneo)
       // ritentando una volta prima di arrendersi, cosi' il banner di errore
       // compare solo quando il problema e' persistente e reale.
-      const [wRes,tRes,rRes,wgRes,pRes,skRes] = await Promise.all([
-        fetchWithRetry("/api/weather",{cache:"no-store"}),
+      const [tRes,rRes,wgRes,pRes,skRes] = await Promise.all([
         fetchWithRetry("/api/tasks",{cache:"no-store"}),
         fetchWithRetry("/api/revenue",{cache:"no-store"}),
         fetchWithRetry("/api/weight",{cache:"no-store"}),
         fetchWithRetry("/api/pipeline-data",{cache:"no-store"}),
         fetchWithRetry("/api/streak",{cache:"no-store"}),
       ]);
-      if (wRes&&!wRes.error)  setWeather(wRes);
       if (tRes)               setHomeData(tRes);
       else                    setHomeData({todo:[],routine:[],sospeso:[]});
       if (rRes&&!rRes.error)  setRevenue(rRes);
@@ -424,11 +433,12 @@ export default function App() {
       // Teniamo traccia di QUALI dati non si sono caricati, invece di
       // lasciare che un errore silenzioso si travesta da "0€"/"–" senza
       // che sia chiaro se è un dato vuoto legittimo o un fetch fallito.
-      setHomeErrors({
-        weather: !wRes || !!wRes.error,
+      // "weather" viene aggiornato a parte (vedi sopra), non qui.
+      setHomeErrors(prev=>({
+        ...prev,
         revenue: !rRes || !!rRes.error,
         weight:  !wgRes || !!wgRes.error,
-      });
+      }));
       setLastUpdated(new Date());
     } catch(e){ console.error("Dashboard error:",e); }
     setHomeLoading(false);
