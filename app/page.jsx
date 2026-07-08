@@ -17,6 +17,7 @@ const NAV_ITEMS = [
   { id:"clienti",  icon:"👥", label:"Clienti",    color:"#10B981" },
   { id:"finanze",  icon:"💰", label:"Finanze",    color:"#F59E0B" },
   { id:"iagrex",   icon:"📊", label:"IAGREX",     color:"#3B82F6" },
+  { id:"sospeso",  icon:"⏸️", label:"Sospese",    color:"#EF4444" },
   // Colore neutro (null, come Dashboard) di proposito: non deve saltare
   // all'occhio come le altre — è una voce di servizio, non un'area
   // principale del lavoro quotidiano.
@@ -718,6 +719,24 @@ export default function App() {
           {view==="pipeline" && <PipelinePage fontSize={fontSize} theme={theme}/>}
           {view==="clienti"  && <ClientiPage  fontSize={fontSize} theme={theme}/>}
           {view==="idee"     && <IdeasPage    fontSize={fontSize} theme={theme}/>}
+
+          {view==="sospeso" && (
+            <div style={{display:"flex",flexDirection:"column",height:"100%",overflow:"hidden"}}>
+              <div style={{padding:"14px 20px",borderBottom:`1px solid ${T.border}`,background:T.bg,flexShrink:0}}>
+                <div style={{fontWeight:700,fontSize:15,color:T.cardText}}>⏸️ Task in sospeso</div>
+                <div style={{fontSize:11,color:T.textDim,marginTop:2}}>Da controllare ogni giorno: valuta se ora puoi sbloccarle.</div>
+              </div>
+              <div style={{flex:1,overflowY:"auto",padding:16}}>
+                <DCard>
+                  {(!homeData.sospeso || homeData.sospeso.length===0) ? (
+                    <div style={{fontSize:fontSize-2,color:"#334155"}}>{homeLoading?"Caricamento...":"Nessuna task in sospeso 🎉"}</div>
+                  ) : sortedByPriority(homeData.sospeso).map(t=>(
+                    <TaskItem key={t.id} task={t} color="#EF4444" onToggle={id=>toggleTask(id,"sospeso")} fontSize={fontSize} isChecked={checkedTasks[t.id]}/>
+                  ))}
+                </DCard>
+              </div>
+            </div>
+          )}
 
           {view==="home" && (
             <>
