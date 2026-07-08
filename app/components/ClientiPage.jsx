@@ -217,7 +217,7 @@ export default function ClientiPage({ fontSize=14, theme="dark" }) {
             {saveStatus==="saved"  && <span style={{fontSize:11,color:"#10B981"}}>✅ Salvato</span>}
             {saveStatus==="error"  && <span style={{fontSize:11,color:"#EF4444"}}>❌ Errore</span>}
           </div>
-          <button onClick={()=>openAdd()} style={{padding:"4px 9px",borderRadius:7,border:"none",background:"#10B981",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:600}}>+ Cliente</button>
+          <button onClick={()=>openAdd()} style={{padding:"7px 16px",borderRadius:8,border:"none",background:"#10B981",color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700}}>+ Cliente</button>
         </div>
         <div style={{fontSize:fs-3,color:"var(--c-text-dim)",marginTop:6}}>
           <span style={{color:"#10B981",fontWeight:700}}>{clients.filter(c=>c.fase==="attivo").length}</span> attivi · MRR <span style={{color:"#10B981",fontWeight:700}}>{mrr.toLocaleString("it-IT")}€</span>

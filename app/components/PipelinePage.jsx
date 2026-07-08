@@ -533,8 +533,7 @@ export default function PipelinePage({ fontSize=14, theme="dark" }) {
               <button key={v} onClick={()=>setView(v)} style={{padding:"4px 9px",borderRadius:7,border:`1px solid ${view===v?"#F97316":"var(--c-border)"}`,background:view===v?"#F9731620":"transparent",color:view===v?"#F97316":"var(--c-text-faint)",cursor:"pointer",fontSize:11}}>{icon} {v==="kanban"?"Kanban":"Lista"}</button>
             ))}
             <div style={{width:1,height:16,background:"var(--c-border)"}}/>
-            <button onClick={()=>openAdd("lead")}    style={{padding:"4px 9px",borderRadius:7,border:"none",background:"#3B82F6",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:600}}>+ Lead</button>
-            <button onClick={()=>openAdd("cliente")} style={{padding:"4px 9px",borderRadius:7,border:"none",background:"#10B981",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:600}}>+ Cliente</button>
+            <button onClick={()=>openAdd("lead")}    style={{padding:"7px 16px",borderRadius:8,border:"none",background:"#3B82F6",color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700}}>+ Lead</button>
             <button onClick={()=>fileInputRef.current?.click()} style={{padding:"4px 9px",borderRadius:7,border:"1px solid #8B5CF640",background:"#8B5CF610",color:"#8B5CF6",cursor:"pointer",fontSize:11,fontWeight:600}}>📥 Importa CSV</button>
             <input ref={fileInputRef} type="file" accept=".csv,text/csv" onChange={handleCsvFile} style={{display:"none"}}/>
             <button onClick={syncNow} style={{padding:"4px 9px",borderRadius:7,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-faint)",cursor:"pointer",fontSize:11}}>{syncing?"⏳":"↻"}</button>
