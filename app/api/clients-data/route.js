@@ -36,6 +36,12 @@ function notionPageToClient(page) {
     budget:          p["Budget Mensile"]?.number != null ? String(p["Budget Mensile"].number) : "",
     data_inizio:     p["Data Inizio"]?.date?.start || "",
     note:            getText(p["Note"]),
+    ragione_sociale: getText(p["Ragione Sociale"]),
+    piva:            getText(p["P.IVA"]),
+    codice_fiscale:  getText(p["Codice Fiscale"]),
+    indirizzo_fatt:  getText(p["Indirizzo Fatturazione"]),
+    pec_sdi:         getText(p["PEC / Codice SDI"]),
+    iban:            getText(p["IBAN"]),
     fatturazione,
   };
 }
@@ -99,6 +105,12 @@ export async function POST(req) {
       "Budget Mensile": client.budget ? { number: parseFloat(client.budget) } : { number: null },
       "Data Inizio":    client.data_inizio ? { date: { start: client.data_inizio } } : { date: null },
       "Note":           { rich_text: client.note ? [{ text: { content: client.note } }] : [] },
+      "Ragione Sociale":          { rich_text: client.ragione_sociale ? [{ text: { content: client.ragione_sociale } }] : [] },
+      "P.IVA":                    { rich_text: client.piva ? [{ text: { content: client.piva } }] : [] },
+      "Codice Fiscale":           { rich_text: client.codice_fiscale ? [{ text: { content: client.codice_fiscale } }] : [] },
+      "Indirizzo Fatturazione":   { rich_text: client.indirizzo_fatt ? [{ text: { content: client.indirizzo_fatt } }] : [] },
+      "PEC / Codice SDI":         { rich_text: client.pec_sdi ? [{ text: { content: client.pec_sdi } }] : [] },
+      "IBAN":                     { rich_text: client.iban ? [{ text: { content: client.iban } }] : [] },
       "Fatturazione JSON": { rich_text: [{ text: { content: JSON.stringify(client.fatturazione || []) } }] },
     };
 
