@@ -875,6 +875,27 @@ export default function App() {
                   </DCard>
                 </div>
 
+                {/* Task in sospeso: stesse card di To Do/Routine, ma qui in
+                    Home cosi' Dario le vede ogni giorno senza dover andare
+                    nella tab dedicata — l'obiettivo e' controllarle spesso
+                    per capire se ora si sbloccano. */}
+                <div style={{marginBottom:10}}>
+                  <DCard>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+                      <DLabel style={{marginBottom:0}}>⏸️ In sospeso</DLabel>
+                      <button onClick={()=>setView("sospeso")}
+                        style={{padding:"2px 8px",borderRadius:6,border:"1px solid #EF444440",background:"transparent",color:"#EF4444",cursor:"pointer",fontSize:10,fontWeight:600}}>
+                        Vedi tutte
+                      </button>
+                    </div>
+                    {(!homeData.sospeso || homeData.sospeso.length===0)?(
+                      <div style={{fontSize:fontSize-2,color:"#334155"}}>{homeLoading?"Caricamento...":"Nessuna task in sospeso 🎉"}</div>
+                    ):sortedByPriority(homeData.sospeso).map(t=>(
+                      <TaskItem key={t.id} task={t} color="#EF4444" onToggle={id=>toggleTask(id,"sospeso")} fontSize={fontSize} isChecked={checkedTasks[t.id]}/>
+                    ))}
+                  </DCard>
+                </div>
+
                 {/* Peso + Revenue */}
                 <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:10,marginBottom:16}}>
                   <DCard>
