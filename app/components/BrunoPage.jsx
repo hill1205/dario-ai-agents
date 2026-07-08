@@ -146,7 +146,20 @@ function CategoryBars({ data, total, color, fs, fmt }) {
   });
 }
 
-export default function BrunoPage({ fontSize=14, theme="dark" }) {
+export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobileProp }) {
+  // isMobile può arrivare da page.jsx (già calcolato lì con window.innerWidth<640);
+  // se non arriva (component usato altrove) lo calcoliamo qui come fallback,
+  // così la griglia riepilogo non dipende da un prop che potrebbe mancare.
+  const [isMobileLocal, setIsMobileLocal] = useState(false);
+  useEffect(()=>{
+    if (isMobileProp !== undefined) return;
+    const check = ()=>setIsMobileLocal(window.innerWidth<640);
+    check();
+    window.addEventListener("resize",check);
+    return ()=>window.removeEventListener("resize",check);
+  },[isMobileProp]);
+  const isMobile = isMobileProp !== undefined ? isMobileProp : isMobileLocal;
+
   const fs = fontSize;
   const themeVars = THEME_VARS[theme] || THEME_VARS.dark;
   const [allData, setAllData]   = useState({});
@@ -365,16 +378,21 @@ export default function BrunoPage({ fontSize=14, theme="dark" }) {
         )}
 
         {/* Summary cards */}
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:8, marginTop:12 }}>
+        {/* Su mobile 4 colonne fisse mandavano l'ultima card ("Patrimonio")
+            in overflow orizzontale, tagliata a metà dal contenitore con
+            overflow:hidden. Su schermi stretti passiamo a 2x2 e permettiamo
+            al numero di andare a capo invece di forzare la card più larga
+            della sua colonna. */}
+        <div style={{ display:"grid", gridTemplateColumns:isMobile?"repeat(2,1fr)":"repeat(4,1fr)", gap:8, marginTop:12 }}>
           {[
             { label:"Entrate", val:totEntrate, color:"#10B981", prefix:"+" },
             { label:"Uscite",  val:totUscite,  color:"#EF4444", prefix:"-" },
             { label:"Saldo netto", val:saldoNetto, color:saldoNetto>=0?"#10B981":"#EF4444", prefix:saldoNetto>=0?"+":"" },
             { label:"Patrimonio", val:totPatrimonio, color:"#8B5CF6", prefix:"" },
           ].map(c=>(
-            <div key={c.label} style={{ background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10, padding:"10px 12px" }}>
-              <div style={{ fontSize:fs-4, color:"var(--c-text-faint)", marginBottom:4 }}>{c.label}</div>
-              <div style={{ fontSize:fs+2, fontWeight:800, color:c.color }}>{c.prefix}{fmt(c.val)}€</div>
+            <div key={c.label} style={{ background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10, padding:"10px 12px", minWidth:0, overflow:"hidden" }}>
+              <div style={{ fontSize:fs-4, color:"var(--c-text-faint)", marginBottom:4, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{c.label}</div>
+              <div style={{ fontSize:isMobile?fs:fs+2, fontWeight:800, color:c.color, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{c.prefix}{fmt(c.val)}€</div>
             </div>
           ))}
         </div>
