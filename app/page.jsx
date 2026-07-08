@@ -72,6 +72,23 @@ function getWeatherEmoji(condition) {
   return "🌤️";
 }
 
+// Etichetta leggibile per i fusi orari più probabili quando si viaggia
+// (Italia soprattutto, dato dove vive la famiglia/i clienti di Dario).
+// Per fusi non mappati mostriamo comunque qualcosa di leggibile invece
+// della stringa IANA grezza (es. "Europe/Rome" -> "Rome").
+function tzToLabel(tz) {
+  const known = {
+    "Europe/Rome": "Italia", "Europe/Vatican": "Italia", "Europe/San_Marino": "Italia",
+    "Europe/London": "Regno Unito", "Europe/Paris": "Francia", "Europe/Berlin": "Germania",
+    "Europe/Madrid": "Spagna", "Europe/Brussels": "Belgio", "Europe/Amsterdam": "Paesi Bassi",
+    "Europe/Vienna": "Austria", "Europe/Zurich": "Svizzera", "Europe/Lisbon": "Portogallo",
+    "Europe/Athens": "Grecia", "America/New_York": "New York", "America/Los_Angeles": "California",
+  };
+  if (known[tz]) return known[tz];
+  const city = tz.split("/").pop()?.replace(/_/g," ");
+  return city || tz;
+}
+
 // Etichette italiane per le 4 priorità di ClickUp, cosi' invece di un
 // pallino colorato (che richiede ricordarsi cosa significa ogni colore)
 // si legge subito "Urgente"/"Alta"/ecc.
@@ -228,6 +245,9 @@ export default function App() {
   const [ideaText, setIdeaText]             = useState("");
   const [ideas, setIdeas]                   = useState([]);
   const [backupStatus, setBackupStatus]     = useState(null); // null | "loading" | "done" | "error"
+  const [deviceTzLabel, setDeviceTzLabel]   = useState(null); // {label,time} se il device è in un fuso diverso da Bucarest
+  const [useLocalWeather, setUseLocalWeather] = useState(false);
+  const [weatherStatus, setWeatherStatus]   = useState(null); // null | "loading" | "denied" | "error"
   const [showFridayRitual, setShowFridayRitual] = useState(false);
   const [fridayBusyId, setFridayBusyId]     = useState(null);
   const [listening, setListening]           = useState(false);
@@ -257,6 +277,10 @@ export default function App() {
           localStorage.removeItem("dario-checked-tasks");
         }
       }
+      // Preferenza "meteo posizione attuale": per-dispositivo, non sincronizzata
+      // altrove di proposito — ha senso solo se attivata sul telefono che stai
+      // usando in quel momento, non su tutti e tre insieme.
+      if (localStorage.getItem("dario-use-local-weather") === "1") setUseLocalWeather(true);
     } catch {}
     loadIdeas();
   },[]);
@@ -293,6 +317,20 @@ export default function App() {
       const now=new Date();
       setClockBucharest(now.toLocaleTimeString("it-IT",{timeZone:"Europe/Bucharest",hour:"2-digit",minute:"2-digit",second:"2-digit"}));
       setClockRome(now.toLocaleTimeString("it-IT",{timeZone:"Europe/Rome",hour:"2-digit",minute:"2-digit"}));
+      // Fuso orario del dispositivo: letto dal sistema operativo del telefono
+      // via Intl (nessun permesso richiesto, a differenza della geolocalizzazione
+      // usata per il meteo). L'ora "ufficiale" mostrata in giro nell'app resta
+      // sempre quella rumena — questa è solo un'etichetta di contesto per non
+      // confondersi mentre si è in viaggio e si parla con qualcuno sul posto.
+      try {
+        const deviceTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        if (deviceTz && deviceTz !== "Europe/Bucharest") {
+          const time = now.toLocaleTimeString("it-IT",{timeZone:deviceTz,hour:"2-digit",minute:"2-digit"});
+          setDeviceTzLabel({ label: tzToLabel(deviceTz), time });
+        } else {
+          setDeviceTzLabel(null);
+        }
+      } catch { setDeviceTzLabel(null); }
     };
     tick();
     const id=setInterval(tick,1000);
@@ -300,6 +338,38 @@ export default function App() {
   },[]);
 
   useEffect(()=>{ if(view==="home") loadHomeData(); },[view]);
+  useEffect(()=>{ if(view==="home" && useLocalWeather) loadLocalWeather(); },[view, useLocalWeather]);
+
+  // Meteo sulla posizione attuale: a differenza del fuso orario (letto senza
+  // permessi dal sistema), qui serve la Geolocation API del browser, che
+  // chiede un permesso esplicito la prima volta su ogni dispositivo. Per
+  // questo è un toggle manuale e non un comportamento sempre-attivo: utile
+  // solo quando si viaggia davvero, altrimenti è solo un permesso in più
+  // da concedere per nulla.
+  const loadLocalWeather = () => {
+    if (!navigator.geolocation) { setWeatherStatus("error"); return; }
+    setWeatherStatus("loading");
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          const { latitude, longitude } = pos.coords;
+          const res = await fetch(`/api/weather?lat=${latitude}&lon=${longitude}`,{cache:"no-store"});
+          const data = await res.json();
+          if (res.ok && !data.error) { setWeather(data); setWeatherStatus(null); }
+          else setWeatherStatus("error");
+        } catch { setWeatherStatus("error"); }
+      },
+      () => setWeatherStatus("denied"), // permesso negato o non disponibile: si resta sul meteo fisso già caricato
+      { timeout: 8000 }
+    );
+  };
+  const toggleLocalWeather = () => {
+    const next = !useLocalWeather;
+    setUseLocalWeather(next);
+    try { localStorage.setItem("dario-use-local-weather", next ? "1" : "0"); } catch {}
+    if (next) loadLocalWeather();
+    else loadHomeData(); // torna al meteo fisso (Timișoara) ricaricando il default
+  };
 
   const loadHomeData = async ()=>{
     setHomeLoading(true);
@@ -744,9 +814,24 @@ export default function App() {
                       <div style={{fontSize:fontSize+2,fontWeight:600,color:"#94A3B8"}}>{clockRome}</div>
                       <div style={{fontSize:fontSize-4,color:"#334155",marginTop:2}}>Roma / Torremaggiore</div>
                     </div>
+                    {/* Etichetta di contesto quando il telefono rileva un fuso
+                        diverso da quello rumeno (letta dal sistema operativo,
+                        nessun permesso richiesto) — l'ora "ufficiale" sopra
+                        resta sempre quella di Bucarest. */}
+                    {deviceTzLabel && (
+                      <div style={{marginTop:8,paddingTop:8,borderTop:"1px solid #1A1A2E",fontSize:fontSize-4,color:"#F59E0B"}}>
+                        📍 Sei in {deviceTzLabel.label}, qui sono le {deviceTzLabel.time}
+                      </div>
+                    )}
                   </DCard>
                   <DCard>
-                    <DLabel>🌍 Timișoara</DLabel>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:2}}>
+                      <DLabel style={{marginBottom:0}}>🌍 {weather?.city || "Timișoara"}</DLabel>
+                      <button onClick={toggleLocalWeather} title="Usa la posizione attuale invece della città fissa"
+                        style={{padding:"2px 7px",borderRadius:6,border:`1px solid ${useLocalWeather?"#3B82F6":"#1A1A2E"}`,background:useLocalWeather?"#3B82F620":"transparent",color:useLocalWeather?"#3B82F6":"#475569",cursor:"pointer",fontSize:9,fontWeight:600,flexShrink:0}}>
+                        {weatherStatus==="loading" ? "⏳" : "📍"}
+                      </button>
+                    </div>
                     {weather?(
                       <>
                         <div style={{fontSize:32,lineHeight:1,marginBottom:4}}>{getWeatherEmoji(weather.condition)}</div>
@@ -756,6 +841,9 @@ export default function App() {
                       </>
                     ):(
                       <div style={{fontSize:fontSize-2,color:"#334155"}}>{homeLoading?"Caricamento...":"–"}</div>
+                    )}
+                    {weatherStatus==="denied" && (
+                      <div style={{fontSize:fontSize-5,color:"#EF4444",marginTop:6}}>Permesso posizione negato — resto sul meteo fisso.</div>
                     )}
                   </DCard>
                 </div>
