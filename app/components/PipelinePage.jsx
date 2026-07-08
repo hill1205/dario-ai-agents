@@ -16,7 +16,7 @@ const CLIENT_STAGES = [
 ];
 const EMPTY_FORM = {
   id:null, tipo:"lead", nome:"", settore:"", contatto:"",
-  email:"", telefono:"", sito:"", linkedin:"",
+  email:"", telefono:"", sito:"", facebook:"", instagram:"",
   budget:"", stage:"da_contattare",
   ultimo_contatto:"", tentativi:0,
   data:new Date().toISOString().slice(0,10), note:"",
@@ -67,7 +67,8 @@ const CSV_FIELD_ALIASES = {
   email:    ["email","e-mail","mail"],
   telefono: ["telefono","phone","tel","cellulare"],
   sito:     ["sito","sito web","website","url","web"],
-  linkedin: ["linkedin","instagram","social"],
+  facebook: ["facebook","fb"],
+  instagram: ["instagram","ig"],
   budget:   ["budget","budget mensile","budget €/mese"],
   note:     ["note","notes","commenti"],
 };
@@ -96,7 +97,8 @@ function mapCsvToEntries(rows) {
       email: get("email"),
       telefono: get("telefono"),
       sito: get("sito"),
-      linkedin: get("linkedin"),
+      facebook: get("facebook"),
+      instagram: get("instagram"),
       budget: get("budget"),
       note: get("note"),
       data: today,
@@ -178,7 +180,8 @@ function EntryCard({ entry, onEdit, onDelete, onGenMsg, fs, onDragStart, isDragg
         <InfoRow icon="📧" value={entry.email} href={entry.email?`mailto:${entry.email}`:null} fs={fs}/>
         <InfoRow icon="📞" value={entry.telefono} fs={fs}/>
         <InfoRow icon="🌐" value={entry.sito ? entry.sito.replace(/^https?:\/\//,"") : ""} href={entry.sito} fs={fs}/>
-        <InfoRow icon="💼" value={entry.linkedin ? "LinkedIn" : ""} href={entry.linkedin} fs={fs}/>
+        <InfoRow icon="📘" value={entry.facebook ? "Facebook" : ""} href={entry.facebook} fs={fs}/>
+        <InfoRow icon="📸" value={entry.instagram ? "Instagram" : ""} href={entry.instagram} fs={fs}/>
       </div>
 
       {/* Budget + tentativi */}
@@ -299,7 +302,7 @@ function ListView({ entries, fs, onEdit, onDelete, onGenMsg }) {
     <div style={{flex:1,overflowY:"auto",padding:16}}>
       <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,overflow:"hidden"}}>
         <div style={{display:"grid",gridTemplateColumns:"2fr 90px 140px 70px 110px 100px 80px",background:"var(--c-bg)",borderBottom:"1px solid var(--c-border)"}}>
-          {["Nome / Settore","Tipo","Stage","Budget","Contatto","Sito / LinkedIn",""].map(h=>(
+          {["Nome / Settore","Tipo","Stage","Budget","Contatto","Sito / Social",""].map(h=>(
             <div key={h} style={{padding:"9px 10px",fontSize:10,fontWeight:700,color:"var(--c-text-faint)",textTransform:"uppercase",letterSpacing:"0.07em"}}>{h}</div>
           ))}
         </div>
@@ -321,7 +324,8 @@ function ListView({ entries, fs, onEdit, onDelete, onGenMsg }) {
               </div>
               <div style={{...cell,flexDirection:"column",alignItems:"flex-start",gap:2}}>
                 {entry.sito ? <a href={entry.sito} target="_blank" rel="noreferrer" onClick={e=>e.stopPropagation()} style={{fontSize:fs-5,color:"#3B82F6",textDecoration:"none"}}>🌐 sito</a> : <span style={{color:"var(--c-text-faintest)",fontSize:fs-5}}>🌐 —</span>}
-                {entry.linkedin ? <a href={entry.linkedin} target="_blank" rel="noreferrer" onClick={e=>e.stopPropagation()} style={{fontSize:fs-5,color:"#3B82F6",textDecoration:"none"}}>💼 LinkedIn</a> : <span style={{color:"var(--c-text-faintest)",fontSize:fs-5}}>💼 —</span>}
+                {entry.facebook ? <a href={entry.facebook} target="_blank" rel="noreferrer" onClick={e=>e.stopPropagation()} style={{fontSize:fs-5,color:"#3B82F6",textDecoration:"none"}}>📘 Facebook</a> : <span style={{color:"var(--c-text-faintest)",fontSize:fs-5}}>📘 —</span>}
+                {entry.instagram ? <a href={entry.instagram} target="_blank" rel="noreferrer" onClick={e=>e.stopPropagation()} style={{fontSize:fs-5,color:"#3B82F6",textDecoration:"none"}}>📸 Instagram</a> : <span style={{color:"var(--c-text-faintest)",fontSize:fs-5}}>📸 —</span>}
               </div>
               <div style={{...cell,gap:4}}>
                 <button onClick={()=>onEdit(entry)} style={{width:24,height:24,borderRadius:5,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-dim)",cursor:"pointer",fontSize:10}}>✏️</button>
@@ -556,13 +560,7 @@ export default function PipelinePage({ fontSize=14, theme="dark" }) {
       {modal && (
         <div style={{position:"fixed",inset:0,background:"#00000090",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={closeModal}>
           <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:16,padding:24,width:"100%",maxWidth:520,maxHeight:"90vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
-            <div style={{fontSize:15,fontWeight:700,color:"var(--c-text-strong)",marginBottom:16}}>{modal==="add"?"➕ Nuovo":"✏️ Modifica"} {form.tipo==="lead"?"Lead":"Cliente"}</div>
-            <div style={{display:"flex",gap:8,marginBottom:16}}>
-              {[["lead","🎯 Lead","#3B82F6"],["cliente","✅ Cliente","#10B981"]].map(([t,label,color])=>(
-                <button key={t} onClick={()=>setForm(p=>({...p,tipo:t,stage:t==="lead"?"da_contattare":"attivo"}))}
-                  style={{flex:1,padding:9,borderRadius:8,border:`1px solid ${form.tipo===t?color:"var(--c-border)"}`,background:form.tipo===t?`${color}20`:"transparent",color:form.tipo===t?color:"var(--c-text-faint)",cursor:"pointer",fontSize:12,fontWeight:600}}>{label}</button>
-              ))}
-            </div>
+            <div style={{fontSize:15,fontWeight:700,color:"var(--c-text-strong)",marginBottom:16}}>{modal==="add"?"➕ Nuovo":"✏️ Modifica"} Lead</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
               <InputField label="Nome azienda *" value={form.nome}           onChange={f("nome")}     full/>
               <InputField label="Settore"         value={form.settore||""}   onChange={f("settore")}  placeholder="es. fashion, beauty, food"/>
@@ -571,7 +569,8 @@ export default function PipelinePage({ fontSize=14, theme="dark" }) {
               <InputField label="Telefono"         value={form.telefono||""} onChange={f("telefono")}/>
               <InputField label="Budget €/mese"    value={form.budget||""}   onChange={f("budget")}   type="number"/>
               <InputField label="Sito web"         value={form.sito||""}     onChange={f("sito")}     placeholder="https://..." full/>
-              <InputField label="LinkedIn"         value={form.linkedin||""} onChange={f("linkedin")} placeholder="https://linkedin.com/..." full/>
+              <InputField label="Facebook"         value={form.facebook||""} onChange={f("facebook")} placeholder="https://facebook.com/..." full/>
+              <InputField label="Instagram"        value={form.instagram||""} onChange={f("instagram")} placeholder="https://instagram.com/..." full/>
               <InputField label="Data"             value={form.data}         onChange={f("data")}     type="date"/>
               <InputField label="Ultimo contatto"  value={form.ultimo_contatto||""} onChange={f("ultimo_contatto")} type="date"/>
               <div style={{gridColumn:"1 / -1"}}>
