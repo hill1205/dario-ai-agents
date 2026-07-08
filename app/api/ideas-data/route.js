@@ -9,7 +9,9 @@ export const dynamic = "force-dynamic";
 // Scartata) — distinzione che localStorage da solo non modellava.
 const NOTION_TOKEN = process.env.NOTION_API_KEY;
 const DATA_SOURCE_ID = "a9d105b6-64c8-444f-97e2-cde55b3018e9"; // 🎙️ Idee Vocali
-const NOTION_VERSION = "2022-06-28";
+// Stessa versione API usata (dopo il fix) da pipeline-data.js: l'endpoint
+// /data_sources/{id}/query richiede 2025-09-03+, non la vecchia 2022-06-28.
+const NOTION_VERSION = "2025-09-03";
 
 async function notionFetch(path, options = {}) {
   return fetch(`https://api.notion.com/v1${path}`, {
