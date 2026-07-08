@@ -171,3 +171,31 @@ export async function POST(req) {
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
 }
+
+// Elimina (archivia) un record. Prima mancava del tutto: il bottone "×"
+// in PipelinePage.jsx si limitava a togliere l'entry dall'array locale e
+// a rimandare l'intera lista via POST — ma POST fa solo create/update
+// delle entry ricevute, non tocca le pagine Notion assenti dalla lista.
+// Risultato: la card spariva un istante e poi tornava al giro dopo (il
+// prossimo GET la rileggeva da Notion, dove non era mai stata toccata).
+export async function DELETE(req) {
+  if (!NOTION_TOKEN) {
+    return NextResponse.json({ error: "NOTION_API_KEY non configurata" }, { status: 500 });
+  }
+  try {
+    const { searchParams } = new URL(req.url);
+    const notionId = searchParams.get("id");
+    if (!notionId) return NextResponse.json({ error: "id mancante" }, { status: 400 });
+    const res = await notionFetch(`/pages/${notionId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ archived: true }),
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      return NextResponse.json({ error: `Notion error ${res.status}: ${errText}` }, { status: 500 });
+    }
+    return NextResponse.json({ success: true });
+  } catch (e) {
+    return NextResponse.json({ error: e.message }, { status: 500 });
+  }
+}
