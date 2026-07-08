@@ -753,7 +753,7 @@ export default function App() {
                     )}
                   </DCard></div>
 
-                  <div style={{gridColumn:isMobile?"auto":"span 2",gridRow:isMobile?"auto":"span 2"}}><DCard accent="#8B5CF6" style={{height:"100%"}}>
+                  <div style={{gridColumn:isMobile?"auto":"span 2"}}><DCard accent="#8B5CF6" style={{height:"100%"}}>
                     <DLabel>✅ To Do Oggi</DLabel>
                     {homeData.todo.length===0?(
                       <div style={{fontSize:fontSize-2,color:"#334155"}}>{homeLoading?"Caricamento...":"Nessun task 🎉"}</div>
