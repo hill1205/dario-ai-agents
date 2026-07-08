@@ -11,6 +11,9 @@ const EMPTY_FORM = {
   id:null, nome:"", fase:"attivo", categoria:"", contatto:"", email:"",
   telefono:"", sito:"", budget:"", data_inizio:new Date().toISOString().slice(0,10),
   note:"", fatturazione:[],
+  // Dati fatturazione: servono per emettere le fatture senza dover andare
+  // a recuperarli altrove ogni volta.
+  ragione_sociale:"", piva:"", codice_fiscale:"", indirizzo_fatt:"", pec_sdi:"", iban:"",
 };
 
 const THEME_VARS = {
@@ -288,6 +291,21 @@ export default function ClientiPage({ fontSize=14, theme="dark" }) {
                 <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:4}}>Note</div>
                 <textarea value={form.note} onChange={e=>setForm(p=>({...p,note:e.target.value}))} rows={3}
                   style={{width:"100%",padding:"7px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:13,outline:"none",resize:"vertical",fontFamily:"inherit"}}/>
+              </div>
+
+              {/* Dati fatturazione: tutto il necessario per emettere una
+                  fattura (elettronica compresa) senza doverlo recuperare
+                  altrove al momento di fatturare. */}
+              <div style={{gridColumn:"1 / -1",borderTop:"1px solid var(--c-border)",paddingTop:12,marginTop:4}}>
+                <div style={{fontSize:12,fontWeight:700,color:"var(--c-text-strong)",marginBottom:10}}>🧾 Dati fatturazione</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                  <InputField label="Ragione sociale"    value={form.ragione_sociale} onChange={f("ragione_sociale")} full/>
+                  <InputField label="P.IVA"               value={form.piva}            onChange={f("piva")}/>
+                  <InputField label="Codice Fiscale"      value={form.codice_fiscale}  onChange={f("codice_fiscale")}/>
+                  <InputField label="Indirizzo fatturazione" value={form.indirizzo_fatt} onChange={f("indirizzo_fatt")} full/>
+                  <InputField label="PEC / Codice SDI"    value={form.pec_sdi}         onChange={f("pec_sdi")}/>
+                  <InputField label="IBAN"                value={form.iban}            onChange={f("iban")}/>
+                </div>
               </div>
             </div>
             <div style={{display:"flex",gap:8,marginTop:20}}>
