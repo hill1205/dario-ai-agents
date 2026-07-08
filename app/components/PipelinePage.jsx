@@ -414,7 +414,27 @@ export default function PipelinePage({ fontSize=14, theme="dark" }) {
     const updated=modal==="add"?[...entries,{...form,id:genId()}]:entries.map(e=>e.id===form.id?form:e);
     saveData(updated); closeModal();
   };
-  const deleteEntry = (id)=>{ if(!confirm("Eliminare questo record?")) return; saveData(entries.filter(e=>e.id!==id)); };
+  // Prima questa funzione toglieva solo l'entry dall'array locale e
+  // rimandava tutto il resto su Notion via saveData — ma senza dire mai a
+  // Notion di archiviare la pagina, che quindi tornava al giro successivo.
+  // Ora chiama la DELETE dedicata sull'entry (via notionId, che è anche
+  // l'id locale visto che le entry vengono da Notion) e solo dopo il
+  // successo aggiorna la lista locale.
+  const deleteEntry = async (id)=>{
+    if(!confirm("Eliminare questo record?")) return;
+    const entry = entries.find(e=>e.id===id);
+    const notionId = entry?.notionId || id;
+    setEntries(prev=>{ const updated=prev.filter(e=>e.id!==id); lsSet(updated); return updated; });
+    try {
+      const res = await fetch(`/api/pipeline-data?id=${notionId}`,{method:"DELETE"});
+      if (!res.ok) throw new Error("delete failed");
+    } catch {
+      // Se l'eliminazione su Notion fallisce, ricarichiamo dal server invece
+      // di lasciare la dashboard disallineata (entry sparita in locale ma
+      // ancora viva su Notion).
+      loadData();
+    }
+  };
 
   const handleCsvFile = (e)=>{
     const file = e.target.files?.[0];
