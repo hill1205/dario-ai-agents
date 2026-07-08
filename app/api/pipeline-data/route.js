@@ -4,7 +4,11 @@ export const dynamic = "force-dynamic";
 // Notion Internal Integration Token — da impostare su Vercel come env var
 const NOTION_TOKEN = process.env.NOTION_API_KEY;
 const DATA_SOURCE_ID = "40f1c1e8-3e35-4fe9-a5b9-87f653a5f2d3"; // Pipeline Lead & Clienti
-const NOTION_VERSION = "2022-06-28";
+// L'endpoint /data_sources/{id}/query usato qui sotto esiste solo dalla
+// versione 2025-09-03 dell'API Notion in poi (introdotta coi database
+// multi-sorgente). Con la vecchia versione 2022-06-28 questa chiamata
+// falliva con "invalid_request_url" — non è un problema di permessi.
+const NOTION_VERSION = "2025-09-03";
 
 const STAGE_TO_TIPO = {
   "Da Contattare":"lead","Contattato":"lead","Proposta Inviata":"lead",
