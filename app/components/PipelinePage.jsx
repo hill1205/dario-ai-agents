@@ -16,7 +16,7 @@ const CLIENT_STAGES = [
 ];
 const EMPTY_FORM = {
   id:null, tipo:"lead", nome:"", settore:"", contatto:"",
-  email:"", telefono:"", sito:"", facebook:"", instagram:"",
+  email:"", telefono:"", sito:"", facebook:"", instagram:"", linkedin:"", linkedin_referente:"",
   budget:"", stage:"da_contattare",
   ultimo_contatto:"", tentativi:0,
   data:new Date().toISOString().slice(0,10), note:"",
@@ -69,6 +69,8 @@ const CSV_FIELD_ALIASES = {
   sito:     ["sito","sito web","website","url","web"],
   facebook: ["facebook","fb"],
   instagram: ["instagram","ig"],
+  linkedin: ["linkedin"],
+  linkedin_referente: ["referente linkedin","linkedin referente"],
   budget:   ["budget","budget mensile","budget €/mese"],
   note:     ["note","notes","commenti"],
 };
@@ -99,6 +101,8 @@ function mapCsvToEntries(rows) {
       sito: get("sito"),
       facebook: get("facebook"),
       instagram: get("instagram"),
+      linkedin: get("linkedin"),
+      linkedin_referente: get("linkedin_referente"),
       budget: get("budget"),
       note: get("note"),
       data: today,
@@ -182,6 +186,8 @@ function EntryCard({ entry, onEdit, onDelete, onGenMsg, fs, onDragStart, isDragg
         <InfoRow icon="🌐" value={entry.sito ? entry.sito.replace(/^https?:\/\//,"") : ""} href={entry.sito} fs={fs}/>
         <InfoRow icon="📘" value={entry.facebook ? "Facebook" : ""} href={entry.facebook} fs={fs}/>
         <InfoRow icon="📸" value={entry.instagram ? "Instagram" : ""} href={entry.instagram} fs={fs}/>
+        <InfoRow icon="💼" value={entry.linkedin ? "LinkedIn" : ""} href={entry.linkedin} fs={fs}/>
+        <InfoRow icon="🙋" value={entry.linkedin_referente ? "LinkedIn referente" : ""} href={entry.linkedin_referente} fs={fs}/>
       </div>
 
       {/* Budget + tentativi */}
@@ -326,6 +332,7 @@ function ListView({ entries, fs, onEdit, onDelete, onGenMsg }) {
                 {entry.sito ? <a href={entry.sito} target="_blank" rel="noreferrer" onClick={e=>e.stopPropagation()} style={{fontSize:fs-5,color:"#3B82F6",textDecoration:"none"}}>🌐 sito</a> : <span style={{color:"var(--c-text-faintest)",fontSize:fs-5}}>🌐 —</span>}
                 {entry.facebook ? <a href={entry.facebook} target="_blank" rel="noreferrer" onClick={e=>e.stopPropagation()} style={{fontSize:fs-5,color:"#3B82F6",textDecoration:"none"}}>📘 Facebook</a> : <span style={{color:"var(--c-text-faintest)",fontSize:fs-5}}>📘 —</span>}
                 {entry.instagram ? <a href={entry.instagram} target="_blank" rel="noreferrer" onClick={e=>e.stopPropagation()} style={{fontSize:fs-5,color:"#3B82F6",textDecoration:"none"}}>📸 Instagram</a> : <span style={{color:"var(--c-text-faintest)",fontSize:fs-5}}>📸 —</span>}
+                {entry.linkedin ? <a href={entry.linkedin} target="_blank" rel="noreferrer" onClick={e=>e.stopPropagation()} style={{fontSize:fs-5,color:"#3B82F6",textDecoration:"none"}}>💼 LinkedIn</a> : <span style={{color:"var(--c-text-faintest)",fontSize:fs-5}}>💼 —</span>}
               </div>
               <div style={{...cell,gap:4}}>
                 <button onClick={()=>onEdit(entry)} style={{width:24,height:24,borderRadius:5,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-dim)",cursor:"pointer",fontSize:10}}>✏️</button>
@@ -571,6 +578,8 @@ export default function PipelinePage({ fontSize=14, theme="dark" }) {
               <InputField label="Sito web"         value={form.sito||""}     onChange={f("sito")}     placeholder="https://..." full/>
               <InputField label="Facebook"         value={form.facebook||""} onChange={f("facebook")} placeholder="https://facebook.com/..." full/>
               <InputField label="Instagram"        value={form.instagram||""} onChange={f("instagram")} placeholder="https://instagram.com/..." full/>
+              <InputField label="LinkedIn"          value={form.linkedin||""} onChange={f("linkedin")} placeholder="https://linkedin.com/company/..."/>
+              <InputField label="Referente LinkedIn" value={form.linkedin_referente||""} onChange={f("linkedin_referente")} placeholder="https://linkedin.com/in/..."/>
               <InputField label="Data"             value={form.data}         onChange={f("data")}     type="date"/>
               <InputField label="Ultimo contatto"  value={form.ultimo_contatto||""} onChange={f("ultimo_contatto")} type="date"/>
               <div style={{gridColumn:"1 / -1"}}>
