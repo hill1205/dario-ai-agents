@@ -839,7 +839,7 @@ export default function App() {
                     )}
                     {revenue?(
                       <>
-                        <div style={{display:"flex",alignItems:"baseline",gap:16,flexWrap:"wrap"}}>
+                        <div style={{display:"flex",flexDirection:isMobile?"column":"row",alignItems:isMobile?"stretch":"baseline",gap:isMobile?0:16}}>
                           <div>
                             <div style={{fontSize:fontSize-3,color:"#475569",marginBottom:4}}>{revenue.mese}</div>
                             <div style={{fontSize:fontSize+8,fontWeight:800,color:"#10B981"}}>+{(revenue.entrate_totali||0).toLocaleString("it-IT")}€</div>
@@ -847,12 +847,12 @@ export default function App() {
                             <div style={{fontSize:fontSize-3,color:"#64748B",marginTop:1}}>Netto: {((revenue.entrate_totali||0)-(revenue.uscite_totali||0)).toLocaleString("it-IT")}€</div>
                           </div>
                           {revenue.ritmo_mensile_necessario != null && (
-                            <div style={{marginLeft:"auto"}}>
+                            <div style={isMobile?{marginTop:10,paddingTop:10,borderTop:"1px solid #1A1A2E"}:{marginLeft:"auto",textAlign:"right"}}>
                               <div style={{fontSize:fontSize-5,color:"#3B82F6",textTransform:"uppercase",letterSpacing:"0.06em"}}>🎯 Ritmo necessario</div>
                               <div style={{fontSize:fontSize+2,fontWeight:800,color:"#3B82F6"}}>
                                 {revenue.ritmo_mensile_necessario.toLocaleString("it-IT")}€<span style={{fontSize:fontSize-3,fontWeight:400}}>/mese</span>
                               </div>
-                              <div style={{fontSize:fontSize-4,color:"#475569",maxWidth:220}}>
+                              <div style={{fontSize:fontSize-4,color:"#475569",maxWidth:isMobile?"100%":220}}>
                                 per {revenue.mesi_rimanenti} mes{revenue.mesi_rimanenti===1?"e rimanente":"i rimanenti"} verso 1.000.000€
                               </div>
                             </div>
