@@ -560,7 +560,7 @@ export default function App() {
         <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
 
           {view==="iagrex"   && <IAGREXPage fontSize={fontSize} onBack={()=>setView("home")} theme={theme}/>}
-          {view==="finanze"  && <BrunoPage  fontSize={fontSize} theme={theme}/>}
+          {view==="finanze"  && <BrunoPage  fontSize={fontSize} theme={theme} isMobile={isMobile}/>}
           {view==="pipeline" && <PipelinePage fontSize={fontSize} theme={theme}/>}
 
           {view==="home" && (
