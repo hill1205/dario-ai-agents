@@ -2,6 +2,7 @@
 import { useState, useEffect, useMemo } from "react";
 import PipelinePage from "./components/PipelinePage";
 import BrunoPage from "./components/BrunoPage";
+import ClientiPage from "./components/ClientiPage";
 import IAGREXPage from "./components/IAGREXPage";
 
 const DONE_STATUSES = ["complete","completed","done","chiuso","closed","fatto","completato","completata"];
@@ -12,6 +13,7 @@ const DONE_STATUSES = ["complete","completed","done","chiuso","closed","fatto","
 const NAV_ITEMS = [
   { id:"home",     icon:"🏠", label:"Dashboard",  color:null },
   { id:"pipeline", icon:"🎯", label:"Pipeline",   color:"#8B5CF6" },
+  { id:"clienti",  icon:"👥", label:"Clienti",    color:"#10B981" },
   { id:"finanze",  icon:"💰", label:"Finanze",    color:"#F59E0B" },
   { id:"iagrex",   icon:"📊", label:"IAGREX",     color:"#3B82F6" },
 ];
@@ -742,6 +744,7 @@ export default function App() {
           {view==="iagrex"   && <IAGREXPage fontSize={fontSize} onBack={()=>setView("home")} theme={theme}/>}
           {view==="finanze"  && <BrunoPage  fontSize={fontSize} theme={theme} isMobile={isMobile}/>}
           {view==="pipeline" && <PipelinePage fontSize={fontSize} theme={theme}/>}
+          {view==="clienti"  && <ClientiPage  fontSize={fontSize} theme={theme}/>}
 
           {view==="home" && (
             <>
