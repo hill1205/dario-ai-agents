@@ -121,109 +121,10 @@ function TaskItem({ task, color, onToggle, fontSize=14, isChecked }) {
   );
 }
 
-// Mini-grafico a barre dell'andamento mensile delle entrate nell'anno in
-// corso, verso l'obiettivo 1M€. Niente librerie esterne: un SVG semplice
-// basta per far vedere il trend a colpo d'occhio dentro la card Revenue.
-function RevenueMiniChart({ data, target }) {
-  const W = 220, H = 46, gap = 4;
-  const barW = (W - gap * (data.length - 1)) / data.length;
-  // La scala include anche il target, cosi' se il ritmo necessario supera
-  // le entrate reali la linea tratteggiata resta visibile invece di uscire
-  // dal grafico verso l'alto.
-  const max = Math.max(...data.map(d => d.entrate), target||0, 1);
-  const targetY = target ? H - 12 - (target / max) * (H - 12) : null;
-  return (
-    <div style={{marginTop:10,paddingTop:8,borderTop:"1px solid #1A1A2E"}}>
-      <svg width="100%" viewBox={`0 0 ${W} ${H - 10}`} preserveAspectRatio="none" style={{display:"block"}}>
-        {data.map((d, i) => {
-          const h = Math.max((d.entrate / max) * (H - 22), d.entrate > 0 ? 2 : 0);
-          const x = i * (barW + gap);
-          const isLast = i === data.length - 1;
-          return (
-            <rect key={d.mese} x={x} y={H - 22 - h} width={barW} height={h} rx={1.5}
-              fill={isLast ? "#10B981" : "#10B98155"} />
-          );
-        })}
-        {targetY != null && (
-          <line x1={0} y1={targetY} x2={W} y2={targetY} stroke="#3B82F6" strokeWidth="1" strokeDasharray="3,2" />
-        )}
-      </svg>
-      <div style={{display:"flex",marginTop:3}}>
-        {data.map((d,i)=>(
-          <div key={d.mese} style={{flex:1,textAlign:"center",fontSize:11,fontWeight:500,color:"#64748B",letterSpacing:"0.01em"}}>{d.label}</div>
-        ))}
-      </div>
-      {target != null && (
-        <div style={{fontSize:11,color:"#3B82F6",marginTop:4,textAlign:"right"}}>┄ ritmo necessario/mese</div>
-      )}
-    </div>
-  );
-}
-
-// Mini-grafico peso: usa lo storico gia' presente in weightData.entries
-// (viene scritto ad ogni "Registra peso" ma finora non era mai visualizzato
-// come trend, solo come numero singolo). Mostra le ultime N misurazioni con
-// riferimenti espliciti (kg sull'asse, date agli estremi, valore su primo/
-// ultimo/minimo/massimo) cosi' i pallini non restano muti: si legge subito
-// cosa rappresentano senza dover indovinare.
-function WeightMiniChart({ entries, obiettivo }) {
-  const data = (entries||[]).slice(-14);
-  if (data.length < 2) return null;
-  // Nota: niente <text> dentro l'SVG. Con preserveAspectRatio="none" e
-  // width 100% il fontSize in "unita' viewBox" viene moltiplicato per il
-  // fattore di scala del contenitore reale (che su desktop puo' essere
-  // 4-5 volte piu' largo del viewBox): risultato, scritte enormi e
-  // sballate. Le etichette vanno quindi renderizzate come HTML normale,
-  // sovrapposte in percentuale, cosi' il font-size resta sempre quello
-  // dichiarato in px.
-  const W = 220, H = 76;
-  const padTop = 20, padBottom = 16, padLeft = 4, padRight = 4;
-  const pesi = data.map(d=>d.peso);
-  const max = Math.max(...pesi, obiettivo||0);
-  const min = Math.min(...pesi, obiettivo||max);
-  const range = Math.max(max - min, 1);
-  const plotW = W - padLeft - padRight;
-  const plotH = H - padTop - padBottom;
-  const x = i => padLeft + (i/(data.length-1)) * plotW;
-  const y = p => padTop + plotH - ((p - min)/range) * plotH;
-  const points = data.map((d,i)=>`${x(i)},${y(d.peso)}`).join(" ");
-  const objY = obiettivo!=null ? y(obiettivo) : null;
-  const fmtData = ds => { const [,m,g] = ds.split("-"); return `${g}/${m}`; };
-  const pct = (v,total) => `${(v/total)*100}%`;
-  const first = data[0], last = data[data.length-1];
-
-  return (
-    <div style={{marginTop:8,paddingTop:8,borderTop:"1px solid #1A1A2E"}}>
-      <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"#64748B",marginBottom:2,fontWeight:500,letterSpacing:"0.02em"}}>
-        <span>{fmtData(first.data)}</span>
-        <span>{fmtData(last.data)}</span>
-      </div>
-      <div style={{position:"relative"}}>
-        <svg width="100%" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{display:"block",overflow:"visible"}}>
-          {objY!=null && (
-            <line x1={0} y1={objY} x2={W} y2={objY} stroke="#10B981" strokeWidth="1" strokeDasharray="3,2" />
-          )}
-          <polyline points={points} fill="none" stroke="#F97316" strokeWidth="1.5" />
-          {data.map((d,i)=>(
-            <circle key={d.data} cx={x(i)} cy={y(d.peso)} r={i===0||i===data.length-1?2.5:1.2} fill="#F97316" />
-          ))}
-        </svg>
-        {objY!=null && (
-          <div style={{position:"absolute",right:0,top:pct(objY,H),transform:"translateY(-100%)",fontSize:11,fontWeight:600,color:"#10B981",background:"var(--c-panel,#0F0F1A)",padding:"0 3px"}}>
-            obiettivo {obiettivo} kg
-          </div>
-        )}
-        <div style={{position:"absolute",left:pct(x(0),W),top:pct(y(first.peso),H),transform:"translate(0,-130%)",fontSize:12,fontWeight:700,color:"#F1F5F9",background:"#0B0B16",padding:"1px 5px",borderRadius:4,whiteSpace:"nowrap"}}>
-          {first.peso} kg
-        </div>
-        <div style={{position:"absolute",left:pct(x(data.length-1),W),top:pct(y(last.peso),H),transform:"translate(-100%,-130%)",fontSize:12,fontWeight:700,color:"#F1F5F9",background:"#0B0B16",padding:"1px 5px",borderRadius:4,whiteSpace:"nowrap"}}>
-          {last.peso} kg
-        </div>
-      </div>
-      <div style={{fontSize:10,color:"#475569",marginTop:4,textAlign:"center"}}>peso (kg) nelle ultime {data.length} misurazioni registrate</div>
-    </div>
-  );
-}
+// I mini-grafici Revenue/Peso che stavano qui sono stati rimossi su
+// richiesta esplicita di Dario (10/07): non convincevano graficamente e
+// appesantivano le card. I dati restano disponibili come numeri + barra
+// di progresso nelle rispettive card.
 
 export default function App() {
   const [view, setView]                   = useState("home");
@@ -636,8 +537,15 @@ export default function App() {
   // venissero ricreati ogni volta React li smonterebbe e rimonterebbe da
   // capo — su mobile questo chiude la tastiera virtuale ogni secondo,
   // rendendo impossibile scrivere negli input (es. "Nuovo task...").
-  const DCard = useMemo(()=> ({children,style={}})=>(
-    <div style={{background:T.panel,border:`1px solid ${T.border}`,borderRadius:14,padding:16,...style}}>{children}</div>
+  // "accent" aggiunge una barra colorata in alto + un'ombra soffusa dello
+  // stesso colore, cosi' ogni card ha un'identita' visiva immediata (task
+  // viola, routine verde, sospeso rosso, ecc.) invece del bordo grigio
+  // uniforme di prima — coerente con la direzione "colorato/energico".
+  const DCard = useMemo(()=> ({children,style={},accent})=>(
+    <div className="dcard" style={{position:"relative",background:T.panel,border:`1px solid ${T.border}`,borderRadius:18,padding:"18px 16px 16px",overflow:"hidden",boxShadow:accent?`0 10px 28px -14px ${accent}70`:"0 6px 16px -10px #00000040",transition:"transform 0.16s ease, box-shadow 0.16s ease",...style}}>
+      {accent && <div style={{position:"absolute",top:0,left:0,right:0,height:3,background:accent}}/>}
+      {children}
+    </div>
   ), [T]);
   const DLabel = useMemo(()=> ({children,style={}})=>(
     <div style={{fontSize:Math.max(9,fontSize-4),fontWeight:700,color:T.textDim,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:10,...style}}>{children}</div>
@@ -796,9 +704,15 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Orologi + Meteo */}
-                <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:10,marginBottom:10}}>
-                  <DCard>
+                {/* Griglia unica "bento": su desktop tutte le card vivono in
+                    un'unica grid a 3 colonne con auto-flow dense, cosi' le
+                    card corte (Ora/Meteo/Sospeso/Routine/Peso) riempiono gli
+                    spazi lasciati da quelle piu' alte (To Do) invece di
+                    impilarsi in righe separate a tutta larghezza — meno
+                    scroll verticale, schermo sfruttato per intero. Su
+                    mobile resta tutto a colonna singola come prima. */}
+                <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(3,1fr)",gridAutoFlow:isMobile?"row":"dense",gap:12,marginBottom:16}}>
+                  <div style={{gridColumn:isMobile?"auto":"span 1"}}><DCard accent="#3B82F6">
                     <DLabel>🕐 Ora</DLabel>
                     <div style={{fontSize:fontSize+12,fontWeight:800,color:T.cardText,letterSpacing:"0.04em",lineHeight:1}}>{clockBucharest}</div>
                     <div style={{fontSize:fontSize-4,color:"#475569",marginTop:3,marginBottom:10}}>Bucarest</div>
@@ -815,8 +729,8 @@ export default function App() {
                         📍 Sei in {deviceTzLabel.label}, qui sono le {deviceTzLabel.time}
                       </div>
                     )}
-                  </DCard>
-                  <DCard>
+                  </DCard></div>
+                  <div style={{gridColumn:isMobile?"auto":"span 1"}}><DCard accent="#F59E0B">
                     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:2}}>
                       <DLabel style={{marginBottom:0}}>🌍 {weather?.city || "Timișoara"}</DLabel>
                       <button onClick={toggleLocalWeather} title="Usa la posizione attuale invece della città fissa"
@@ -837,12 +751,9 @@ export default function App() {
                     {weatherStatus==="denied" && (
                       <div style={{fontSize:fontSize-5,color:"#EF4444",marginTop:6}}>Permesso posizione negato — resto sul meteo fisso.</div>
                     )}
-                  </DCard>
-                </div>
+                  </DCard></div>
 
-                {/* Task */}
-                <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:10,marginBottom:10}}>
-                  <DCard>
+                  <div style={{gridColumn:isMobile?"auto":"span 2",gridRow:isMobile?"auto":"span 2"}}><DCard accent="#8B5CF6" style={{height:"100%"}}>
                     <DLabel>✅ To Do Oggi</DLabel>
                     {homeData.todo.length===0?(
                       <div style={{fontSize:fontSize-2,color:"#334155"}}>{homeLoading?"Caricamento...":"Nessun task 🎉"}</div>
@@ -859,8 +770,9 @@ export default function App() {
                         {addingTask?"...":"+"}
                       </button>
                     </div>
-                  </DCard>
-                  <DCard>
+                  </DCard></div>
+
+                  <div style={{gridColumn:isMobile?"auto":"span 1"}}><DCard accent="#10B981">
                     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
                       <DLabel style={{marginBottom:0}}>🔄 Routine</DLabel>
                       {routineStreak > 0 && (
@@ -872,15 +784,13 @@ export default function App() {
                     ):sortedByPriority(homeData.routine).map(t=>(
                       <TaskItem key={t.id} task={t} color="#10B981" onToggle={id=>toggleTask(id,"routine")} fontSize={fontSize} isChecked={checkedTasks[t.id]}/>
                     ))}
-                  </DCard>
-                </div>
+                  </DCard></div>
 
-                {/* Task in sospeso: stesse card di To Do/Routine, ma qui in
-                    Home cosi' Dario le vede ogni giorno senza dover andare
-                    nella tab dedicata — l'obiettivo e' controllarle spesso
-                    per capire se ora si sbloccano. */}
-                <div style={{marginBottom:10}}>
-                  <DCard>
+                  {/* In sospeso: stessa card di To Do/Routine, ma qui in Home
+                      cosi' Dario la vede ogni giorno senza dover andare nella
+                      tab dedicata — l'obiettivo e' controllarla spesso per
+                      capire se una task ora si sblocca. */}
+                  <div style={{gridColumn:isMobile?"auto":"span 1"}}><DCard accent="#EF4444">
                     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
                       <DLabel style={{marginBottom:0}}>⏸️ In sospeso</DLabel>
                       <button onClick={()=>setView("sospeso")}
@@ -893,12 +803,13 @@ export default function App() {
                     ):sortedByPriority(homeData.sospeso).map(t=>(
                       <TaskItem key={t.id} task={t} color="#EF4444" onToggle={id=>toggleTask(id,"sospeso")} fontSize={fontSize} isChecked={checkedTasks[t.id]}/>
                     ))}
-                  </DCard>
-                </div>
+                  </DCard></div>
 
-                {/* Peso + Revenue */}
-                <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:10,marginBottom:16}}>
-                  <DCard>
+                  {/* Peso e Revenue: tolti i mini-grafici (non convincevano) —
+                      restano i numeri chiave e la barra di progresso, card
+                      piu' corte e dirette invece di "quadrettoni" con grafici
+                      dentro. */}
+                  <div style={{gridColumn:isMobile?"auto":"span 1"}}><DCard accent="#F97316">
                     <DLabel>💪 Progressi Fisici</DLabel>
                     {homeErrors.weight && !homeLoading && (
                       <div style={{fontSize:fontSize-3,color:"#F59E0B",background:"#F59E0B15",border:"1px solid #F59E0B40",borderRadius:6,padding:"4px 8px",marginBottom:6}}>⚠️ dati non aggiornati (ClickUp non raggiungibile)</div>
@@ -912,7 +823,6 @@ export default function App() {
                           <div style={{height:"100%",background:"#F97316",borderRadius:2,width:`${Math.min(Math.round(((121.6-(weightData.ultimo?.peso||121.6))/(121.6-85))*100),100)}%`,transition:"width 0.4s"}}/>
                         </div>
                         <div style={{fontSize:fontSize-5,color:"#334155",marginTop:3}}>Obiettivo: 85 kg</div>
-                        {!isMobile && <WeightMiniChart entries={weightData.entries} obiettivo={85}/>}
                         <button onClick={()=>{setWeightInput("");setShowWeightModal(true);}}
                           style={{marginTop:10,width:"100%",padding:"5px 8px",borderRadius:6,border:`1px solid ${T.border}`,background:T.bg,color:T.textDim,fontSize:fontSize-2,textAlign:"left",cursor:"pointer"}}>
                           Registra peso oggi...
@@ -921,43 +831,37 @@ export default function App() {
                     ):(
                       <div style={{fontSize:fontSize-2,color:"#334155"}}>{homeLoading?"Caricamento...":"–"}</div>
                     )}
-                  </DCard>
-                  <DCard>
+                  </DCard></div>
+                  <div style={{gridColumn:isMobile?"auto":"span 2"}}><DCard accent="#10B981">
                     <DLabel>💶 Revenue IAGREX</DLabel>
                     {homeErrors.revenue && !homeLoading && (
                       <div style={{fontSize:fontSize-3,color:"#F59E0B",background:"#F59E0B15",border:"1px solid #F59E0B40",borderRadius:6,padding:"4px 8px",marginBottom:6}}>⚠️ dati non aggiornati (ClickUp non raggiungibile)</div>
                     )}
                     {revenue?(
                       <>
-                        <div style={{fontSize:fontSize-3,color:"#475569",marginBottom:4}}>{revenue.mese}</div>
-                        <div style={{fontSize:fontSize+8,fontWeight:800,color:"#10B981"}}>+{(revenue.entrate_totali||0).toLocaleString("it-IT")}€</div>
-                        <div style={{fontSize:fontSize-3,color:"#EF4444",marginTop:2}}>−{(revenue.uscite_totali||0).toLocaleString("it-IT")}€ uscite</div>
-                        <div style={{fontSize:fontSize-3,color:"#64748B",marginTop:1}}>Netto: {((revenue.entrate_totali||0)-(revenue.uscite_totali||0)).toLocaleString("it-IT")}€</div>
+                        <div style={{display:"flex",alignItems:"baseline",gap:16,flexWrap:"wrap"}}>
+                          <div>
+                            <div style={{fontSize:fontSize-3,color:"#475569",marginBottom:4}}>{revenue.mese}</div>
+                            <div style={{fontSize:fontSize+8,fontWeight:800,color:"#10B981"}}>+{(revenue.entrate_totali||0).toLocaleString("it-IT")}€</div>
+                            <div style={{fontSize:fontSize-3,color:"#EF4444",marginTop:2}}>−{(revenue.uscite_totali||0).toLocaleString("it-IT")}€ uscite</div>
+                            <div style={{fontSize:fontSize-3,color:"#64748B",marginTop:1}}>Netto: {((revenue.entrate_totali||0)-(revenue.uscite_totali||0)).toLocaleString("it-IT")}€</div>
+                          </div>
+                          {revenue.ritmo_mensile_necessario != null && (
+                            <div style={{marginLeft:"auto"}}>
+                              <div style={{fontSize:fontSize-5,color:"#3B82F6",textTransform:"uppercase",letterSpacing:"0.06em"}}>🎯 Ritmo necessario</div>
+                              <div style={{fontSize:fontSize+2,fontWeight:800,color:"#3B82F6"}}>
+                                {revenue.ritmo_mensile_necessario.toLocaleString("it-IT")}€<span style={{fontSize:fontSize-3,fontWeight:400}}>/mese</span>
+                              </div>
+                              <div style={{fontSize:fontSize-4,color:"#475569",maxWidth:220}}>
+                                per {revenue.mesi_rimanenti} mes{revenue.mesi_rimanenti===1?"e rimanente":"i rimanenti"} verso 1.000.000€
+                              </div>
+                            </div>
+                          )}
+                        </div>
                         <div style={{marginTop:8,height:3,background:"#1A1A2E",borderRadius:2}}>
                           <div style={{height:"100%",background:"#10B981",borderRadius:2,width:`${Math.max(revenue.percentuale||0,1)}%`,transition:"width 0.4s"}}/>
                         </div>
                         <div style={{fontSize:fontSize-5,color:"#334155",marginTop:3}}>{revenue.percentuale}% verso 1.000.000€</div>
-                        {/* Su mobile nascondiamo grafico e dettaglio ritmo per non
-                            affollare la card: restano i numeri essenziali + il
-                            pulsante per aprire il tracking completo. */}
-                        {!isMobile && revenue.storico_mensile && revenue.storico_mensile.length>1 && (
-                          <RevenueMiniChart data={revenue.storico_mensile} target={revenue.ritmo_mensile_necessario}/>
-                        )}
-                        {/* Riformulato per chiarezza: prima si leggeva come "166k€ in
-                            totale spalmati su 6 mesi", mentre è una cifra DA RIPETERE
-                            ogni singolo mese. Numero grande + "/mese" come unità, e la
-                            durata su una riga separata, per togliere l'ambiguità. */}
-                        {!isMobile && revenue.ritmo_mensile_necessario != null && (
-                          <div style={{marginTop:6,paddingTop:6,borderTop:"1px solid #1A1A2E"}}>
-                            <div style={{fontSize:fontSize-5,color:"#3B82F6",textTransform:"uppercase",letterSpacing:"0.06em"}}>🎯 Ritmo necessario</div>
-                            <div style={{fontSize:fontSize+2,fontWeight:800,color:"#3B82F6"}}>
-                              {revenue.ritmo_mensile_necessario.toLocaleString("it-IT")}€<span style={{fontSize:fontSize-3,fontWeight:400}}>/mese</span>
-                            </div>
-                            <div style={{fontSize:fontSize-4,color:"#475569"}}>
-                              ripetuto per ciascuno dei {revenue.mesi_rimanenti} mes{revenue.mesi_rimanenti===1?"e rimanente":"i rimanenti"} per arrivare a 1.000.000€
-                            </div>
-                          </div>
-                        )}
                         <button onClick={()=>setView("iagrex")}
                           style={{marginTop:10,width:"100%",padding:"6px",borderRadius:7,border:"1px solid #3B82F640",background:"#3B82F610",color:"#3B82F6",cursor:"pointer",fontSize:fontSize-3,fontWeight:600}}>
                           📊 Apri tracking completo
@@ -966,21 +870,24 @@ export default function App() {
                     ):(
                       <div style={{fontSize:fontSize-2,color:"#334155"}}>{homeLoading?"Caricamento...":"–"}</div>
                     )}
-                  </DCard>
-                </div>
+                  </DCard></div>
 
-                {/* Quick nav cards */}
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-                  <button onClick={()=>setView("pipeline")}
-                    style={{padding:14,borderRadius:12,border:"1px solid #8B5CF630",background:"#8B5CF610",color:"#8B5CF6",cursor:"pointer",textAlign:"left",fontWeight:700,fontSize:fontSize-1}}>
-                    🎯 Pipeline<br/>
-                    <span style={{fontSize:fontSize-4,fontWeight:400,color:"#475569"}}>Lead & Clienti · Outreach AI</span>
-                  </button>
-                  <button onClick={()=>setView("finanze")}
-                    style={{padding:14,borderRadius:12,border:"1px solid #F59E0B30",background:"#F59E0B10",color:"#F59E0B",cursor:"pointer",textAlign:"left",fontWeight:700,fontSize:fontSize-1}}>
-                    💰 Finanze<br/>
-                    <span style={{fontSize:fontSize-4,fontWeight:400,color:"#475569"}}>Personali</span>
-                  </button>
+                  {/* Quick nav: gradient pieno invece del tint sottile, per
+                      restare coerenti con la direzione "colorato/energico". */}
+                  <div style={{gridColumn:isMobile?"auto":"span 1"}}>
+                    <button onClick={()=>setView("pipeline")}
+                      style={{width:"100%",height:"100%",padding:16,borderRadius:18,border:"none",background:"linear-gradient(135deg,#8B5CF6,#6D28D9)",color:"#fff",cursor:"pointer",textAlign:"left",fontWeight:700,fontSize:fontSize,boxShadow:"0 8px 24px -12px #8B5CF680"}}>
+                      🎯 Pipeline<br/>
+                      <span style={{fontSize:fontSize-4,fontWeight:400,color:"#EDE9FE"}}>Lead & Clienti · Outreach AI</span>
+                    </button>
+                  </div>
+                  <div style={{gridColumn:isMobile?"auto":"span 2"}}>
+                    <button onClick={()=>setView("finanze")}
+                      style={{width:"100%",height:"100%",padding:16,borderRadius:18,border:"none",background:"linear-gradient(135deg,#F59E0B,#D97706)",color:"#fff",cursor:"pointer",textAlign:"left",fontWeight:700,fontSize:fontSize,boxShadow:"0 8px 24px -12px #F59E0B80"}}>
+                      💰 Finanze<br/>
+                      <span style={{fontSize:fontSize-4,fontWeight:400,color:"#FEF3C7"}}>Personali</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             </>
@@ -1065,6 +972,7 @@ export default function App() {
         ::-webkit-scrollbar-track{background:transparent}
         ::-webkit-scrollbar-thumb{background:#1A1A2E;border-radius:2px}
         button:hover{filter:brightness(1.08)}
+        .dcard:hover{transform:translateY(-3px)}
       `}</style>
     </div>
   );
