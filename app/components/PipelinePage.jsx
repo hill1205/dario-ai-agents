@@ -132,7 +132,7 @@ function InfoRow({ icon, value, href, dim=false, fs }) {
   return (
     <div style={style}>
       <span style={{flexShrink:0}}>{icon}</span>
-      <span style={{color: value ? "var(--c-text-muted)" : "#2A3A4A", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>
+      <span style={{color: value ? "var(--c-text-muted)" : "var(--c-text-faintest)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>
         {value || "—"}
       </span>
     </div>
@@ -155,10 +155,13 @@ function EntryCard({ entry, onEdit, onDelete, onGenMsg, fs, onDragStart, isDragg
       {/* Header: nome + azioni */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
         <div style={{flex:1,paddingRight:6}}>
-          <div style={{fontSize:fs,fontWeight:700,color:"#F1F5F9",lineHeight:1.3,marginBottom:3}}>{entry.nome}</div>
+          {/* Era color:"#F1F5F9" fisso (bianco quasi puro, pensato per sfondo
+              scuro): su tema chiaro il nome diventava illeggibile su sfondo
+              bianco. Ora segue il tema come il resto della card. */}
+          <div style={{fontSize:fs,fontWeight:700,color:"var(--c-text-strong)",lineHeight:1.3,marginBottom:3}}>{entry.nome}</div>
           {entry.settore
             ? <span style={{fontSize:fs-5,color:color,fontWeight:700,background:`${color}18`,padding:"1px 7px",borderRadius:10}}>{entry.settore}</span>
-            : <span style={{fontSize:fs-5,color:"#1E2A3A",background:"#0A0F1A",padding:"1px 7px",borderRadius:10}}>settore —</span>
+            : <span style={{fontSize:fs-5,color:"var(--c-text-faint)",background:"var(--c-border)",padding:"1px 7px",borderRadius:10}}>settore —</span>
           }
         </div>
         <div style={{display:"flex",gap:3,flexShrink:0}}>
@@ -170,7 +173,7 @@ function EntryCard({ entry, onEdit, onDelete, onGenMsg, fs, onDragStart, isDragg
       </div>
 
       {/* Dati contatto */}
-      <div style={{borderTop:"1px solid #0F1A24",paddingTop:7,marginBottom:6}}>
+      <div style={{borderTop:"1px solid var(--c-border)",paddingTop:7,marginBottom:6}}>
         <InfoRow icon="👤" value={entry.contatto} fs={fs}/>
         <InfoRow icon="📧" value={entry.email} href={entry.email?`mailto:${entry.email}`:null} fs={fs}/>
         <InfoRow icon="📞" value={entry.telefono} fs={fs}/>
@@ -180,7 +183,7 @@ function EntryCard({ entry, onEdit, onDelete, onGenMsg, fs, onDragStart, isDragg
 
       {/* Budget + tentativi */}
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
-        <div style={{fontSize:fs-3,color: entry.budget ? "#10B981" : "#1E2A3A",fontWeight:700}}>
+        <div style={{fontSize:fs-3,color: entry.budget ? "#10B981" : "var(--c-text-faintest)",fontWeight:700}}>
           {entry.budget ? `💶 ${parseFloat(entry.budget).toLocaleString("it-IT")}€/mese` : "💶 budget —"}
         </div>
         <div style={{display:"flex",alignItems:"center",gap:5}}>
@@ -198,14 +201,14 @@ function EntryCard({ entry, onEdit, onDelete, onGenMsg, fs, onDragStart, isDragg
 
       {/* Ultimo contatto */}
       {entry.tipo==="lead" && (
-        <div style={{fontSize:fs-5,color: entry.ultimo_contatto ? "var(--c-text-faint)" : "#1E2A3A",marginBottom:6}}>
+        <div style={{fontSize:fs-5,color: entry.ultimo_contatto ? "var(--c-text-faint)" : "var(--c-text-faintest)",marginBottom:6}}>
           📅 Ultimo contatto: {entry.ultimo_contatto || "—"}
         </div>
       )}
 
       {/* Note */}
       {entry.note && (
-        <div style={{fontSize:fs-4,color:"var(--c-text-faintest)",lineHeight:1.4,marginBottom:6,borderTop:"1px solid #0F1A24",paddingTop:5}}>
+        <div style={{fontSize:fs-4,color:"var(--c-text-faintest)",lineHeight:1.4,marginBottom:6,borderTop:"1px solid var(--c-border)",paddingTop:5}}>
           {entry.note.slice(0,80)}{entry.note.length>80?"…":""}
         </div>
       )}
@@ -270,7 +273,7 @@ function KanbanView({ entries, filter, fs, onEdit, onDelete, openAdd, onGenMsg, 
                   fs={fs} onDragStart={handleDragStart} isDragging={draggedId===e.id} onIncrTentativi={onIncrTentativi}/>
               ))}
               {colEntries.length===0 && (
-                <div style={{fontSize:fs-4,color:"#1E293B",textAlign:"center",padding:"20px 0",border:"1px dashed var(--c-border)",borderRadius:7,marginTop:4}}>
+                <div style={{fontSize:fs-4,color:"var(--c-text-faintest)",textAlign:"center",padding:"20px 0",border:"1px dashed var(--c-border)",borderRadius:7,marginTop:4}}>
                   Trascina qui
                 </div>
               )}
@@ -313,12 +316,12 @@ function ListView({ entries, fs, onEdit, onDelete, onGenMsg }) {
               <div style={cell}><span style={{padding:"2px 7px",borderRadius:10,background:`${color}20`,color,fontSize:10,fontWeight:600}}>{stageLabel(entry.stage,entry.tipo)}</span></div>
               <div style={{...cell,color:"#10B981",fontWeight:700}}>{entry.budget?`${parseFloat(entry.budget).toLocaleString("it-IT")}€`:"—"}</div>
               <div style={{...cell,flexDirection:"column",alignItems:"flex-start",gap:2}}>
-                <span style={{color:entry.contatto?"var(--c-text-muted)":"#2A3A4A"}}>{entry.contatto||"—"}</span>
+                <span style={{color:entry.contatto?"var(--c-text-muted)":"var(--c-text-faintest)"}}>{entry.contatto||"—"}</span>
                 {entry.email && <a href={`mailto:${entry.email}`} onClick={e=>e.stopPropagation()} style={{fontSize:fs-5,color:"#3B82F6",textDecoration:"none"}}>{entry.email}</a>}
               </div>
               <div style={{...cell,flexDirection:"column",alignItems:"flex-start",gap:2}}>
-                {entry.sito ? <a href={entry.sito} target="_blank" rel="noreferrer" onClick={e=>e.stopPropagation()} style={{fontSize:fs-5,color:"#3B82F6",textDecoration:"none"}}>🌐 sito</a> : <span style={{color:"#2A3A4A",fontSize:fs-5}}>🌐 —</span>}
-                {entry.linkedin ? <a href={entry.linkedin} target="_blank" rel="noreferrer" onClick={e=>e.stopPropagation()} style={{fontSize:fs-5,color:"#3B82F6",textDecoration:"none"}}>💼 LinkedIn</a> : <span style={{color:"#2A3A4A",fontSize:fs-5}}>💼 —</span>}
+                {entry.sito ? <a href={entry.sito} target="_blank" rel="noreferrer" onClick={e=>e.stopPropagation()} style={{fontSize:fs-5,color:"#3B82F6",textDecoration:"none"}}>🌐 sito</a> : <span style={{color:"var(--c-text-faintest)",fontSize:fs-5}}>🌐 —</span>}
+                {entry.linkedin ? <a href={entry.linkedin} target="_blank" rel="noreferrer" onClick={e=>e.stopPropagation()} style={{fontSize:fs-5,color:"#3B82F6",textDecoration:"none"}}>💼 LinkedIn</a> : <span style={{color:"var(--c-text-faintest)",fontSize:fs-5}}>💼 —</span>}
               </div>
               <div style={{...cell,gap:4}}>
                 <button onClick={()=>onEdit(entry)} style={{width:24,height:24,borderRadius:5,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-dim)",cursor:"pointer",fontSize:10}}>✏️</button>
