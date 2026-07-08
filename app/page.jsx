@@ -227,6 +227,9 @@ export default function App() {
   const [showIdeaModal, setShowIdeaModal]   = useState(false);
   const [ideaText, setIdeaText]             = useState("");
   const [ideas, setIdeas]                   = useState([]);
+  const [backupStatus, setBackupStatus]     = useState(null); // null | "loading" | "done" | "error"
+  const [showFridayRitual, setShowFridayRitual] = useState(false);
+  const [fridayBusyId, setFridayBusyId]     = useState(null);
   const [listening, setListening]           = useState(false);
   const [newTaskText, setNewTaskText]       = useState("");
   const [addingTask, setAddingTask]         = useState(false);
@@ -254,9 +257,8 @@ export default function App() {
           localStorage.removeItem("dario-checked-tasks");
         }
       }
-      const ideasRaw = localStorage.getItem("dario-ideas");
-      if (ideasRaw) { try { setIdeas(JSON.parse(ideasRaw) || []); } catch {} }
     } catch {}
+    loadIdeas();
   },[]);
 
   // Banner "bentornato": calcolato interamente in locale (nessuna chiamata
@@ -449,17 +451,116 @@ export default function App() {
   };
 
   // Idee al volo: cattura veloce di pensieri/idee imprenditoriali senza
-  // dover aprire una nota separata. Salvate solo in localStorage (nessuna
-  // chiamata di rete, nessun costo) — la sync verso ClickUp/Notion si può
-  // aggiungere in futuro se serve, per ora è solo un backlog personale.
-  const saveIdeasList = (list) => { setIdeas(list); try { localStorage.setItem("dario-ideas", JSON.stringify(list)); } catch {} };
-  const addIdea = () => {
+  // dover aprire una nota separata. Vivevano solo in localStorage (sparivano
+  // cambiando browser/dispositivo); ora vivono su Notion, nello stesso
+  // database della pipeline, così sopravvivono e possono alimentare il
+  // rito settimanale del venerdì (serve sapere quali sono ancora "Da
+  // valutare" contro quelle già smaltite, cosa che localStorage da solo
+  // non poteva modellare).
+  const loadIdeas = async () => {
+    try {
+      const res = await fetch("/api/ideas-data");
+      if (!res.ok) return;
+      const dataRes = await res.json();
+      let loaded = dataRes.ideas || [];
+      // Migrazione una tantum: se Notion è vuoto ma il browser ha ancora
+      // idee salvate nel vecchio localStorage, le trasferiamo una volta
+      // sola invece di perderle silenziosamente col cambio di storage.
+      if (loaded.length === 0) {
+        const oldRaw = localStorage.getItem("dario-ideas");
+        if (oldRaw) {
+          try {
+            const old = JSON.parse(oldRaw) || [];
+            for (const i of old) {
+              if (i.text) await fetch("/api/ideas-data",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:i.text})});
+            }
+            localStorage.removeItem("dario-ideas");
+            if (old.length) {
+              const res2 = await fetch("/api/ideas-data");
+              if (res2.ok) loaded = (await res2.json()).ideas || [];
+            }
+          } catch {}
+        }
+      }
+      setIdeas(loaded);
+      // Rito del venerdì: se oggi è venerdì (fuso Bucarest, coerente col
+      // resto della app) e ci sono idee ancora "Da valutare", proponiamo
+      // la revisione una volta al giorno — non a ogni apertura dell'app,
+      // altrimenti diventa un fastidio invece di un rito.
+      const oggi = todayBucharest();
+      const giornoSettimana = new Date().toLocaleString("en-US",{timeZone:"Europe/Bucharest",weekday:"short"});
+      const daValutare = loaded.filter(i=>(i.stato||"Da valutare")==="Da valutare");
+      const giaVistoOggi = localStorage.getItem("dario-friday-ritual-shown") === oggi;
+      if (giornoSettimana === "Fri" && daValutare.length > 0 && !giaVistoOggi) {
+        setShowFridayRitual(true);
+        localStorage.setItem("dario-friday-ritual-shown", oggi);
+      }
+    } catch {}
+  };
+
+  // Le tre azioni del rito del venerdì: "diventa task" crea davvero il
+  // task nel To-Do di ClickUp (stessa API del bottone + task manuale),
+  // "scarta" e "ignora ancora" aggiornano solo lo stato su Notion — quarta
+  // opzione implicita è chiudere il modal, che lascia tutto "Da valutare"
+  // per la prossima volta.
+  const fridayIdeaToTask = async (idea) => {
+    setFridayBusyId(idea.notionId);
+    try {
+      await fetch("/api/create-task",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:idea.text,list:"todo"})});
+      await setIdeaStato(idea.notionId, "Diventata task");
+    } catch {}
+    setFridayBusyId(null);
+  };
+  const fridayIdeaScarta = async (idea) => {
+    setFridayBusyId(idea.notionId);
+    await setIdeaStato(idea.notionId, "Scartata");
+    setFridayBusyId(null);
+  };
+  const addIdea = async () => {
     const text = ideaText.trim();
     if (!text) return;
-    saveIdeasList([{ id:Date.now().toString(36), text, data:new Date().toISOString() }, ...ideas]);
     setIdeaText("");
+    try {
+      const res = await fetch("/api/ideas-data",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text})});
+      if (res.ok) { const d = await res.json(); setIdeas(prev=>[d.idea, ...prev]); }
+    } catch {}
   };
-  const removeIdea = (id) => saveIdeasList(ideas.filter(i=>i.id!==id));
+  const removeIdea = async (notionId) => {
+    setIdeas(prev=>prev.filter(i=>i.notionId!==notionId));
+    try { await fetch(`/api/ideas-data?id=${notionId}`,{method:"DELETE"}); } catch {}
+  };
+  // Usato dal rito del venerdì per marcare lo stato di un'idea senza
+  // rimuoverla dalla lista (a differenza di removeIdea, che la archivia).
+  const setIdeaStato = async (notionId, stato) => {
+    setIdeas(prev=>prev.map(i=>i.notionId===notionId?{...i,stato}:i));
+    try { await fetch("/api/ideas-data",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({notionId,stato})}); } catch {}
+  };
+
+  // Backup completo: aggrega ClickUp (to-do/routine/streak/finanze/peso) e
+  // Notion (pipeline) lato server (/api/backup), poi aggiunge qui le idee
+  // vocali che invece vivono solo in localStorage — nessuna delle due fonti
+  // da sola basterebbe a ricostruire tutto. Il file scaricato è un JSON
+  // leggibile, pensato per essere riaperto a mano in caso di disastro, non
+  // per un ripristino automatico (che oggi non esiste).
+  const downloadBackup = async () => {
+    setBackupStatus("loading");
+    try {
+      const res = await fetch("/api/backup");
+      const payload = await res.json();
+      payload.data.ideas_vocali = ideas;
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `dario-backup-${new Date().toISOString().slice(0,10)}.json`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setBackupStatus(payload.errors?.length ? "error" : "done");
+    } catch {
+      setBackupStatus("error");
+    }
+    setTimeout(()=>setBackupStatus(null), 4000);
+  };
 
   // Dettatura vocale gratuita: usa il riconoscimento vocale nativo del
   // browser (Web Speech API, disponibile su Chrome/Edge desktop e Android).
@@ -520,6 +621,15 @@ export default function App() {
         ))}
       </div>
       <div style={{fontSize:9,color:"#334155",marginTop:6,lineHeight:1.4}}>Si applica a tutta l'app.</div>
+
+      <div style={{marginTop:16,paddingTop:14,borderTop:`1px solid ${T.border}`}}>
+        <div style={{fontSize:11,color:"#64748B",marginBottom:6}}>Backup dati</div>
+        <button onClick={downloadBackup} disabled={backupStatus==="loading"}
+          style={{width:"100%",padding:"8px 0",borderRadius:8,border:"1px solid #8B5CF640",background:backupStatus==="loading"?"#1A1A2E":"#8B5CF610",color:"#8B5CF6",cursor:backupStatus==="loading"?"not-allowed":"pointer",fontSize:11,fontWeight:600}}>
+          {backupStatus==="loading" ? "⏳ Preparazione..." : backupStatus==="done" ? "✅ Scaricato" : backupStatus==="error" ? "⚠️ Scaricato con avvisi" : "⬇️ Esporta backup JSON"}
+        </button>
+        <div style={{fontSize:9,color:"#334155",marginTop:6,lineHeight:1.4}}>Unisce ClickUp (to-do, routine, streak, finanze, peso) e Notion (pipeline) in un unico file.</div>
+      </div>
     </div>
   );
 
@@ -810,6 +920,44 @@ export default function App() {
       )}
 
       {/* IDEA MODAL */}
+      {/* RITO DEL VENERDÌ: revisione idee "Da valutare" accumulate durante
+          la settimana. Per ciascuna, tre scelte esplicite invece di
+          lasciarle marcire in una lista che non si riguarda mai. */}
+      {showFridayRitual && (
+        <div style={{position:"fixed",inset:0,background:"#00000090",zIndex:998,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setShowFridayRitual(false)}>
+          <div style={{background:"#0F0F1A",border:"1px solid #8B5CF640",borderRadius:16,padding:24,width:"100%",maxWidth:480,maxHeight:"80vh",display:"flex",flexDirection:"column"}} onClick={e=>e.stopPropagation()}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
+              <div style={{fontSize:14,fontWeight:700,color:"#F8FAFC"}}>🗓️ Rito del venerdì — Idee da rivedere</div>
+              <button onClick={()=>setShowFridayRitual(false)} style={{width:26,height:26,borderRadius:6,border:"none",background:"#1A1A2E",color:"#94A3B8",cursor:"pointer",fontSize:13}}>×</button>
+            </div>
+            <div style={{fontSize:11,color:"#64748B",marginBottom:14}}>Per ognuna: la trasformi in task, la scarti, o la lasci per la prossima volta.</div>
+            <div style={{overflowY:"auto",flex:1,display:"flex",flexDirection:"column",gap:10}}>
+              {ideas.filter(i=>(i.stato||"Da valutare")==="Da valutare").map(i=>(
+                <div key={i.notionId} style={{background:"#09090F",border:"1px solid #1A1A2E",borderRadius:10,padding:12}}>
+                  <div style={{fontSize:13,color:"#E2E8F0",lineHeight:1.4,marginBottom:10}}>{i.text}</div>
+                  <div style={{display:"flex",gap:6}}>
+                    <button onClick={()=>fridayIdeaToTask(i)} disabled={fridayBusyId===i.notionId}
+                      style={{flex:1,padding:"7px 0",borderRadius:7,border:"1px solid #10B98140",background:"#10B98115",color:"#10B981",cursor:"pointer",fontSize:11,fontWeight:600}}>
+                      ✅ Diventa task
+                    </button>
+                    <button onClick={()=>fridayIdeaScarta(i)} disabled={fridayBusyId===i.notionId}
+                      style={{flex:1,padding:"7px 0",borderRadius:7,border:"1px solid #EF444440",background:"#EF444415",color:"#EF4444",cursor:"pointer",fontSize:11,fontWeight:600}}>
+                      🗑️ Scarta
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {ideas.filter(i=>(i.stato||"Da valutare")==="Da valutare").length===0 && (
+                <div style={{fontSize:12,color:"#475569",textAlign:"center",padding:"20px 0"}}>Tutto smaltito 🎉</div>
+              )}
+            </div>
+            <button onClick={()=>setShowFridayRitual(false)} style={{marginTop:14,padding:10,borderRadius:8,border:"1px solid #1A1A2E",background:"transparent",color:"#475569",cursor:"pointer",fontSize:13}}>
+              Ignora ancora tutte — richiedi il prossimo venerdì
+            </button>
+          </div>
+        </div>
+      )}
+
       {showIdeaModal && (
         <div style={{position:"fixed",inset:0,background:"#00000090",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setShowIdeaModal(false)}>
           <div style={{background:"#0F0F1A",border:"1px solid #1A1A2E",borderRadius:16,padding:24,width:"100%",maxWidth:420,maxHeight:"80vh",display:"flex",flexDirection:"column"}} onClick={e=>e.stopPropagation()}>
@@ -827,10 +975,13 @@ export default function App() {
               <button onClick={()=>setShowIdeaModal(false)} style={{flex:1,padding:10,borderRadius:8,border:"1px solid #1A1A2E",background:"transparent",color:"#475569",cursor:"pointer",fontSize:14}}>Chiudi</button>
               <button onClick={addIdea} style={{flex:1,padding:10,borderRadius:8,border:"none",background:"#8B5CF6",color:"#fff",cursor:"pointer",fontSize:14,fontWeight:700}}>Salva</button>
             </div>
-            {ideas.length>0 && (
+            {ideas.filter(i=>(i.stato||"Da valutare")==="Da valutare").length>0 && (
               <div style={{overflowY:"auto",flex:1,borderTop:"1px solid #1A1A2E",paddingTop:12}}>
-                <div style={{fontSize:10,color:"#475569",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:8}}>Da processare ({ideas.length})</div>
-                {ideas.map(i=>(
+                {/* Solo "Da valutare": quelle già smaltite (Diventata task/
+                    Ignorata/Scartata) dal rito del venerdì non devono
+                    restare a ingombrare la lista di cattura veloce. */}
+                <div style={{fontSize:10,color:"#475569",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:8}}>Da processare ({ideas.filter(i=>(i.stato||"Da valutare")==="Da valutare").length})</div>
+                {ideas.filter(i=>(i.stato||"Da valutare")==="Da valutare").map(i=>(
                   <div key={i.id} style={{display:"flex",alignItems:"flex-start",gap:8,marginBottom:10,fontSize:13,color:"#E2E8F0"}}>
                     <span style={{flex:1,lineHeight:1.4}}>{i.text}</span>
                     <button onClick={()=>removeIdea(i.id)} style={{background:"transparent",border:"none",color:"#475569",cursor:"pointer",fontSize:14,flexShrink:0}}>×</button>
