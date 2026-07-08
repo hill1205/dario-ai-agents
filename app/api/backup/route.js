@@ -13,7 +13,8 @@ export const dynamic = "force-dynamic";
 const CLICKUP_API_KEY = process.env.CLICKUP_API_KEY;
 const NOTION_TOKEN    = process.env.NOTION_API_KEY;
 const WORKSPACE_ID    = "90121769473";
-const NOTION_VERSION  = "2022-06-28";
+// Vedi commento in pipeline-data.js: /data_sources/{id}/query richiede 2025-09-03+.
+const NOTION_VERSION  = "2025-09-03";
 const PIPELINE_DATA_SOURCE_ID = "40f1c1e8-3e35-4fe9-a5b9-87f653a5f2d3";
 
 const TASK_LIST_IDS = {
