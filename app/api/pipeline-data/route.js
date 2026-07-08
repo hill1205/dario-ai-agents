@@ -39,7 +39,8 @@ function notionPageToEntry(page) {
     email:           p["Email"]?.email || "",
     telefono:        p["Telefono"]?.phone_number || "",
     sito:            p["Sito Web"]?.url || "",
-    linkedin:        p["Instagram"]?.url || "", // riusiamo il campo "linkedin" dell'app per Instagram
+    facebook:        p["Facebook"]?.url || "",
+    instagram:       p["Instagram"]?.url || "",
     budget:          p["Budget"]?.number != null ? String(p["Budget"].number) : "",
     ultimo_contatto: p["Ultimo Contatto"]?.date?.start || "",
     tentativi:       p["Tentativi"]?.number || 0,
@@ -131,7 +132,8 @@ export async function POST(req) {
         "Email":    entry.email ? { email: entry.email } : { email: null },
         "Telefono": entry.telefono ? { phone_number: entry.telefono } : { phone_number: null },
         "Sito Web": entry.sito ? { url: entry.sito } : { url: null },
-        "Instagram": entry.linkedin ? { url: entry.linkedin } : { url: null }, // campo "linkedin" app -> Instagram Notion
+        "Facebook":  entry.facebook  ? { url: entry.facebook }  : { url: null },
+        "Instagram": entry.instagram ? { url: entry.instagram } : { url: null },
         "Budget":   entry.budget ? { number: parseFloat(entry.budget) } : { number: null },
         "Ultimo Contatto": entry.ultimo_contatto ? { date: { start: entry.ultimo_contatto } } : { date: null },
         "Tentativi": { number: entry.tentativi || 0 },
