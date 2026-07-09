@@ -17,7 +17,9 @@ const NAV_ITEMS = [
   { id:"clienti",  icon:"👥", label:"Clienti",    color:"#10B981" },
   { id:"finanze",  icon:"💰", label:"Finanze",    color:"#F59E0B" },
   { id:"iagrex",   icon:"📊", label:"IAGREX",     color:"#3B82F6" },
-  { id:"sospeso",  icon:"⏸️", label:"Sospese",    color:"#EF4444" },
+  // "Sospese" non è più una pagina a parte (10/07): le task sospese si
+  // vedono e si gestiscono direttamente dalla card in home, come To Do e
+  // Routine — una vista in meno da mantenere sincronizzata.
   // Colore neutro (null, come Dashboard) di proposito: non deve saltare
   // all'occhio come le altre — è una voce di servizio, non un'area
   // principale del lavoro quotidiano.
@@ -102,21 +104,78 @@ function tzToLabel(tz) {
 // si legge subito "Urgente"/"Alta"/ecc.
 const PRIORITY_LABEL = { urgent:"Urgente", high:"Alta", normal:"Normale", low:"Bassa" };
 
+// Card della home ora hanno tutte sfondo a gradiente pieno (10/07, su
+// richiesta di Dario) invece del bordo grigio + barra sottile di prima —
+// stessa idea grafica dei due bottoni Pipeline/Finanze che c'erano prima
+// in fondo alla griglia (ora rimossi, il menu laterale/bottom basta).
+const CARD_GRADIENTS = {
+  blue:    "linear-gradient(135deg,#3B82F6,#1D4ED8)",
+  orange:  "linear-gradient(135deg,#F59E0B,#D97706)",
+  purple:  "linear-gradient(135deg,#8B5CF6,#6D28D9)",
+  green:   "linear-gradient(135deg,#10B981,#059669)",
+  red:     "linear-gradient(135deg,#EF4444,#B91C1C)",
+  orange2: "linear-gradient(135deg,#F97316,#C2410C)",
+};
+
+// Testo/checkbox sempre in bianco/trasparenze: le TaskItem vivono adesso
+// solo dentro card a sfondo colorato pieno, quindi i grigi scuri di prima
+// (pensati per sfondo neutro) sparirebbero per contrasto.
 function TaskItem({ task, color, onToggle, fontSize=14, isChecked }) {
   const done = isChecked ?? DONE_STATUSES.includes((task.status?.status||"").toLowerCase());
   const prio = task.priority?.priority;
-  const prioColor = task.priority?.color;
   return (
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,cursor:"pointer"}} onClick={()=>onToggle(task.id)}>
-      <div style={{width:18,height:18,borderRadius:4,border:`1.5px solid ${color}60`,background:done?color:"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.15s"}}>
-        {done && <span style={{fontSize:11,color:"#fff",lineHeight:1}}>✓</span>}
+      <div style={{width:18,height:18,borderRadius:4,border:"1.5px solid rgba(255,255,255,0.65)",background:done?"rgba(255,255,255,0.92)":"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.15s"}}>
+        {done && <span style={{fontSize:11,color,lineHeight:1,fontWeight:700}}>✓</span>}
       </div>
-      <span style={{fontSize,color:done?"#334155":"#94A3B8",textDecoration:done?"line-through":"none",lineHeight:1.4,flex:1}}>{task.name}</span>
+      <span style={{fontSize,color:done?"rgba(255,255,255,0.55)":"#fff",textDecoration:done?"line-through":"none",lineHeight:1.4,flex:1}}>{task.name}</span>
       {!done && prio && PRIORITY_LABEL[prio] && (
-        <span style={{fontSize:Math.max(8,fontSize-5),fontWeight:700,color:prioColor||"#64748B",textTransform:"uppercase",letterSpacing:"0.04em",flexShrink:0}}>
+        <span style={{fontSize:Math.max(8,fontSize-5),fontWeight:700,color:"#fff",background:"rgba(255,255,255,0.25)",padding:"1px 6px",borderRadius:6,textTransform:"uppercase",letterSpacing:"0.04em",flexShrink:0}}>
           {PRIORITY_LABEL[prio]}
         </span>
       )}
+    </div>
+  );
+}
+
+// 4 pallini cliccabili per scegliere la priorità mentre si crea un task
+// dalla dashboard (to-do/routine/sospeso) — stessi 4 livelli di ClickUp
+// (urgent/high/normal/low), colori coerenti con PRIORITY_LABEL altrove.
+const PRIORITY_DOTS = [
+  { id:"urgent", color:"#EF4444", title:"Urgente" },
+  { id:"high",   color:"#F59E0B", title:"Alta" },
+  { id:"normal", color:"#3B82F6", title:"Normale" },
+  { id:"low",    color:"#94A3B8", title:"Bassa" },
+];
+function PriorityDots({ value, onChange }) {
+  return (
+    <div style={{display:"flex",gap:6,alignItems:"center"}}>
+      <span style={{fontSize:9,color:"rgba(255,255,255,0.6)",textTransform:"uppercase",letterSpacing:"0.05em",marginRight:2}}>Priorità</span>
+      {PRIORITY_DOTS.map(o=>(
+        <button key={o.id} type="button" title={o.title} onClick={()=>onChange(o.id)}
+          style={{width:16,height:16,borderRadius:"50%",border:value===o.id?"2px solid #fff":"1px solid rgba(255,255,255,0.4)",background:o.color,cursor:"pointer",padding:0,boxShadow:value===o.id?"0 0 0 2px rgba(0,0,0,0.3)":"none",flexShrink:0}}/>
+      ))}
+    </div>
+  );
+}
+
+// Riga "aggiungi task" riusata per To Do / Routine / Sospeso: testo +
+// priorità, cosi' le tre liste hanno la stessa capacità di creazione che
+// prima c'era solo nel To Do (e senza priorità).
+function AddTaskRow({ draft, busy, onTextChange, onPriorityChange, onSubmit, fontSize }) {
+  return (
+    <div style={{marginTop:8,paddingTop:8,borderTop:"1px solid rgba(255,255,255,0.25)"}}>
+      <div style={{display:"flex",gap:6,marginBottom:6}}>
+        <input value={draft.text} onChange={e=>onTextChange(e.target.value)}
+          onKeyDown={e=>{if(e.key==="Enter") onSubmit();}}
+          placeholder="Nuovo task..." disabled={busy}
+          style={{flex:1,minWidth:0,padding:"6px 8px",borderRadius:6,border:"1px solid rgba(255,255,255,0.4)",background:"rgba(0,0,0,0.2)",color:"#fff",fontSize:fontSize-2,outline:"none"}}/>
+        <button onClick={onSubmit} disabled={busy||!draft.text.trim()}
+          style={{padding:"6px 14px",borderRadius:6,border:"none",background:"rgba(255,255,255,0.92)",color:"#1A1A2E",cursor:busy||!draft.text.trim()?"default":"pointer",fontSize:fontSize-2,fontWeight:700,opacity:busy||!draft.text.trim()?0.5:1,flexShrink:0}}>
+          {busy?"...":"+"}
+        </button>
+      </div>
+      <PriorityDots value={draft.priority} onChange={onPriorityChange}/>
     </div>
   );
 }
@@ -164,8 +223,15 @@ export default function App() {
   const [weatherStatus, setWeatherStatus]   = useState(null); // null | "loading" | "denied" | "error"
   const [showFridayRitual, setShowFridayRitual] = useState(false);
   const [fridayBusyId, setFridayBusyId]     = useState(null);
-  const [newTaskText, setNewTaskText]       = useState("");
-  const [addingTask, setAddingTask]         = useState(false);
+  // Draft di creazione per ciascuna delle tre liste (to-do/routine/sospeso),
+  // ognuna con proprio testo + priorità selezionata — prima esisteva solo
+  // per il to-do e senza priorità.
+  const [taskDrafts, setTaskDrafts]         = useState({
+    todo:    { text:"", priority:"normal" },
+    routine: { text:"", priority:"normal" },
+    sospeso: { text:"", priority:"normal" },
+  });
+  const [addingTaskList, setAddingTaskList] = useState(null); // null | "todo" | "routine" | "sospeso"
 
   const T = THEMES[theme] || THEMES.dark;
 
@@ -401,26 +467,30 @@ export default function App() {
     }
   };
 
-  // Crea un nuovo task direttamente su ClickUp (lista To Do Daily) e lo
-  // aggiunge subito alla card, cosi' non serve un refresh manuale per
-  // vederlo. Nessuno stato ottimistico "finto": il task in lista è quello
-  // che torna indietro da ClickUp, quindi id/priorità sono già reali.
-  const addTodoTask = async () => {
-    const name = newTaskText.trim();
-    if (!name || addingTask) return;
-    setAddingTask(true);
+  // Crea un nuovo task direttamente su ClickUp (to-do, routine o sospeso,
+  // ognuna con priorità scelta dai 4 pallini) e lo aggiunge subito alla
+  // card corrispondente, cosi' non serve un refresh manuale per vederlo.
+  // Nessuno stato ottimistico "finto": il task in lista è quello che torna
+  // indietro da ClickUp, quindi id/priorità sono già reali.
+  const addTask = async (list) => {
+    const draft = taskDrafts[list];
+    const name = draft.text.trim();
+    if (!name || addingTaskList) return;
+    setAddingTaskList(list);
     try {
-      const res = await fetch("/api/create-task",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name,list:"todo"})});
+      const res = await fetch("/api/create-task",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name,list,priority:draft.priority})});
       const data = await res.json();
       if (!res.ok || !data.id) throw new Error("create failed");
-      setHomeData(prev=>({...prev, todo:[...(prev.todo||[]), data]}));
-      setNewTaskText("");
+      setHomeData(prev=>({...prev, [list]:[...(prev[list]||[]), data]}));
+      setTaskDrafts(prev=>({...prev, [list]:{ text:"", priority:"normal" }}));
     } catch (e) {
       setSyncError(`aggiunta "${name}"`);
       setTimeout(()=>setSyncError(null), 5000);
     }
-    setAddingTask(false);
+    setAddingTaskList(null);
   };
+  const setDraftText = (list,text) => setTaskDrafts(prev=>({...prev,[list]:{...prev[list],text}}));
+  const setDraftPriority = (list,priority) => setTaskDrafts(prev=>({...prev,[list]:{...prev[list],priority}}));
 
   const saveWeightModal = async ()=>{
     const p = parseFloat(weightInput.replace(",","."));
@@ -541,9 +611,9 @@ export default function App() {
   // stesso colore, cosi' ogni card ha un'identita' visiva immediata (task
   // viola, routine verde, sospeso rosso, ecc.) invece del bordo grigio
   // uniforme di prima — coerente con la direzione "colorato/energico".
-  const DCard = useMemo(()=> ({children,style={},accent})=>(
-    <div className="dcard" style={{position:"relative",background:T.panel,border:`1px solid ${T.border}`,borderRadius:18,padding:"18px 16px 16px",overflow:"hidden",boxShadow:accent?`0 10px 28px -14px ${accent}70`:"0 6px 16px -10px #00000040",transition:"transform 0.16s ease, box-shadow 0.16s ease",...style}}>
-      {accent && <div style={{position:"absolute",top:0,left:0,right:0,height:3,background:accent}}/>}
+  const DCard = useMemo(()=> ({children,style={},accent,gradient})=>(
+    <div className="dcard" style={{position:"relative",background:gradient||T.panel,border:gradient?"none":`1px solid ${T.border}`,borderRadius:18,padding:"18px 16px 16px",overflow:"hidden",boxShadow:accent?`0 10px 28px -14px ${accent}70`:"0 6px 16px -10px #00000040",transition:"transform 0.16s ease, box-shadow 0.16s ease",...style}}>
+      {accent && !gradient && <div style={{position:"absolute",top:0,left:0,right:0,height:3,background:accent}}/>}
       {children}
     </div>
   ), [T]);
@@ -628,24 +698,6 @@ export default function App() {
           {view==="clienti"  && <ClientiPage  fontSize={fontSize} theme={theme}/>}
           {view==="idee"     && <IdeasPage    fontSize={fontSize} theme={theme}/>}
 
-          {view==="sospeso" && (
-            <div style={{display:"flex",flexDirection:"column",height:"100%",overflow:"hidden"}}>
-              <div style={{padding:"14px 20px",borderBottom:`1px solid ${T.border}`,background:T.bg,flexShrink:0}}>
-                <div style={{fontWeight:700,fontSize:15,color:T.cardText}}>⏸️ Task in sospeso</div>
-                <div style={{fontSize:11,color:T.textDim,marginTop:2}}>Da controllare ogni giorno: valuta se ora puoi sbloccarle.</div>
-              </div>
-              <div style={{flex:1,overflowY:"auto",padding:16}}>
-                <DCard>
-                  {(!homeData.sospeso || homeData.sospeso.length===0) ? (
-                    <div style={{fontSize:fontSize-2,color:"#334155"}}>{homeLoading?"Caricamento...":"Nessuna task in sospeso 🎉"}</div>
-                  ) : sortedByPriority(homeData.sospeso).map(t=>(
-                    <TaskItem key={t.id} task={t} color="#EF4444" onToggle={id=>toggleTask(id,"sospeso")} fontSize={fontSize} isChecked={checkedTasks[t.id]}/>
-                  ))}
-                </DCard>
-              </div>
-            </div>
-          )}
-
           {view==="home" && (
             <>
               {/* Header */}
@@ -712,182 +764,158 @@ export default function App() {
                     scroll verticale, schermo sfruttato per intero. Su
                     mobile resta tutto a colonna singola come prima. */}
                 <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(3,1fr)",gridAutoFlow:isMobile?"row":"dense",gap:12,marginBottom:16}}>
-                  <div style={{gridColumn:isMobile?"auto":"span 1"}}><DCard accent="#3B82F6">
-                    <DLabel>🕐 Ora</DLabel>
-                    <div style={{fontSize:fontSize+12,fontWeight:800,color:T.cardText,letterSpacing:"0.04em",lineHeight:1}}>{clockBucharest}</div>
-                    <div style={{fontSize:fontSize-4,color:"#475569",marginTop:3,marginBottom:10}}>Bucarest</div>
-                    <div style={{paddingTop:8,borderTop:"1px solid #1A1A2E"}}>
-                      <div style={{fontSize:fontSize+2,fontWeight:600,color:"#94A3B8"}}>{clockRome}</div>
-                      <div style={{fontSize:fontSize-4,color:"#334155",marginTop:2}}>Roma / Torremaggiore</div>
+                  <div style={{gridColumn:isMobile?"auto":"span 1"}}><DCard accent="#3B82F6" gradient={CARD_GRADIENTS.blue}>
+                    <DLabel style={{color:"rgba(255,255,255,0.85)"}}>🕐 Ora</DLabel>
+                    <div style={{fontSize:fontSize+12,fontWeight:800,color:"#fff",letterSpacing:"0.04em",lineHeight:1}}>{clockBucharest}</div>
+                    <div style={{fontSize:fontSize-4,color:"rgba(255,255,255,0.75)",marginTop:3,marginBottom:10}}>Bucarest</div>
+                    <div style={{paddingTop:8,borderTop:"1px solid rgba(255,255,255,0.25)"}}>
+                      <div style={{fontSize:fontSize+2,fontWeight:600,color:"#fff"}}>{clockRome}</div>
+                      <div style={{fontSize:fontSize-4,color:"rgba(255,255,255,0.7)",marginTop:2}}>Roma / Torremaggiore</div>
                     </div>
                     {/* Etichetta di contesto quando il telefono rileva un fuso
                         diverso da quello rumeno (letta dal sistema operativo,
                         nessun permesso richiesto) — l'ora "ufficiale" sopra
                         resta sempre quella di Bucarest. */}
                     {deviceTzLabel && (
-                      <div style={{marginTop:8,paddingTop:8,borderTop:"1px solid #1A1A2E",fontSize:fontSize-4,color:"#F59E0B"}}>
+                      <div style={{marginTop:8,paddingTop:8,borderTop:"1px solid rgba(255,255,255,0.25)",fontSize:fontSize-4,color:"#FEF3C7"}}>
                         📍 Sei in {deviceTzLabel.label}, qui sono le {deviceTzLabel.time}
                       </div>
                     )}
                   </DCard></div>
-                  <div style={{gridColumn:isMobile?"auto":"span 1"}}><DCard accent="#F59E0B">
+                  <div style={{gridColumn:isMobile?"auto":"span 1"}}><DCard accent="#F59E0B" gradient={CARD_GRADIENTS.orange}>
                     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:2}}>
-                      <DLabel style={{marginBottom:0}}>🌍 {weather?.city || "Timișoara"}</DLabel>
+                      <DLabel style={{marginBottom:0,color:"rgba(255,255,255,0.85)"}}>🌍 {weather?.city || "Timișoara"}</DLabel>
                       <button onClick={toggleLocalWeather} title="Usa la posizione attuale invece della città fissa"
-                        style={{padding:"2px 7px",borderRadius:6,border:`1px solid ${useLocalWeather?"#3B82F6":"#1A1A2E"}`,background:useLocalWeather?"#3B82F620":"transparent",color:useLocalWeather?"#3B82F6":"#475569",cursor:"pointer",fontSize:9,fontWeight:600,flexShrink:0}}>
+                        style={{padding:"2px 7px",borderRadius:6,border:`1px solid rgba(255,255,255,${useLocalWeather?0.9:0.35})`,background:useLocalWeather?"rgba(255,255,255,0.25)":"transparent",color:"#fff",cursor:"pointer",fontSize:9,fontWeight:600,flexShrink:0}}>
                         {weatherStatus==="loading" ? "⏳" : "📍"}
                       </button>
                     </div>
                     {weather?(
                       <>
                         <div style={{fontSize:32,lineHeight:1,marginBottom:4}}>{getWeatherEmoji(weather.condition)}</div>
-                        <div style={{fontSize:fontSize+12,fontWeight:800,color:T.cardText}}>{weather.temp}°C</div>
-                        <div style={{fontSize:fontSize-3,color:"#64748B",marginTop:2,textTransform:"capitalize"}}>{weather.description}</div>
-                        <div style={{fontSize:fontSize-4,color:"#334155",marginTop:4}}>💧{weather.humidity}% · 💨{weather.wind}km/h</div>
+                        <div style={{fontSize:fontSize+12,fontWeight:800,color:"#fff"}}>{weather.temp}°C</div>
+                        <div style={{fontSize:fontSize-3,color:"rgba(255,255,255,0.85)",marginTop:2,textTransform:"capitalize"}}>{weather.description}</div>
+                        <div style={{fontSize:fontSize-4,color:"rgba(255,255,255,0.7)",marginTop:4}}>💧{weather.humidity}% · 💨{weather.wind}km/h</div>
                       </>
                     ):(
-                      <div style={{fontSize:fontSize-2,color:"#334155"}}>{homeLoading?"Caricamento...":"–"}</div>
+                      <div style={{fontSize:fontSize-2,color:"rgba(255,255,255,0.6)"}}>{homeLoading?"Caricamento...":"–"}</div>
                     )}
                     {weatherStatus==="denied" && (
-                      <div style={{fontSize:fontSize-5,color:"#EF4444",marginTop:6}}>Permesso posizione negato — resto sul meteo fisso.</div>
+                      <div style={{fontSize:fontSize-5,color:"#FEE2E2",marginTop:6}}>Permesso posizione negato — resto sul meteo fisso.</div>
                     )}
                   </DCard></div>
 
-                  <div style={{gridColumn:isMobile?"auto":"span 2"}}><DCard accent="#8B5CF6" style={{height:"100%"}}>
-                    <DLabel>✅ To Do Oggi</DLabel>
+                  <div style={{gridColumn:isMobile?"auto":"span 2"}}><DCard accent="#8B5CF6" gradient={CARD_GRADIENTS.purple} style={{height:"100%"}}>
+                    <DLabel style={{color:"rgba(255,255,255,0.85)"}}>✅ To Do Oggi</DLabel>
                     {homeData.todo.length===0?(
-                      <div style={{fontSize:fontSize-2,color:"#334155"}}>{homeLoading?"Caricamento...":"Nessun task 🎉"}</div>
+                      <div style={{fontSize:fontSize-2,color:"rgba(255,255,255,0.6)"}}>{homeLoading?"Caricamento...":"Nessun task 🎉"}</div>
                     ):sortedByPriority(homeData.todo).map(t=>(
-                      <TaskItem key={t.id} task={t} color="#8B5CF6" onToggle={id=>toggleTask(id,"todo")} fontSize={fontSize} isChecked={checkedTasks[t.id]}/>
+                      <TaskItem key={t.id} task={t} color="#6D28D9" onToggle={id=>toggleTask(id,"todo")} fontSize={fontSize} isChecked={checkedTasks[t.id]}/>
                     ))}
-                    <div style={{display:"flex",gap:6,marginTop:homeData.todo.length===0?0:8,paddingTop:8,borderTop:"1px solid #1A1A2E"}}>
-                      <input value={newTaskText} onChange={e=>setNewTaskText(e.target.value)}
-                        onKeyDown={e=>{if(e.key==="Enter") addTodoTask();}}
-                        placeholder="Nuovo task..." disabled={addingTask}
-                        style={{flex:1,minWidth:0,padding:"6px 8px",borderRadius:6,border:`1px solid ${T.border}`,background:T.bg,color:T.text,fontSize:fontSize-2,outline:"none"}}/>
-                      <button onClick={addTodoTask} disabled={addingTask||!newTaskText.trim()}
-                        style={{padding:"6px 14px",borderRadius:6,border:"none",background:"#8B5CF6",color:"#fff",cursor:addingTask||!newTaskText.trim()?"default":"pointer",fontSize:fontSize-2,fontWeight:700,opacity:addingTask||!newTaskText.trim()?0.5:1,flexShrink:0}}>
-                        {addingTask?"...":"+"}
-                      </button>
-                    </div>
+                    <AddTaskRow draft={taskDrafts.todo} busy={addingTaskList==="todo"}
+                      onTextChange={v=>setDraftText("todo",v)} onPriorityChange={p=>setDraftPriority("todo",p)}
+                      onSubmit={()=>addTask("todo")} fontSize={fontSize}/>
                   </DCard></div>
 
-                  <div style={{gridColumn:isMobile?"auto":"span 1"}}><DCard accent="#10B981">
+                  <div style={{gridColumn:isMobile?"auto":"span 1"}}><DCard accent="#10B981" gradient={CARD_GRADIENTS.green}>
                     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
-                      <DLabel style={{marginBottom:0}}>🔄 Routine</DLabel>
+                      <DLabel style={{marginBottom:0,color:"rgba(255,255,255,0.85)"}}>🔄 Routine</DLabel>
                       {routineStreak > 0 && (
-                        <span style={{fontSize:fontSize-4,color:"#F97316",fontWeight:700}}>🔥 {routineStreak}g</span>
+                        <span style={{fontSize:fontSize-4,color:"#FED7AA",fontWeight:700}}>🔥 {routineStreak}g</span>
                       )}
                     </div>
                     {homeData.routine.length===0?(
-                      <div style={{fontSize:fontSize-2,color:"#334155"}}>{homeLoading?"Caricamento...":"Nessuna routine"}</div>
+                      <div style={{fontSize:fontSize-2,color:"rgba(255,255,255,0.6)"}}>{homeLoading?"Caricamento...":"Nessuna routine"}</div>
                     ):sortedByPriority(homeData.routine).map(t=>(
-                      <TaskItem key={t.id} task={t} color="#10B981" onToggle={id=>toggleTask(id,"routine")} fontSize={fontSize} isChecked={checkedTasks[t.id]}/>
+                      <TaskItem key={t.id} task={t} color="#059669" onToggle={id=>toggleTask(id,"routine")} fontSize={fontSize} isChecked={checkedTasks[t.id]}/>
                     ))}
+                    <AddTaskRow draft={taskDrafts.routine} busy={addingTaskList==="routine"}
+                      onTextChange={v=>setDraftText("routine",v)} onPriorityChange={p=>setDraftPriority("routine",p)}
+                      onSubmit={()=>addTask("routine")} fontSize={fontSize}/>
                   </DCard></div>
 
-                  {/* In sospeso: stessa card di To Do/Routine, ma qui in Home
-                      cosi' Dario la vede ogni giorno senza dover andare nella
-                      tab dedicata — l'obiettivo e' controllarla spesso per
-                      capire se una task ora si sblocca. */}
-                  <div style={{gridColumn:isMobile?"auto":"span 1"}}><DCard accent="#EF4444">
-                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
-                      <DLabel style={{marginBottom:0}}>⏸️ In sospeso</DLabel>
-                      <button onClick={()=>setView("sospeso")}
-                        style={{padding:"2px 8px",borderRadius:6,border:"1px solid #EF444440",background:"transparent",color:"#EF4444",cursor:"pointer",fontSize:10,fontWeight:600}}>
-                        Vedi tutte
-                      </button>
-                    </div>
+                  {/* In sospeso: stessa card di To Do/Routine, ora anche con
+                      la stessa possibilità di crearne di nuove — non serve
+                      più una pagina a parte, sparita su richiesta di Dario
+                      (10/07): tutto vive qui. */}
+                  <div style={{gridColumn:isMobile?"auto":"span 1"}}><DCard accent="#EF4444" gradient={CARD_GRADIENTS.red}>
+                    <DLabel style={{color:"rgba(255,255,255,0.85)"}}>⏸️ In sospeso</DLabel>
                     {(!homeData.sospeso || homeData.sospeso.length===0)?(
-                      <div style={{fontSize:fontSize-2,color:"#334155"}}>{homeLoading?"Caricamento...":"Nessuna task in sospeso 🎉"}</div>
+                      <div style={{fontSize:fontSize-2,color:"rgba(255,255,255,0.6)"}}>{homeLoading?"Caricamento...":"Nessuna task in sospeso 🎉"}</div>
                     ):sortedByPriority(homeData.sospeso).map(t=>(
-                      <TaskItem key={t.id} task={t} color="#EF4444" onToggle={id=>toggleTask(id,"sospeso")} fontSize={fontSize} isChecked={checkedTasks[t.id]}/>
+                      <TaskItem key={t.id} task={t} color="#B91C1C" onToggle={id=>toggleTask(id,"sospeso")} fontSize={fontSize} isChecked={checkedTasks[t.id]}/>
                     ))}
+                    <AddTaskRow draft={taskDrafts.sospeso} busy={addingTaskList==="sospeso"}
+                      onTextChange={v=>setDraftText("sospeso",v)} onPriorityChange={p=>setDraftPriority("sospeso",p)}
+                      onSubmit={()=>addTask("sospeso")} fontSize={fontSize}/>
                   </DCard></div>
 
                   {/* Peso e Revenue: tolti i mini-grafici (non convincevano) —
                       restano i numeri chiave e la barra di progresso, card
                       piu' corte e dirette invece di "quadrettoni" con grafici
                       dentro. */}
-                  <div style={{gridColumn:isMobile?"auto":"span 1"}}><DCard accent="#F97316">
-                    <DLabel>💪 Progressi Fisici</DLabel>
+                  <div style={{gridColumn:isMobile?"auto":"span 1"}}><DCard accent="#F97316" gradient={CARD_GRADIENTS.orange2}>
+                    <DLabel style={{color:"rgba(255,255,255,0.85)"}}>💪 Progressi Fisici</DLabel>
                     {homeErrors.weight && !homeLoading && (
-                      <div style={{fontSize:fontSize-3,color:"#F59E0B",background:"#F59E0B15",border:"1px solid #F59E0B40",borderRadius:6,padding:"4px 8px",marginBottom:6}}>⚠️ dati non aggiornati (ClickUp non raggiungibile)</div>
+                      <div style={{fontSize:fontSize-3,color:"#FEF3C7",background:"rgba(0,0,0,0.22)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:6,padding:"4px 8px",marginBottom:6}}>⚠️ dati non aggiornati (ClickUp non raggiungibile)</div>
                     )}
                     {weightData?(
                       <>
-                        <div style={{fontSize:fontSize+12,fontWeight:800,color:"#F97316"}}>{weightData.ultimo?.peso}<span style={{fontSize:fontSize-1,fontWeight:400}}> kg</span></div>
-                        <div style={{fontSize:fontSize-3,color:"#10B981",marginTop:2}}>−{weightData.persi} kg persi 🔥</div>
-                        <div style={{fontSize:fontSize-4,color:"#475569",marginTop:1}}>Mancano {weightData.mancano} kg all'obiettivo</div>
-                        <div style={{marginTop:8,height:3,background:"#1A1A2E",borderRadius:2}}>
-                          <div style={{height:"100%",background:"#F97316",borderRadius:2,width:`${Math.min(Math.round(((121.6-(weightData.ultimo?.peso||121.6))/(121.6-85))*100),100)}%`,transition:"width 0.4s"}}/>
+                        <div style={{fontSize:fontSize+12,fontWeight:800,color:"#fff"}}>{weightData.ultimo?.peso}<span style={{fontSize:fontSize-1,fontWeight:400}}> kg</span></div>
+                        <div style={{fontSize:fontSize-3,color:"#D1FAE5",marginTop:2}}>−{weightData.persi} kg persi 🔥</div>
+                        <div style={{fontSize:fontSize-4,color:"rgba(255,255,255,0.75)",marginTop:1}}>Mancano {weightData.mancano} kg all'obiettivo</div>
+                        <div style={{marginTop:8,height:3,background:"rgba(255,255,255,0.25)",borderRadius:2}}>
+                          <div style={{height:"100%",background:"#fff",borderRadius:2,width:`${Math.min(Math.round(((121.6-(weightData.ultimo?.peso||121.6))/(121.6-85))*100),100)}%`,transition:"width 0.4s"}}/>
                         </div>
-                        <div style={{fontSize:fontSize-5,color:"#334155",marginTop:3}}>Obiettivo: 85 kg</div>
+                        <div style={{fontSize:fontSize-5,color:"rgba(255,255,255,0.65)",marginTop:3}}>Obiettivo: 85 kg</div>
                         <button onClick={()=>{setWeightInput("");setShowWeightModal(true);}}
-                          style={{marginTop:10,width:"100%",padding:"5px 8px",borderRadius:6,border:`1px solid ${T.border}`,background:T.bg,color:T.textDim,fontSize:fontSize-2,textAlign:"left",cursor:"pointer"}}>
+                          style={{marginTop:10,width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid rgba(255,255,255,0.4)",background:"rgba(0,0,0,0.15)",color:"#fff",fontSize:fontSize-2,textAlign:"left",cursor:"pointer"}}>
                           Registra peso oggi...
                         </button>
                       </>
                     ):(
-                      <div style={{fontSize:fontSize-2,color:"#334155"}}>{homeLoading?"Caricamento...":"–"}</div>
+                      <div style={{fontSize:fontSize-2,color:"rgba(255,255,255,0.6)"}}>{homeLoading?"Caricamento...":"–"}</div>
                     )}
                   </DCard></div>
-                  <div style={{gridColumn:isMobile?"auto":"span 2"}}><DCard accent="#10B981">
-                    <DLabel>💶 Revenue IAGREX</DLabel>
+                  <div style={{gridColumn:isMobile?"auto":"span 2"}}><DCard accent="#10B981" gradient={CARD_GRADIENTS.green}>
+                    <DLabel style={{color:"rgba(255,255,255,0.85)"}}>💶 Revenue IAGREX</DLabel>
                     {homeErrors.revenue && !homeLoading && (
-                      <div style={{fontSize:fontSize-3,color:"#F59E0B",background:"#F59E0B15",border:"1px solid #F59E0B40",borderRadius:6,padding:"4px 8px",marginBottom:6}}>⚠️ dati non aggiornati (ClickUp non raggiungibile)</div>
+                      <div style={{fontSize:fontSize-3,color:"#FEF3C7",background:"rgba(0,0,0,0.22)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:6,padding:"4px 8px",marginBottom:6}}>⚠️ dati non aggiornati (ClickUp non raggiungibile)</div>
                     )}
                     {revenue?(
                       <>
                         <div style={{display:"flex",flexDirection:isMobile?"column":"row",alignItems:isMobile?"stretch":"baseline",gap:isMobile?0:16}}>
                           <div>
-                            <div style={{fontSize:fontSize-3,color:"#475569",marginBottom:4}}>{revenue.mese}</div>
-                            <div style={{fontSize:fontSize+8,fontWeight:800,color:"#10B981"}}>+{(revenue.entrate_totali||0).toLocaleString("it-IT")}€</div>
-                            <div style={{fontSize:fontSize-3,color:"#EF4444",marginTop:2}}>−{(revenue.uscite_totali||0).toLocaleString("it-IT")}€ uscite</div>
-                            <div style={{fontSize:fontSize-3,color:"#64748B",marginTop:1}}>Netto: {((revenue.entrate_totali||0)-(revenue.uscite_totali||0)).toLocaleString("it-IT")}€</div>
+                            <div style={{fontSize:fontSize-3,color:"rgba(255,255,255,0.75)",marginBottom:4}}>{revenue.mese}</div>
+                            <div style={{fontSize:fontSize+8,fontWeight:800,color:"#fff"}}>+{(revenue.entrate_totali||0).toLocaleString("it-IT")}€</div>
+                            <div style={{fontSize:fontSize-3,color:"#FEE2E2",marginTop:2}}>−{(revenue.uscite_totali||0).toLocaleString("it-IT")}€ uscite</div>
+                            <div style={{fontSize:fontSize-3,color:"rgba(255,255,255,0.7)",marginTop:1}}>Netto: {((revenue.entrate_totali||0)-(revenue.uscite_totali||0)).toLocaleString("it-IT")}€</div>
                           </div>
                           {revenue.ritmo_mensile_necessario != null && (
-                            <div style={isMobile?{marginTop:10,paddingTop:10,borderTop:"1px solid #1A1A2E"}:{marginLeft:"auto",textAlign:"right"}}>
-                              <div style={{fontSize:fontSize-5,color:"#3B82F6",textTransform:"uppercase",letterSpacing:"0.06em"}}>🎯 Ritmo necessario</div>
-                              <div style={{fontSize:fontSize+2,fontWeight:800,color:"#3B82F6"}}>
+                            <div style={isMobile?{marginTop:10,paddingTop:10,borderTop:"1px solid rgba(255,255,255,0.25)"}:{marginLeft:"auto",textAlign:"right"}}>
+                              <div style={{fontSize:fontSize-5,color:"rgba(255,255,255,0.85)",textTransform:"uppercase",letterSpacing:"0.06em"}}>🎯 Ritmo necessario</div>
+                              <div style={{fontSize:fontSize+2,fontWeight:800,color:"#fff"}}>
                                 {revenue.ritmo_mensile_necessario.toLocaleString("it-IT")}€<span style={{fontSize:fontSize-3,fontWeight:400}}>/mese</span>
                               </div>
-                              <div style={{fontSize:fontSize-4,color:"#475569",maxWidth:isMobile?"100%":220}}>
+                              <div style={{fontSize:fontSize-4,color:"rgba(255,255,255,0.7)",maxWidth:isMobile?"100%":220}}>
                                 per {revenue.mesi_rimanenti} mes{revenue.mesi_rimanenti===1?"e rimanente":"i rimanenti"} verso 1.000.000€
                               </div>
                             </div>
                           )}
                         </div>
-                        <div style={{marginTop:8,height:3,background:"#1A1A2E",borderRadius:2}}>
-                          <div style={{height:"100%",background:"#10B981",borderRadius:2,width:`${Math.max(revenue.percentuale||0,1)}%`,transition:"width 0.4s"}}/>
+                        <div style={{marginTop:8,height:3,background:"rgba(255,255,255,0.25)",borderRadius:2}}>
+                          <div style={{height:"100%",background:"#fff",borderRadius:2,width:`${Math.max(revenue.percentuale||0,1)}%`,transition:"width 0.4s"}}/>
                         </div>
-                        <div style={{fontSize:fontSize-5,color:"#334155",marginTop:3}}>{revenue.percentuale}% verso 1.000.000€</div>
+                        <div style={{fontSize:fontSize-5,color:"rgba(255,255,255,0.65)",marginTop:3}}>{revenue.percentuale}% verso 1.000.000€</div>
                         <button onClick={()=>setView("iagrex")}
-                          style={{marginTop:10,width:"100%",padding:"6px",borderRadius:7,border:"1px solid #3B82F640",background:"#3B82F610",color:"#3B82F6",cursor:"pointer",fontSize:fontSize-3,fontWeight:600}}>
+                          style={{marginTop:10,width:"100%",padding:"6px",borderRadius:7,border:"1px solid rgba(255,255,255,0.4)",background:"rgba(0,0,0,0.15)",color:"#fff",cursor:"pointer",fontSize:fontSize-3,fontWeight:600}}>
                           📊 Apri tracking completo
                         </button>
                       </>
                     ):(
-                      <div style={{fontSize:fontSize-2,color:"#334155"}}>{homeLoading?"Caricamento...":"–"}</div>
+                      <div style={{fontSize:fontSize-2,color:"rgba(255,255,255,0.6)"}}>{homeLoading?"Caricamento...":"–"}</div>
                     )}
                   </DCard></div>
-
-                  {/* Quick nav: gradient pieno invece del tint sottile, per
-                      restare coerenti con la direzione "colorato/energico". */}
-                  <div style={{gridColumn:isMobile?"auto":"span 1"}}>
-                    <button onClick={()=>setView("pipeline")}
-                      style={{width:"100%",height:"100%",padding:16,borderRadius:18,border:"none",background:"linear-gradient(135deg,#8B5CF6,#6D28D9)",color:"#fff",cursor:"pointer",textAlign:"left",fontWeight:700,fontSize:fontSize,boxShadow:"0 8px 24px -12px #8B5CF680"}}>
-                      🎯 Pipeline<br/>
-                      <span style={{fontSize:fontSize-4,fontWeight:400,color:"#EDE9FE"}}>Lead & Clienti · Outreach AI</span>
-                    </button>
-                  </div>
-                  <div style={{gridColumn:isMobile?"auto":"span 2"}}>
-                    <button onClick={()=>setView("finanze")}
-                      style={{width:"100%",height:"100%",padding:16,borderRadius:18,border:"none",background:"linear-gradient(135deg,#F59E0B,#D97706)",color:"#fff",cursor:"pointer",textAlign:"left",fontWeight:700,fontSize:fontSize,boxShadow:"0 8px 24px -12px #F59E0B80"}}>
-                      💰 Finanze<br/>
-                      <span style={{fontSize:fontSize-4,fontWeight:400,color:"#FEF3C7"}}>Personali</span>
-                    </button>
-                  </div>
                 </div>
               </div>
             </>
