@@ -71,8 +71,12 @@ function CashFlowMiniChart({ allData }) {
           const hu = Math.max((d.uscite/max)*(H-24), d.uscite>0?2:0);
           return (
             <g key={d.mese}>
-              <rect x={gx} y={H-24-he} width={barW} height={he} rx={1.5} fill="#10B981" />
-              <rect x={gx+barW+2} y={H-24-hu} width={barW} height={hu} rx={1.5} fill="#EF4444" />
+              <rect x={gx} y={H-24-he} width={barW} height={he} rx={1.5} fill="#10B981" style={{cursor:"pointer"}}>
+                <title>{`${getMonthLabel(d.mese)} — Entrate: ${fmt(d.entrate)}€`}</title>
+              </rect>
+              <rect x={gx+barW+2} y={H-24-hu} width={barW} height={hu} rx={1.5} fill="#EF4444" style={{cursor:"pointer"}}>
+                <title>{`${getMonthLabel(d.mese)} — Uscite: ${fmt(d.uscite)}€`}</title>
+              </rect>
             </g>
           );
         })}
