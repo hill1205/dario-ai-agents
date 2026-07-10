@@ -6,6 +6,8 @@ const LIST_IDS = {
   todo: "901218950374",
   routine: "901218950375",
   sospeso: "901218950377",
+  claudia: "901219456425",
+  annarita: "901219456427",
 };
 async function fetchTasks(listId) {
   const res = await fetch(
@@ -26,12 +28,14 @@ export async function GET() {
     return Response.json({ error: "Missing API key" }, { status: 500 });
   }
   try {
-    const [todo, routine, sospeso] = await Promise.all([
+    const [todo, routine, sospeso, claudia, annarita] = await Promise.all([
       fetchTasks(LIST_IDS.todo),
       fetchTasks(LIST_IDS.routine),
       fetchTasks(LIST_IDS.sospeso),
+      fetchTasks(LIST_IDS.claudia),
+      fetchTasks(LIST_IDS.annarita),
     ]);
-    return Response.json({ todo, routine, sospeso });
+    return Response.json({ todo, routine, sospeso, claudia, annarita });
   } catch (error) {
     return Response.json({ error: error.message }, { status: 500 });
   }
