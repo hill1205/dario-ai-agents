@@ -756,15 +756,21 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Griglia unica "bento": su desktop tutte le card vivono in
-                    un'unica grid a 3 colonne con auto-flow dense, cosi' le
-                    card corte (Ora/Meteo/Sospeso/Routine/Peso) riempiono gli
-                    spazi lasciati da quelle piu' alte (To Do) invece di
-                    impilarsi in righe separate a tutta larghezza — meno
-                    scroll verticale, schermo sfruttato per intero. Su
-                    mobile resta tutto a colonna singola come prima. */}
-                <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(3,1fr)",gridAutoFlow:isMobile?"row":"dense",gap:12,marginBottom:16}}>
-                  <div style={{gridColumn:isMobile?"auto":"span 1"}}><DCard accent="#3B82F6" gradient={CARD_GRADIENTS.blue}>
+                {/* Layout a righe distinte invece dell'unica grid "dense" di
+                    prima (10/07, su richiesta di Dario: "le card task piene
+                    disordinano tutto"). Con auto-flow dense, quando To
+                    Do/Routine/Sospeso si riempivano di righe le card corte
+                    (Ora/Meteo/Peso) venivano risucchiate negli spazi vuoti
+                    lasciati e finivano disallineate in punti imprevedibili.
+                    Ora ci sono tre righe fisse e indipendenti: statistiche
+                    corte, le tre liste task fianco a fianco (ognuna cresce
+                    per conto suo senza spostare le altre, alignItems:start
+                    evita che si stirino a vicenda), poi Revenue a tutta
+                    larghezza. Su mobile resta tutto a colonna singola. */}
+
+                {/* Riga statistiche corte */}
+                <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(3,1fr)",gap:12,marginBottom:12}}>
+                  <div><DCard accent="#3B82F6" gradient={CARD_GRADIENTS.blue}>
                     <DLabel style={{color:"rgba(255,255,255,0.85)"}}>🕐 Ora</DLabel>
                     <div style={{fontSize:fontSize+12,fontWeight:800,color:"#fff",letterSpacing:"0.04em",lineHeight:1}}>{clockBucharest}</div>
                     <div style={{fontSize:fontSize-4,color:"rgba(255,255,255,0.75)",marginTop:3,marginBottom:10}}>Bucarest</div>
@@ -782,7 +788,7 @@ export default function App() {
                       </div>
                     )}
                   </DCard></div>
-                  <div style={{gridColumn:isMobile?"auto":"span 1"}}><DCard accent="#F59E0B" gradient={CARD_GRADIENTS.orange}>
+                  <div><DCard accent="#F59E0B" gradient={CARD_GRADIENTS.orange}>
                     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:2}}>
                       <DLabel style={{marginBottom:0,color:"rgba(255,255,255,0.85)"}}>🌍 {weather?.city || "Timișoara"}</DLabel>
                       <button onClick={toggleLocalWeather} title="Usa la posizione attuale invece della città fissa"
@@ -805,56 +811,7 @@ export default function App() {
                     )}
                   </DCard></div>
 
-                  <div style={{gridColumn:isMobile?"auto":"span 2"}}><DCard accent="#8B5CF6" gradient={CARD_GRADIENTS.purple} style={{height:"100%"}}>
-                    <DLabel style={{color:"rgba(255,255,255,0.85)"}}>✅ To Do Oggi</DLabel>
-                    {homeData.todo.length===0?(
-                      <div style={{fontSize:fontSize-2,color:"rgba(255,255,255,0.6)"}}>{homeLoading?"Caricamento...":"Nessun task 🎉"}</div>
-                    ):sortedByPriority(homeData.todo).map(t=>(
-                      <TaskItem key={t.id} task={t} color="#6D28D9" onToggle={id=>toggleTask(id,"todo")} fontSize={fontSize} isChecked={checkedTasks[t.id]}/>
-                    ))}
-                    <AddTaskRow draft={taskDrafts.todo} busy={addingTaskList==="todo"}
-                      onTextChange={v=>setDraftText("todo",v)} onPriorityChange={p=>setDraftPriority("todo",p)}
-                      onSubmit={()=>addTask("todo")} fontSize={fontSize}/>
-                  </DCard></div>
-
-                  <div style={{gridColumn:isMobile?"auto":"span 1"}}><DCard accent="#10B981" gradient={CARD_GRADIENTS.green}>
-                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
-                      <DLabel style={{marginBottom:0,color:"rgba(255,255,255,0.85)"}}>🔄 Routine</DLabel>
-                      {routineStreak > 0 && (
-                        <span style={{fontSize:fontSize-4,color:"#FED7AA",fontWeight:700}}>🔥 {routineStreak}g</span>
-                      )}
-                    </div>
-                    {homeData.routine.length===0?(
-                      <div style={{fontSize:fontSize-2,color:"rgba(255,255,255,0.6)"}}>{homeLoading?"Caricamento...":"Nessuna routine"}</div>
-                    ):sortedByPriority(homeData.routine).map(t=>(
-                      <TaskItem key={t.id} task={t} color="#059669" onToggle={id=>toggleTask(id,"routine")} fontSize={fontSize} isChecked={checkedTasks[t.id]}/>
-                    ))}
-                    <AddTaskRow draft={taskDrafts.routine} busy={addingTaskList==="routine"}
-                      onTextChange={v=>setDraftText("routine",v)} onPriorityChange={p=>setDraftPriority("routine",p)}
-                      onSubmit={()=>addTask("routine")} fontSize={fontSize}/>
-                  </DCard></div>
-
-                  {/* In sospeso: stessa card di To Do/Routine, ora anche con
-                      la stessa possibilità di crearne di nuove — non serve
-                      più una pagina a parte, sparita su richiesta di Dario
-                      (10/07): tutto vive qui. */}
-                  <div style={{gridColumn:isMobile?"auto":"span 1"}}><DCard accent="#EF4444" gradient={CARD_GRADIENTS.red}>
-                    <DLabel style={{color:"rgba(255,255,255,0.85)"}}>⏸️ In sospeso</DLabel>
-                    {(!homeData.sospeso || homeData.sospeso.length===0)?(
-                      <div style={{fontSize:fontSize-2,color:"rgba(255,255,255,0.6)"}}>{homeLoading?"Caricamento...":"Nessuna task in sospeso 🎉"}</div>
-                    ):sortedByPriority(homeData.sospeso).map(t=>(
-                      <TaskItem key={t.id} task={t} color="#B91C1C" onToggle={id=>toggleTask(id,"sospeso")} fontSize={fontSize} isChecked={checkedTasks[t.id]}/>
-                    ))}
-                    <AddTaskRow draft={taskDrafts.sospeso} busy={addingTaskList==="sospeso"}
-                      onTextChange={v=>setDraftText("sospeso",v)} onPriorityChange={p=>setDraftPriority("sospeso",p)}
-                      onSubmit={()=>addTask("sospeso")} fontSize={fontSize}/>
-                  </DCard></div>
-
-                  {/* Peso e Revenue: tolti i mini-grafici (non convincevano) —
-                      restano i numeri chiave e la barra di progresso, card
-                      piu' corte e dirette invece di "quadrettoni" con grafici
-                      dentro. */}
-                  <div style={{gridColumn:isMobile?"auto":"span 1"}}><DCard accent="#F97316" gradient={CARD_GRADIENTS.orange2}>
+                  <div><DCard accent="#F97316" gradient={CARD_GRADIENTS.orange2}>
                     <DLabel style={{color:"rgba(255,255,255,0.85)"}}>💪 Progressi Fisici</DLabel>
                     {homeErrors.weight && !homeLoading && (
                       <div style={{fontSize:fontSize-3,color:"#FEF3C7",background:"rgba(0,0,0,0.22)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:6,padding:"4px 8px",marginBottom:6}}>⚠️ dati non aggiornati (ClickUp non raggiungibile)</div>
@@ -877,7 +834,64 @@ export default function App() {
                       <div style={{fontSize:fontSize-2,color:"rgba(255,255,255,0.6)"}}>{homeLoading?"Caricamento...":"–"}</div>
                     )}
                   </DCard></div>
-                  <div style={{gridColumn:isMobile?"auto":"span 2"}}><DCard accent="#10B981" gradient={CARD_GRADIENTS.green}>
+                </div>
+
+                {/* Riga task: To Do, Routine, In sospeso fianco a fianco,
+                    3 colonne uguali con alignItems:start — ognuna cresce
+                    in verticale per conto proprio senza stirare o spostare
+                    le altre due quando si riempie. */}
+                <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(3,1fr)",alignItems:"start",gap:12,marginBottom:12}}>
+                  <div><DCard accent="#8B5CF6" gradient={CARD_GRADIENTS.purple}>
+                    <DLabel style={{color:"rgba(255,255,255,0.85)"}}>✅ To Do Oggi</DLabel>
+                    {homeData.todo.length===0?(
+                      <div style={{fontSize:fontSize-2,color:"rgba(255,255,255,0.6)"}}>{homeLoading?"Caricamento...":"Nessun task 🎉"}</div>
+                    ):sortedByPriority(homeData.todo).map(t=>(
+                      <TaskItem key={t.id} task={t} color="#6D28D9" onToggle={id=>toggleTask(id,"todo")} fontSize={fontSize} isChecked={checkedTasks[t.id]}/>
+                    ))}
+                    <AddTaskRow draft={taskDrafts.todo} busy={addingTaskList==="todo"}
+                      onTextChange={v=>setDraftText("todo",v)} onPriorityChange={p=>setDraftPriority("todo",p)}
+                      onSubmit={()=>addTask("todo")} fontSize={fontSize}/>
+                  </DCard></div>
+
+                  <div><DCard accent="#10B981" gradient={CARD_GRADIENTS.green}>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+                      <DLabel style={{marginBottom:0,color:"rgba(255,255,255,0.85)"}}>🔄 Routine</DLabel>
+                      {routineStreak > 0 && (
+                        <span style={{fontSize:fontSize-4,color:"#FED7AA",fontWeight:700}}>🔥 {routineStreak}g</span>
+                      )}
+                    </div>
+                    {homeData.routine.length===0?(
+                      <div style={{fontSize:fontSize-2,color:"rgba(255,255,255,0.6)"}}>{homeLoading?"Caricamento...":"Nessuna routine"}</div>
+                    ):sortedByPriority(homeData.routine).map(t=>(
+                      <TaskItem key={t.id} task={t} color="#059669" onToggle={id=>toggleTask(id,"routine")} fontSize={fontSize} isChecked={checkedTasks[t.id]}/>
+                    ))}
+                    <AddTaskRow draft={taskDrafts.routine} busy={addingTaskList==="routine"}
+                      onTextChange={v=>setDraftText("routine",v)} onPriorityChange={p=>setDraftPriority("routine",p)}
+                      onSubmit={()=>addTask("routine")} fontSize={fontSize}/>
+                  </DCard></div>
+
+                  {/* In sospeso: stessa card di To Do/Routine, ora anche con
+                      la stessa possibilità di crearne di nuove — non serve
+                      più una pagina a parte, sparita su richiesta di Dario
+                      (10/07): tutto vive qui. */}
+                  <div><DCard accent="#EF4444" gradient={CARD_GRADIENTS.red}>
+                    <DLabel style={{color:"rgba(255,255,255,0.85)"}}>⏸️ In sospeso</DLabel>
+                    {(!homeData.sospeso || homeData.sospeso.length===0)?(
+                      <div style={{fontSize:fontSize-2,color:"rgba(255,255,255,0.6)"}}>{homeLoading?"Caricamento...":"Nessuna task in sospeso 🎉"}</div>
+                    ):sortedByPriority(homeData.sospeso).map(t=>(
+                      <TaskItem key={t.id} task={t} color="#B91C1C" onToggle={id=>toggleTask(id,"sospeso")} fontSize={fontSize} isChecked={checkedTasks[t.id]}/>
+                    ))}
+                    <AddTaskRow draft={taskDrafts.sospeso} busy={addingTaskList==="sospeso"}
+                      onTextChange={v=>setDraftText("sospeso",v)} onPriorityChange={p=>setDraftPriority("sospeso",p)}
+                      onSubmit={()=>addTask("sospeso")} fontSize={fontSize}/>
+                  </DCard></div>
+                </div>
+
+                {/* Riga Revenue: a tutta larghezza, sempre in fondo e
+                    sempre nella stessa posizione indipendentemente da
+                    quanto sono piene le card task sopra. */}
+                <div style={{marginBottom:16}}>
+                  <DCard accent="#10B981" gradient={CARD_GRADIENTS.green}>
                     <DLabel style={{color:"rgba(255,255,255,0.85)"}}>💶 Revenue IAGREX</DLabel>
                     {homeErrors.revenue && !homeLoading && (
                       <div style={{fontSize:fontSize-3,color:"#FEF3C7",background:"rgba(0,0,0,0.22)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:6,padding:"4px 8px",marginBottom:6}}>⚠️ dati non aggiornati (ClickUp non raggiungibile)</div>
@@ -915,7 +929,7 @@ export default function App() {
                     ):(
                       <div style={{fontSize:fontSize-2,color:"rgba(255,255,255,0.6)"}}>{homeLoading?"Caricamento...":"–"}</div>
                     )}
-                  </DCard></div>
+                  </DCard>
                 </div>
               </div>
             </>
