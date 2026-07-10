@@ -60,19 +60,25 @@ function parseCSV(text) {
   return rows.filter(r => r.some(f => f.trim() !== ""));
 }
 
+// Alias per campo — includono sia le intestazioni "italiane" (export manuali/
+// Excel) sia quelle di Apollo.io (export contatti in inglese), cosi' lo
+// stesso importer funziona per entrambi senza dover adattare il file a mano.
+// Per campi dove Apollo espone piu' colonne simili (es. 5 tipi di telefono),
+// l'elenco tiene tutte le varianti: get() sotto prende la prima non vuota
+// invece di fermarsi alla prima colonna che matcha per posizione.
 const CSV_FIELD_ALIASES = {
-  nome:     ["nome","azienda","company","name","ragione sociale","nome azienda"],
+  nome:     ["nome","azienda","company","company name","name","ragione sociale","nome azienda"],
   settore:  ["settore","sector","industry","categoria"],
   contatto: ["contatto","referente","contact","nome contatto","persona"],
   email:    ["email","e-mail","mail"],
-  telefono: ["telefono","phone","tel","cellulare"],
+  telefono: ["telefono","phone","tel","cellulare","mobile phone","work direct phone","corporate phone","company phone","home phone","other phone"],
   sito:     ["sito","sito web","website","url","web"],
-  facebook: ["facebook","fb"],
+  facebook: ["facebook","fb","facebook url"],
   instagram: ["instagram","ig"],
-  linkedin: ["linkedin"],
-  linkedin_referente: ["referente linkedin","linkedin referente"],
+  linkedin: ["linkedin","company linkedin url"],
+  linkedin_referente: ["referente linkedin","linkedin referente","person linkedin url"],
   budget:   ["budget","budget mensile","budget €/mese"],
-  note:     ["note","notes","commenti"],
+  note:     ["note","notes","commenti","title"],
 };
 function normalizeHeader(h) {
   return h.toLowerCase().trim().normalize("NFD").replace(/[̀-ͯ]/g,"");
@@ -80,22 +86,42 @@ function normalizeHeader(h) {
 function mapCsvToEntries(rows) {
   if (!rows.length) return [];
   const headers = rows[0].map(normalizeHeader);
-  const colIndex = {};
+  // Per ogni campo, tutte le colonne che matchano un alias (non solo la
+  // prima) — serve per Apollo dove es. "telefono" ha 5 colonne candidate e
+  // solo una e' valorizzata riga per riga.
+  const colIndexes = {};
   Object.entries(CSV_FIELD_ALIASES).forEach(([field, aliases]) => {
-    const idx = headers.findIndex(h => aliases.includes(h));
-    if (idx !== -1) colIndex[field] = idx;
+    colIndexes[field] = headers.reduce((acc,h,i)=>{ if (aliases.includes(h)) acc.push(i); return acc; },[]);
   });
+  // "Contatto" (nome referente): gli export manuali hanno spesso una singola
+  // colonna, Apollo invece "First Name"/"Last Name" separate — se non c'e'
+  // match diretto, le combiniamo.
+  const firstNameIdx = headers.indexOf("first name");
+  const lastNameIdx  = headers.indexOf("last name");
+
   const today = new Date().toISOString().slice(0,10);
   return rows.slice(1).map(r => {
-    const get = (field) => colIndex[field] != null ? (r[colIndex[field]]||"").trim() : "";
+    const get = (field) => {
+      const idxs = colIndexes[field] || [];
+      for (const idx of idxs) {
+        const v = (r[idx]||"").trim();
+        if (v) return v;
+      }
+      return "";
+    };
     const nome = get("nome");
     if (!nome) return null;
+    let contatto = get("contatto");
+    if (!contatto && (firstNameIdx !== -1 || lastNameIdx !== -1)) {
+      contatto = [firstNameIdx !== -1 ? (r[firstNameIdx]||"").trim() : "", lastNameIdx !== -1 ? (r[lastNameIdx]||"").trim() : ""]
+        .filter(Boolean).join(" ");
+    }
     return {
       ...EMPTY_FORM,
       id: genId(),
       nome,
       settore: get("settore"),
-      contatto: get("contatto"),
+      contatto,
       email: get("email"),
       telefono: get("telefono"),
       sito: get("sito"),
