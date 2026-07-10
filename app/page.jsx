@@ -174,20 +174,48 @@ function DueDateBadge({ task, onSetDueDate, fontSize, editing, onToggleEdit }) {
   );
 }
 
-function TaskItem({ task, color, onToggle, fontSize=14, isChecked, onSetDueDate }) {
+function TaskItem({ task, color, onToggle, fontSize=14, isChecked, onSetDueDate, onRename }) {
   const done = isChecked ?? DONE_STATUSES.includes((task.status?.status||"").toLowerCase());
   const prio = task.priority?.priority;
   const [editingDue, setEditingDue] = useState(false);
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState(task.name);
+
+  const startEditName = (e) => {
+    e.stopPropagation();
+    setNameDraft(task.name);
+    setEditingName(true);
+  };
+  const saveName = () => {
+    const trimmed = nameDraft.trim();
+    setEditingName(false);
+    if (trimmed && trimmed !== task.name) onRename(task.id, trimmed);
+  };
+
   return (
-    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,cursor:"pointer"}} onClick={()=>onToggle(task.id)}>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,cursor:editingName?"default":"pointer"}} onClick={()=>{if(!editingName) onToggle(task.id);}}>
       <div style={{width:18,height:18,borderRadius:4,border:"1.5px solid rgba(255,255,255,0.65)",background:done?"rgba(255,255,255,0.92)":"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.15s"}}>
         {done && <span style={{fontSize:11,color,lineHeight:1,fontWeight:700}}>✓</span>}
       </div>
-      <span style={{fontSize,color:done?"rgba(255,255,255,0.55)":"#fff",textDecoration:done?"line-through":"none",lineHeight:1.4,flex:1}}>{task.name}</span>
+      {editingName ? (
+        <input autoFocus value={nameDraft} onClick={e=>e.stopPropagation()}
+          onChange={e=>setNameDraft(e.target.value)}
+          onKeyDown={e=>{ if(e.key==="Enter") saveName(); if(e.key==="Escape") setEditingName(false); }}
+          onBlur={saveName}
+          style={{flex:1,minWidth:0,fontSize,padding:"2px 6px",borderRadius:5,border:"1px solid rgba(255,255,255,0.5)",background:"rgba(0,0,0,0.25)",color:"#fff",outline:"none"}}/>
+      ) : (
+        <span style={{fontSize,color:done?"rgba(255,255,255,0.55)":"#fff",textDecoration:done?"line-through":"none",lineHeight:1.4,flex:1}}>{task.name}</span>
+      )}
       {!done && prio && PRIORITY_LABEL[prio] && (
         <span style={{fontSize:Math.max(8,fontSize-5),fontWeight:700,color:"#fff",background:"rgba(255,255,255,0.25)",padding:"1px 6px",borderRadius:6,textTransform:"uppercase",letterSpacing:"0.04em",flexShrink:0}}>
           {PRIORITY_LABEL[prio]}
         </span>
+      )}
+      {onRename && !editingName && (
+        <button type="button" onClick={startEditName} title="Modifica testo"
+          style={{fontSize:Math.max(8,fontSize-5),background:"none",border:"none",color:"rgba(255,255,255,0.55)",cursor:"pointer",padding:"1px 3px",flexShrink:0}}>
+          ✏️
+        </button>
       )}
       {onSetDueDate && (
         <DueDateBadge task={task} fontSize={fontSize} editing={editingDue}
@@ -581,6 +609,24 @@ export default function App() {
     }
   };
 
+  // Rinomina il testo di un task già esistente (icona ✏️ dentro TaskItem) —
+  // richiesto da Dario per correggere un task senza doverlo cancellare e
+  // ricrearlo da capo, in tutte e cinque le card (to-do/routine/sospeso/
+  // claudia/annarita). Stesso pattern ottimistico delle altre modifiche.
+  const renameTask = async (list, taskId, name) => {
+    const prevTask = homeData[list]?.find(t=>t.id===taskId);
+    const prevName = prevTask?.name;
+    setHomeData(prev=>({...prev, [list]: prev[list].map(t=>t.id===taskId?{...t,name}:t)}));
+    try {
+      const res = await fetch("/api/update-task",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({taskId,name})});
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    } catch (e) {
+      setHomeData(prev=>({...prev, [list]: prev[list].map(t=>t.id===taskId?{...t,name:prevName}:t)}));
+      setSyncError(`rinomina "${prevName||"task"}"`);
+      setTimeout(()=>setSyncError(null), 5000);
+    }
+  };
+
   const saveWeightModal = async ()=>{
     const p = parseFloat(weightInput.replace(",","."));
     if (!weightInput||isNaN(p)) return;
@@ -935,7 +981,7 @@ export default function App() {
                     {homeData.todo.length===0?(
                       <div style={{fontSize:fontSize-2,color:"rgba(255,255,255,0.6)"}}>{homeLoading?"Caricamento...":"Nessun task 🎉"}</div>
                     ):sortedByPriority(homeData.todo).map(t=>(
-                      <TaskItem key={t.id} task={t} color="#6D28D9" onToggle={id=>toggleTask(id,"todo")} fontSize={fontSize} isChecked={checkedTasks[t.id]} onSetDueDate={(id,d)=>setTaskDueDate("todo",id,d)}/>
+                      <TaskItem key={t.id} task={t} color="#6D28D9" onToggle={id=>toggleTask(id,"todo")} fontSize={fontSize} isChecked={checkedTasks[t.id]} onSetDueDate={(id,d)=>setTaskDueDate("todo",id,d)} onRename={(id,n)=>renameTask("todo",id,n)}/>
                     ))}
                     <AddTaskRow draft={taskDrafts.todo} busy={addingTaskList==="todo"}
                       onTextChange={v=>setDraftText("todo",v)} onPriorityChange={p=>setDraftPriority("todo",p)} onDueDateChange={d=>setDraftDueDate("todo",d)}
@@ -952,7 +998,7 @@ export default function App() {
                     {homeData.routine.length===0?(
                       <div style={{fontSize:fontSize-2,color:"rgba(255,255,255,0.6)"}}>{homeLoading?"Caricamento...":"Nessuna routine"}</div>
                     ):sortedByPriority(homeData.routine).map(t=>(
-                      <TaskItem key={t.id} task={t} color="#059669" onToggle={id=>toggleTask(id,"routine")} fontSize={fontSize} isChecked={checkedTasks[t.id]} onSetDueDate={(id,d)=>setTaskDueDate("routine",id,d)}/>
+                      <TaskItem key={t.id} task={t} color="#059669" onToggle={id=>toggleTask(id,"routine")} fontSize={fontSize} isChecked={checkedTasks[t.id]} onSetDueDate={(id,d)=>setTaskDueDate("routine",id,d)} onRename={(id,n)=>renameTask("routine",id,n)}/>
                     ))}
                     <AddTaskRow draft={taskDrafts.routine} busy={addingTaskList==="routine"}
                       onTextChange={v=>setDraftText("routine",v)} onPriorityChange={p=>setDraftPriority("routine",p)} onDueDateChange={d=>setDraftDueDate("routine",d)}
@@ -968,7 +1014,7 @@ export default function App() {
                     {(!homeData.sospeso || homeData.sospeso.length===0)?(
                       <div style={{fontSize:fontSize-2,color:"rgba(255,255,255,0.6)"}}>{homeLoading?"Caricamento...":"Nessuna task in sospeso 🎉"}</div>
                     ):sortedByPriority(homeData.sospeso).map(t=>(
-                      <TaskItem key={t.id} task={t} color="#B91C1C" onToggle={id=>toggleTask(id,"sospeso")} fontSize={fontSize} isChecked={checkedTasks[t.id]} onSetDueDate={(id,d)=>setTaskDueDate("sospeso",id,d)}/>
+                      <TaskItem key={t.id} task={t} color="#B91C1C" onToggle={id=>toggleTask(id,"sospeso")} fontSize={fontSize} isChecked={checkedTasks[t.id]} onSetDueDate={(id,d)=>setTaskDueDate("sospeso",id,d)} onRename={(id,n)=>renameTask("sospeso",id,n)}/>
                     ))}
                     <AddTaskRow draft={taskDrafts.sospeso} busy={addingTaskList==="sospeso"}
                       onTextChange={v=>setDraftText("sospeso",v)} onPriorityChange={p=>setDraftPriority("sospeso",p)} onDueDateChange={d=>setDraftDueDate("sospeso",d)}
@@ -987,7 +1033,7 @@ export default function App() {
                     {(!homeData.claudia || homeData.claudia.length===0)?(
                       <div style={{fontSize:fontSize-2,color:"rgba(255,255,255,0.6)"}}>{homeLoading?"Caricamento...":"Nessun task 🎉"}</div>
                     ):sortedByPriority(homeData.claudia).map(t=>(
-                      <TaskItem key={t.id} task={t} color="#A21CAF" onToggle={id=>toggleTask(id,"claudia")} fontSize={fontSize} isChecked={checkedTasks[t.id]} onSetDueDate={(id,d)=>setTaskDueDate("claudia",id,d)}/>
+                      <TaskItem key={t.id} task={t} color="#A21CAF" onToggle={id=>toggleTask(id,"claudia")} fontSize={fontSize} isChecked={checkedTasks[t.id]} onSetDueDate={(id,d)=>setTaskDueDate("claudia",id,d)} onRename={(id,n)=>renameTask("claudia",id,n)}/>
                     ))}
                     <AddTaskRow draft={taskDrafts.claudia} busy={addingTaskList==="claudia"}
                       onTextChange={v=>setDraftText("claudia",v)} onPriorityChange={p=>setDraftPriority("claudia",p)} onDueDateChange={d=>setDraftDueDate("claudia",d)}
@@ -999,7 +1045,7 @@ export default function App() {
                     {(!homeData.annarita || homeData.annarita.length===0)?(
                       <div style={{fontSize:fontSize-2,color:"rgba(255,255,255,0.6)"}}>{homeLoading?"Caricamento...":"Nessun task 🎉"}</div>
                     ):sortedByPriority(homeData.annarita).map(t=>(
-                      <TaskItem key={t.id} task={t} color="#BE185D" onToggle={id=>toggleTask(id,"annarita")} fontSize={fontSize} isChecked={checkedTasks[t.id]} onSetDueDate={(id,d)=>setTaskDueDate("annarita",id,d)}/>
+                      <TaskItem key={t.id} task={t} color="#BE185D" onToggle={id=>toggleTask(id,"annarita")} fontSize={fontSize} isChecked={checkedTasks[t.id]} onSetDueDate={(id,d)=>setTaskDueDate("annarita",id,d)} onRename={(id,n)=>renameTask("annarita",id,n)}/>
                     ))}
                     <AddTaskRow draft={taskDrafts.annarita} busy={addingTaskList==="annarita"}
                       onTextChange={v=>setDraftText("annarita",v)} onPriorityChange={p=>setDraftPriority("annarita",p)} onDueDateChange={d=>setDraftDueDate("annarita",d)}
