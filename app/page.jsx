@@ -836,28 +836,6 @@ export default function App() {
                   </DCard></div>
                 </div>
 
-                {/* Calendario: idea di Bea (10/07) — anche se lei non lo
-                    controlla nei check giornalieri, Dario vuole sempre
-                    sapere a colpo d'occhio quali/quante call ha in giornata
-                    senza aprire Google Calendar a parte. Iframe embed del
-                    calendario "Dario Angeloro" (houseofcreators.com), reso
-                    pubblico da Google Calendar → Impostazioni → Integra
-                    calendario. Vista settimana per default (mode=WEEK), UI
-                    ridotta al minimo: niente barra tab/lista calendari,
-                    resta solo la griglia oraria. */}
-                <div style={{marginBottom:12}}>
-                  <DCard accent="#3B82F6" gradient={CARD_GRADIENTS.blue} style={{padding:0,overflow:"hidden"}}>
-                    <div style={{padding:"14px 16px 10px"}}>
-                      <DLabel style={{color:"rgba(255,255,255,0.85)",marginBottom:0}}>📅 Calendario</DLabel>
-                    </div>
-                    <iframe
-                      src="https://calendar.google.com/calendar/embed?src=dario.angeloro%40houseofcreators.com&ctz=Europe%2FBucharest&mode=WEEK&showTitle=0&showNav=1&showDate=1&showPrint=0&showTabs=0&showCalendars=0&showTz=0"
-                      style={{border:0,width:"100%",height:isMobile?360:460,display:"block",background:"#fff"}}
-                      frameBorder="0" scrolling="no" title="Google Calendar — Dario"
-                    />
-                  </DCard>
-                </div>
-
                 {/* Riga task: To Do, Routine, In sospeso fianco a fianco,
                     3 colonne uguali con alignItems:start — ognuna cresce
                     in verticale per conto proprio senza stirare o spostare
@@ -909,48 +887,27 @@ export default function App() {
                   </DCard></div>
                 </div>
 
-                {/* Riga Revenue: a tutta larghezza, sempre in fondo e
-                    sempre nella stessa posizione indipendentemente da
-                    quanto sono piene le card task sopra. */}
+                {/* Revenue IAGREX rimossa dalla home (10/07, su richiesta di
+                    Dario): ha già la pagina dedicata IAGREX per quello.
+                    Calendario spostato qui, in fondo alla dashboard, ultima
+                    cosa che si vede scrollando — idea di Bea: anche se lei
+                    non lo controlla nei check giornalieri, Dario vuole
+                    sempre sapere a colpo d'occhio quali/quante call ha in
+                    giornata senza aprire Google Calendar a parte. Iframe
+                    embed del calendario "Dario Angeloro"
+                    (houseofcreators.com), reso pubblico da Google Calendar →
+                    Impostazioni → Integra calendario. Vista settimana per
+                    default (mode=WEEK), UI ridotta al minimo. */}
                 <div style={{marginBottom:16}}>
-                  <DCard accent="#10B981" gradient={CARD_GRADIENTS.green}>
-                    <DLabel style={{color:"rgba(255,255,255,0.85)"}}>💶 Revenue IAGREX</DLabel>
-                    {homeErrors.revenue && !homeLoading && (
-                      <div style={{fontSize:fontSize-3,color:"#FEF3C7",background:"rgba(0,0,0,0.22)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:6,padding:"4px 8px",marginBottom:6}}>⚠️ dati non aggiornati (ClickUp non raggiungibile)</div>
-                    )}
-                    {revenue?(
-                      <>
-                        <div style={{display:"flex",flexDirection:isMobile?"column":"row",alignItems:isMobile?"stretch":"baseline",gap:isMobile?0:16}}>
-                          <div>
-                            <div style={{fontSize:fontSize-3,color:"rgba(255,255,255,0.75)",marginBottom:4}}>{revenue.mese}</div>
-                            <div style={{fontSize:fontSize+8,fontWeight:800,color:"#fff"}}>+{(revenue.entrate_totali||0).toLocaleString("it-IT")}€</div>
-                            <div style={{fontSize:fontSize-3,color:"#FEE2E2",marginTop:2}}>−{(revenue.uscite_totali||0).toLocaleString("it-IT")}€ uscite</div>
-                            <div style={{fontSize:fontSize-3,color:"rgba(255,255,255,0.7)",marginTop:1}}>Netto: {((revenue.entrate_totali||0)-(revenue.uscite_totali||0)).toLocaleString("it-IT")}€</div>
-                          </div>
-                          {revenue.ritmo_mensile_necessario != null && (
-                            <div style={isMobile?{marginTop:10,paddingTop:10,borderTop:"1px solid rgba(255,255,255,0.25)"}:{marginLeft:"auto",textAlign:"right"}}>
-                              <div style={{fontSize:fontSize-5,color:"rgba(255,255,255,0.85)",textTransform:"uppercase",letterSpacing:"0.06em"}}>🎯 Ritmo necessario</div>
-                              <div style={{fontSize:fontSize+2,fontWeight:800,color:"#fff"}}>
-                                {revenue.ritmo_mensile_necessario.toLocaleString("it-IT")}€<span style={{fontSize:fontSize-3,fontWeight:400}}>/mese</span>
-                              </div>
-                              <div style={{fontSize:fontSize-4,color:"rgba(255,255,255,0.7)",maxWidth:isMobile?"100%":220}}>
-                                per {revenue.mesi_rimanenti} mes{revenue.mesi_rimanenti===1?"e rimanente":"i rimanenti"} verso 1.000.000€
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                        <div style={{marginTop:8,height:3,background:"rgba(255,255,255,0.25)",borderRadius:2}}>
-                          <div style={{height:"100%",background:"#fff",borderRadius:2,width:`${Math.max(revenue.percentuale||0,1)}%`,transition:"width 0.4s"}}/>
-                        </div>
-                        <div style={{fontSize:fontSize-5,color:"rgba(255,255,255,0.65)",marginTop:3}}>{revenue.percentuale}% verso 1.000.000€</div>
-                        <button onClick={()=>setView("iagrex")}
-                          style={{marginTop:10,width:"100%",padding:"6px",borderRadius:7,border:"1px solid rgba(255,255,255,0.4)",background:"rgba(0,0,0,0.15)",color:"#fff",cursor:"pointer",fontSize:fontSize-3,fontWeight:600}}>
-                          📊 Apri tracking completo
-                        </button>
-                      </>
-                    ):(
-                      <div style={{fontSize:fontSize-2,color:"rgba(255,255,255,0.6)"}}>{homeLoading?"Caricamento...":"–"}</div>
-                    )}
+                  <DCard accent="#3B82F6" gradient={CARD_GRADIENTS.blue} style={{padding:0,overflow:"hidden"}}>
+                    <div style={{padding:"14px 16px 10px"}}>
+                      <DLabel style={{color:"rgba(255,255,255,0.85)",marginBottom:0}}>📅 Calendario</DLabel>
+                    </div>
+                    <iframe
+                      src="https://calendar.google.com/calendar/embed?src=dario.angeloro%40houseofcreators.com&ctz=Europe%2FBucharest&mode=WEEK&showTitle=0&showNav=1&showDate=1&showPrint=0&showTabs=0&showCalendars=0&showTz=0"
+                      style={{border:0,width:"100%",height:isMobile?360:460,display:"block",background:"#fff"}}
+                      frameBorder="0" scrolling="no" title="Google Calendar — Dario"
+                    />
                   </DCard>
                 </div>
               </div>
