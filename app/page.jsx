@@ -771,62 +771,62 @@ export default function App() {
                 {/* Riga statistiche corte */}
                 <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(3,1fr)",alignItems:"stretch",gap:12,marginBottom:12}}>
                   <div><DCard accent="#3B82F6" gradient={CARD_GRADIENTS.blue} style={{height:"100%"}}>
-                    <DLabel style={{color:"rgba(255,255,255,0.85)"}}>🕐 Ora</DLabel>
-                    <div style={{fontSize:fontSize+12,fontWeight:800,color:"#fff",letterSpacing:"0.04em",lineHeight:1}}>{clockBucharest}</div>
-                    <div style={{fontSize:fontSize-4,color:"rgba(255,255,255,0.75)",marginTop:3,marginBottom:10}}>Bucarest</div>
-                    <div style={{paddingTop:8,borderTop:"1px solid rgba(255,255,255,0.25)"}}>
-                      <div style={{fontSize:fontSize+2,fontWeight:600,color:"#fff"}}>{clockRome}</div>
-                      <div style={{fontSize:fontSize-4,color:"rgba(255,255,255,0.7)",marginTop:2}}>Roma / Torremaggiore</div>
+                    <DLabel style={{color:"rgba(255,255,255,0.85)",fontSize:fontSize-2}}>🕐 Ora</DLabel>
+                    <div style={{fontSize:fontSize+22,fontWeight:800,color:"#fff",letterSpacing:"0.04em",lineHeight:1}}>{clockBucharest}</div>
+                    <div style={{fontSize:fontSize,color:"rgba(255,255,255,0.75)",marginTop:6,marginBottom:16}}>Bucarest</div>
+                    <div style={{paddingTop:12,borderTop:"1px solid rgba(255,255,255,0.25)"}}>
+                      <div style={{fontSize:fontSize+10,fontWeight:700,color:"#fff"}}>{clockRome}</div>
+                      <div style={{fontSize:fontSize,color:"rgba(255,255,255,0.7)",marginTop:3}}>Roma / Torremaggiore</div>
                     </div>
                     {/* Etichetta di contesto quando il telefono rileva un fuso
                         diverso da quello rumeno (letta dal sistema operativo,
                         nessun permesso richiesto) — l'ora "ufficiale" sopra
                         resta sempre quella di Bucarest. */}
                     {deviceTzLabel && (
-                      <div style={{marginTop:8,paddingTop:8,borderTop:"1px solid rgba(255,255,255,0.25)",fontSize:fontSize-4,color:"#FEF3C7"}}>
+                      <div style={{marginTop:10,paddingTop:10,borderTop:"1px solid rgba(255,255,255,0.25)",fontSize:fontSize-1,color:"#FEF3C7"}}>
                         📍 Sei in {deviceTzLabel.label}, qui sono le {deviceTzLabel.time}
                       </div>
                     )}
                   </DCard></div>
                   <div><DCard accent="#F59E0B" gradient={CARD_GRADIENTS.orange} style={{height:"100%"}}>
-                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:2}}>
-                      <DLabel style={{marginBottom:0,color:"rgba(255,255,255,0.85)"}}>🌍 {weather?.city || "Timișoara"}</DLabel>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
+                      <DLabel style={{marginBottom:0,color:"rgba(255,255,255,0.85)",fontSize:fontSize-2}}>🌍 {weather?.city || "Timișoara"}</DLabel>
                       <button onClick={toggleLocalWeather} title="Usa la posizione attuale invece della città fissa"
-                        style={{padding:"2px 7px",borderRadius:6,border:`1px solid rgba(255,255,255,${useLocalWeather?0.9:0.35})`,background:useLocalWeather?"rgba(255,255,255,0.25)":"transparent",color:"#fff",cursor:"pointer",fontSize:9,fontWeight:600,flexShrink:0}}>
+                        style={{padding:"3px 9px",borderRadius:6,border:`1px solid rgba(255,255,255,${useLocalWeather?0.9:0.35})`,background:useLocalWeather?"rgba(255,255,255,0.25)":"transparent",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:600,flexShrink:0}}>
                         {weatherStatus==="loading" ? "⏳" : "📍"}
                       </button>
                     </div>
                     {weather?(
                       <>
-                        <div style={{fontSize:32,lineHeight:1,marginBottom:4}}>{getWeatherEmoji(weather.condition)}</div>
-                        <div style={{fontSize:fontSize+12,fontWeight:800,color:"#fff"}}>{weather.temp}°C</div>
-                        <div style={{fontSize:fontSize-3,color:"rgba(255,255,255,0.85)",marginTop:2,textTransform:"capitalize"}}>{weather.description}</div>
-                        <div style={{fontSize:fontSize-4,color:"rgba(255,255,255,0.7)",marginTop:4}}>💧{weather.humidity}% · 💨{weather.wind}km/h</div>
+                        <div style={{fontSize:48,lineHeight:1,marginBottom:8}}>{getWeatherEmoji(weather.condition)}</div>
+                        <div style={{fontSize:fontSize+22,fontWeight:800,color:"#fff"}}>{weather.temp}°C</div>
+                        <div style={{fontSize:fontSize+2,color:"rgba(255,255,255,0.85)",marginTop:4,textTransform:"capitalize"}}>{weather.description}</div>
+                        <div style={{fontSize:fontSize,color:"rgba(255,255,255,0.7)",marginTop:8}}>💧{weather.humidity}% · 💨{weather.wind}km/h</div>
                       </>
                     ):(
                       <div style={{fontSize:fontSize-2,color:"rgba(255,255,255,0.6)"}}>{homeLoading?"Caricamento...":"–"}</div>
                     )}
                     {weatherStatus==="denied" && (
-                      <div style={{fontSize:fontSize-5,color:"#FEE2E2",marginTop:6}}>Permesso posizione negato — resto sul meteo fisso.</div>
+                      <div style={{fontSize:fontSize-3,color:"#FEE2E2",marginTop:8}}>Permesso posizione negato — resto sul meteo fisso.</div>
                     )}
                   </DCard></div>
 
                   <div><DCard accent="#F97316" gradient={CARD_GRADIENTS.orange2} style={{height:"100%"}}>
-                    <DLabel style={{color:"rgba(255,255,255,0.85)"}}>💪 Progressi Fisici</DLabel>
+                    <DLabel style={{color:"rgba(255,255,255,0.85)",fontSize:fontSize-2}}>💪 Progressi Fisici</DLabel>
                     {homeErrors.weight && !homeLoading && (
                       <div style={{fontSize:fontSize-3,color:"#FEF3C7",background:"rgba(0,0,0,0.22)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:6,padding:"4px 8px",marginBottom:6}}>⚠️ dati non aggiornati (ClickUp non raggiungibile)</div>
                     )}
                     {weightData?(
                       <>
-                        <div style={{fontSize:fontSize+12,fontWeight:800,color:"#fff"}}>{weightData.ultimo?.peso}<span style={{fontSize:fontSize-1,fontWeight:400}}> kg</span></div>
-                        <div style={{fontSize:fontSize-3,color:"#D1FAE5",marginTop:2}}>−{weightData.persi} kg persi 🔥</div>
-                        <div style={{fontSize:fontSize-4,color:"rgba(255,255,255,0.75)",marginTop:1}}>Mancano {weightData.mancano} kg all'obiettivo</div>
-                        <div style={{marginTop:8,height:3,background:"rgba(255,255,255,0.25)",borderRadius:2}}>
-                          <div style={{height:"100%",background:"#fff",borderRadius:2,width:`${Math.min(Math.round(((121.6-(weightData.ultimo?.peso||121.6))/(121.6-85))*100),100)}%`,transition:"width 0.4s"}}/>
+                        <div style={{fontSize:fontSize+22,fontWeight:800,color:"#fff"}}>{weightData.ultimo?.peso}<span style={{fontSize:fontSize+4,fontWeight:400}}> kg</span></div>
+                        <div style={{fontSize:fontSize+2,color:"#D1FAE5",marginTop:4}}>−{weightData.persi} kg persi 🔥</div>
+                        <div style={{fontSize:fontSize,color:"rgba(255,255,255,0.75)",marginTop:2}}>Mancano {weightData.mancano} kg all'obiettivo</div>
+                        <div style={{marginTop:12,height:5,background:"rgba(255,255,255,0.25)",borderRadius:3}}>
+                          <div style={{height:"100%",background:"#fff",borderRadius:3,width:`${Math.min(Math.round(((121.6-(weightData.ultimo?.peso||121.6))/(121.6-85))*100),100)}%`,transition:"width 0.4s"}}/>
                         </div>
-                        <div style={{fontSize:fontSize-5,color:"rgba(255,255,255,0.65)",marginTop:3}}>Obiettivo: 85 kg</div>
+                        <div style={{fontSize:fontSize-2,color:"rgba(255,255,255,0.65)",marginTop:5}}>Obiettivo: 85 kg</div>
                         <button onClick={()=>{setWeightInput("");setShowWeightModal(true);}}
-                          style={{marginTop:10,width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid rgba(255,255,255,0.4)",background:"rgba(0,0,0,0.15)",color:"#fff",fontSize:fontSize-2,textAlign:"left",cursor:"pointer"}}>
+                          style={{marginTop:14,width:"100%",padding:"7px 8px",borderRadius:6,border:"1px solid rgba(255,255,255,0.4)",background:"rgba(0,0,0,0.15)",color:"#fff",fontSize:fontSize,textAlign:"left",cursor:"pointer"}}>
                           Registra peso oggi...
                         </button>
                       </>
