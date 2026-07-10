@@ -889,27 +889,14 @@ export default function App() {
 
                 {/* Revenue IAGREX rimossa dalla home (10/07, su richiesta di
                     Dario): ha già la pagina dedicata IAGREX per quello.
-                    Calendario spostato qui, in fondo alla dashboard, ultima
-                    cosa che si vede scrollando — idea di Bea: anche se lei
-                    non lo controlla nei check giornalieri, Dario vuole
-                    sempre sapere a colpo d'occhio quali/quante call ha in
-                    giornata senza aprire Google Calendar a parte. Iframe
-                    embed del calendario "Dario Angeloro"
-                    (houseofcreators.com), reso pubblico da Google Calendar →
-                    Impostazioni → Integra calendario. Vista settimana per
-                    default (mode=WEEK), UI ridotta al minimo. */}
-                <div style={{marginBottom:16}}>
-                  <DCard accent="#3B82F6" gradient={CARD_GRADIENTS.blue} style={{padding:0,overflow:"hidden"}}>
-                    <div style={{padding:"14px 16px 10px"}}>
-                      <DLabel style={{color:"rgba(255,255,255,0.85)",marginBottom:0}}>📅 Calendario</DLabel>
-                    </div>
-                    <iframe
-                      src="https://calendar.google.com/calendar/embed?src=dario.angeloro%40houseofcreators.com&ctz=Europe%2FBucharest&mode=WEEK&showTitle=0&showNav=1&showDate=1&showPrint=0&showTabs=0&showCalendars=0&showTz=0"
-                      style={{border:0,width:"100%",height:isMobile?360:460,display:"block",background:"#fff"}}
-                      frameBorder="0" scrolling="no" title="Google Calendar — Dario"
-                    />
-                  </DCard>
-                </div>
+                    Card Calendario (iframe Google Calendar) provata e poi
+                    tolta di nuovo (10/07): il calendario Workspace
+                    houseofcreators.com mostrava solo "Non disponibile" al
+                    posto dei titoli reali delle call — la condivisione
+                    pubblica era limitata a "vedi solo occupato/libero"
+                    invece che "tutti i dettagli", probabile blocco lato
+                    admin del dominio. Da rivalutare se Dario sblocca la
+                    condivisione o passa a un calendario personale. */}
               </div>
             </>
           )}
