@@ -70,6 +70,26 @@ function todayBucharest() {
   return new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Bucharest" }); // YYYY-MM-DD
 }
 
+// Scadenze (ClickUp due_date): arrivano come stringa di millisecondi epoch.
+// Restituisce {label, state} dove state è "overdue"/"today"/"soon"/null,
+// usato per colorare il badge — cosi' una scadenza scaduta salta subito
+// all'occhio invece di essere identica a una lontana nel tempo.
+function dueDateInfo(dueDateMs) {
+  if (!dueDateMs) return null;
+  const d = new Date(Number(dueDateMs));
+  if (isNaN(d.getTime())) return null;
+  const dayStr = d.toLocaleDateString("en-CA", { timeZone: "Europe/Bucharest" });
+  const today = todayBucharest();
+  const diffDays = Math.round((new Date(dayStr) - new Date(today)) / 86400000);
+  const label = d.toLocaleDateString("it-IT", { timeZone: "Europe/Bucharest", day:"numeric", month:"short" });
+  let state = null;
+  if (diffDays < 0) state = "overdue";
+  else if (diffDays === 0) state = "today";
+  else if (diffDays <= 2) state = "soon";
+  return { label, state, iso: dayStr };
+}
+const DUE_STATE_COLOR = { overdue:"#FCA5A5", today:"#FEF3C7", soon:"#FEF3C7" };
+
 function getWeatherEmoji(condition) {
   const c = (condition||"").toLowerCase();
   if (c.includes("thunder")) return "⛈️";
@@ -115,14 +135,48 @@ const CARD_GRADIENTS = {
   green:   "linear-gradient(135deg,#10B981,#059669)",
   red:     "linear-gradient(135deg,#EF4444,#B91C1C)",
   orange2: "linear-gradient(135deg,#F97316,#C2410C)",
+  pink:    "linear-gradient(135deg,#EC4899,#BE185D)",
+  teal:    "linear-gradient(135deg,#14B8A6,#0F766E)",
 };
 
 // Testo/checkbox sempre in bianco/trasparenze: le TaskItem vivono adesso
 // solo dentro card a sfondo colorato pieno, quindi i grigi scuri di prima
 // (pensati per sfondo neutro) sparirebbero per contrasto.
-function TaskItem({ task, color, onToggle, fontSize=14, isChecked }) {
+// Scadenza: badge cliccabile che apre un <input type="date"> nativo per
+// impostare/spostare la data, e una piccola "×" per rimuoverla — tutto
+// dentro la stessa riga del task, niente modal separato. onSetDueDate
+// riceve la stringa "YYYY-MM-DD" oppure null (rimozione).
+function DueDateBadge({ task, onSetDueDate, fontSize, editing, onToggleEdit }) {
+  const info = dueDateInfo(task.due_date);
+  const bg = info ? (DUE_STATE_COLOR[info.state] || "rgba(255,255,255,0.25)") : "rgba(255,255,255,0.15)";
+  const fg = info?.state === "overdue" || info?.state === "today" || info?.state === "soon" ? "#1A1A2E" : "rgba(255,255,255,0.8)";
+  return (
+    <span style={{position:"relative",display:"inline-flex",alignItems:"center",flexShrink:0}} onClick={e=>e.stopPropagation()}>
+      <button type="button" onClick={onToggleEdit}
+        style={{fontSize:Math.max(8,fontSize-5),fontWeight:700,color:fg,background:bg,border:"none",padding:"1px 6px",borderRadius:6,cursor:"pointer",display:"flex",alignItems:"center",gap:3}}>
+        📅 {info ? info.label : "scadenza"}
+      </button>
+      {editing && (
+        <span style={{position:"absolute",top:"120%",right:0,zIndex:20,background:"#0F0F1A",border:"1px solid #334155",borderRadius:8,padding:6,display:"flex",gap:4,boxShadow:"0 6px 20px -8px #000000a0"}}>
+          <input type="date" defaultValue={info?.iso||""} autoFocus
+            onChange={e=>{ onSetDueDate(e.target.value||null); onToggleEdit(); }}
+            style={{background:"#09090F",color:"#E2E8F0",border:"1px solid #334155",borderRadius:5,padding:"3px 5px",fontSize:11}}/>
+          {info && (
+            <button type="button" onClick={()=>{ onSetDueDate(null); onToggleEdit(); }}
+              style={{padding:"3px 7px",borderRadius:5,border:"1px solid #EF444450",background:"#EF444415",color:"#EF4444",cursor:"pointer",fontSize:11}}>
+              rimuovi
+            </button>
+          )}
+        </span>
+      )}
+    </span>
+  );
+}
+
+function TaskItem({ task, color, onToggle, fontSize=14, isChecked, onSetDueDate }) {
   const done = isChecked ?? DONE_STATUSES.includes((task.status?.status||"").toLowerCase());
   const prio = task.priority?.priority;
+  const [editingDue, setEditingDue] = useState(false);
   return (
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,cursor:"pointer"}} onClick={()=>onToggle(task.id)}>
       <div style={{width:18,height:18,borderRadius:4,border:"1.5px solid rgba(255,255,255,0.65)",background:done?"rgba(255,255,255,0.92)":"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.15s"}}>
@@ -133,6 +187,11 @@ function TaskItem({ task, color, onToggle, fontSize=14, isChecked }) {
         <span style={{fontSize:Math.max(8,fontSize-5),fontWeight:700,color:"#fff",background:"rgba(255,255,255,0.25)",padding:"1px 6px",borderRadius:6,textTransform:"uppercase",letterSpacing:"0.04em",flexShrink:0}}>
           {PRIORITY_LABEL[prio]}
         </span>
+      )}
+      {onSetDueDate && (
+        <DueDateBadge task={task} fontSize={fontSize} editing={editingDue}
+          onToggleEdit={()=>setEditingDue(v=>!v)}
+          onSetDueDate={d=>onSetDueDate(task.id,d)}/>
       )}
     </div>
   );
@@ -162,7 +221,7 @@ function PriorityDots({ value, onChange }) {
 // Riga "aggiungi task" riusata per To Do / Routine / Sospeso: testo +
 // priorità, cosi' le tre liste hanno la stessa capacità di creazione che
 // prima c'era solo nel To Do (e senza priorità).
-function AddTaskRow({ draft, busy, onTextChange, onPriorityChange, onSubmit, fontSize }) {
+function AddTaskRow({ draft, busy, onTextChange, onPriorityChange, onDueDateChange, onSubmit, fontSize }) {
   return (
     <div style={{marginTop:8,paddingTop:8,borderTop:"1px solid rgba(255,255,255,0.25)"}}>
       <div style={{display:"flex",gap:6,marginBottom:6}}>
@@ -175,7 +234,14 @@ function AddTaskRow({ draft, busy, onTextChange, onPriorityChange, onSubmit, fon
           {busy?"...":"+"}
         </button>
       </div>
-      <PriorityDots value={draft.priority} onChange={onPriorityChange}/>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
+        <PriorityDots value={draft.priority} onChange={onPriorityChange}/>
+        <span style={{display:"flex",alignItems:"center",gap:4}}>
+          <span style={{fontSize:9,color:"rgba(255,255,255,0.6)",textTransform:"uppercase",letterSpacing:"0.05em"}}>Scadenza</span>
+          <input type="date" value={draft.dueDate||""} disabled={busy} onChange={e=>onDueDateChange(e.target.value)}
+            style={{background:"rgba(0,0,0,0.2)",color:"#fff",border:"1px solid rgba(255,255,255,0.4)",borderRadius:5,padding:"2px 5px",fontSize:11,colorScheme:"dark"}}/>
+        </span>
+      </div>
     </div>
   );
 }
@@ -197,7 +263,7 @@ export default function App() {
   const [clockBucharest, setClockBucharest] = useState("--:--:--");
   const [clockRome, setClockRome]           = useState("--:--");
   const [weather, setWeather]               = useState(null);
-  const [homeData, setHomeData]             = useState({todo:[],routine:[],sospeso:[]});
+  const [homeData, setHomeData]             = useState({todo:[],routine:[],sospeso:[],claudia:[],annarita:[]});
   const [revenue, setRevenue]               = useState(null);
   const [weightData, setWeightData]         = useState(null);
   const [homeLoading, setHomeLoading]       = useState(false);
@@ -227,11 +293,13 @@ export default function App() {
   // ognuna con proprio testo + priorità selezionata — prima esisteva solo
   // per il to-do e senza priorità.
   const [taskDrafts, setTaskDrafts]         = useState({
-    todo:    { text:"", priority:"normal" },
-    routine: { text:"", priority:"normal" },
-    sospeso: { text:"", priority:"normal" },
+    todo:    { text:"", priority:"normal", dueDate:"" },
+    routine: { text:"", priority:"normal", dueDate:"" },
+    sospeso: { text:"", priority:"normal", dueDate:"" },
+    claudia: { text:"", priority:"normal", dueDate:"" },
+    annarita:{ text:"", priority:"normal", dueDate:"" },
   });
-  const [addingTaskList, setAddingTaskList] = useState(null); // null | "todo" | "routine" | "sospeso"
+  const [addingTaskList, setAddingTaskList] = useState(null); // null | "todo" | "routine" | "sospeso" | "claudia" | "annarita"
 
   const T = THEMES[theme] || THEMES.dark;
 
@@ -375,7 +443,7 @@ export default function App() {
         fetchWithRetry("/api/streak",{cache:"no-store"}),
       ]);
       if (tRes)               setHomeData(tRes);
-      else                    setHomeData({todo:[],routine:[],sospeso:[]});
+      else                    setHomeData({todo:[],routine:[],sospeso:[],claudia:[],annarita:[]});
       if (rRes&&!rRes.error)  setRevenue(rRes);
       if (wgRes&&!wgRes.error) setWeightData(wgRes);
       // Lo streak vive ora sul Doc ClickUp (persiste cross-dispositivo):
@@ -478,11 +546,11 @@ export default function App() {
     if (!name || addingTaskList) return;
     setAddingTaskList(list);
     try {
-      const res = await fetch("/api/create-task",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name,list,priority:draft.priority})});
+      const res = await fetch("/api/create-task",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name,list,priority:draft.priority,dueDate:draft.dueDate||undefined})});
       const data = await res.json();
       if (!res.ok || !data.id) throw new Error("create failed");
       setHomeData(prev=>({...prev, [list]:[...(prev[list]||[]), data]}));
-      setTaskDrafts(prev=>({...prev, [list]:{ text:"", priority:"normal" }}));
+      setTaskDrafts(prev=>({...prev, [list]:{ text:"", priority:"normal", dueDate:"" }}));
     } catch (e) {
       setSyncError(`aggiunta "${name}"`);
       setTimeout(()=>setSyncError(null), 5000);
@@ -491,6 +559,26 @@ export default function App() {
   };
   const setDraftText = (list,text) => setTaskDrafts(prev=>({...prev,[list]:{...prev[list],text}}));
   const setDraftPriority = (list,priority) => setTaskDrafts(prev=>({...prev,[list]:{...prev[list],priority}}));
+  const setDraftDueDate = (list,dueDate) => setTaskDrafts(prev=>({...prev,[list]:{...prev[list],dueDate}}));
+
+  // Imposta/sposta/rimuove la scadenza di un task già esistente (badge 📅
+  // dentro TaskItem). Aggiornamento ottimistico come toggleTask: se la
+  // scrittura su ClickUp fallisce, si torna al valore precedente invece di
+  // mostrare una scadenza che su ClickUp non esiste davvero.
+  const setTaskDueDate = async (list, taskId, dueDate) => {
+    const prevTask = homeData[list]?.find(t=>t.id===taskId);
+    const prevDue = prevTask?.due_date ?? null;
+    const optimisticMs = dueDate ? new Date(`${dueDate}T12:00:00`).getTime() : null;
+    setHomeData(prev=>({...prev, [list]: prev[list].map(t=>t.id===taskId?{...t,due_date:optimisticMs?String(optimisticMs):null}:t)}));
+    try {
+      const res = await fetch("/api/update-task",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({taskId,dueDate})});
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    } catch (e) {
+      setHomeData(prev=>({...prev, [list]: prev[list].map(t=>t.id===taskId?{...t,due_date:prevDue}:t)}));
+      setSyncError(`scadenza "${prevTask?.name||"task"}"`);
+      setTimeout(()=>setSyncError(null), 5000);
+    }
+  };
 
   const saveWeightModal = async ()=>{
     const p = parseFloat(weightInput.replace(",","."));
@@ -846,10 +934,10 @@ export default function App() {
                     {homeData.todo.length===0?(
                       <div style={{fontSize:fontSize-2,color:"rgba(255,255,255,0.6)"}}>{homeLoading?"Caricamento...":"Nessun task 🎉"}</div>
                     ):sortedByPriority(homeData.todo).map(t=>(
-                      <TaskItem key={t.id} task={t} color="#6D28D9" onToggle={id=>toggleTask(id,"todo")} fontSize={fontSize} isChecked={checkedTasks[t.id]}/>
+                      <TaskItem key={t.id} task={t} color="#6D28D9" onToggle={id=>toggleTask(id,"todo")} fontSize={fontSize} isChecked={checkedTasks[t.id]} onSetDueDate={(id,d)=>setTaskDueDate("todo",id,d)}/>
                     ))}
                     <AddTaskRow draft={taskDrafts.todo} busy={addingTaskList==="todo"}
-                      onTextChange={v=>setDraftText("todo",v)} onPriorityChange={p=>setDraftPriority("todo",p)}
+                      onTextChange={v=>setDraftText("todo",v)} onPriorityChange={p=>setDraftPriority("todo",p)} onDueDateChange={d=>setDraftDueDate("todo",d)}
                       onSubmit={()=>addTask("todo")} fontSize={fontSize}/>
                   </DCard></div>
 
@@ -863,10 +951,10 @@ export default function App() {
                     {homeData.routine.length===0?(
                       <div style={{fontSize:fontSize-2,color:"rgba(255,255,255,0.6)"}}>{homeLoading?"Caricamento...":"Nessuna routine"}</div>
                     ):sortedByPriority(homeData.routine).map(t=>(
-                      <TaskItem key={t.id} task={t} color="#059669" onToggle={id=>toggleTask(id,"routine")} fontSize={fontSize} isChecked={checkedTasks[t.id]}/>
+                      <TaskItem key={t.id} task={t} color="#059669" onToggle={id=>toggleTask(id,"routine")} fontSize={fontSize} isChecked={checkedTasks[t.id]} onSetDueDate={(id,d)=>setTaskDueDate("routine",id,d)}/>
                     ))}
                     <AddTaskRow draft={taskDrafts.routine} busy={addingTaskList==="routine"}
-                      onTextChange={v=>setDraftText("routine",v)} onPriorityChange={p=>setDraftPriority("routine",p)}
+                      onTextChange={v=>setDraftText("routine",v)} onPriorityChange={p=>setDraftPriority("routine",p)} onDueDateChange={d=>setDraftDueDate("routine",d)}
                       onSubmit={()=>addTask("routine")} fontSize={fontSize}/>
                   </DCard></div>
 
@@ -879,11 +967,42 @@ export default function App() {
                     {(!homeData.sospeso || homeData.sospeso.length===0)?(
                       <div style={{fontSize:fontSize-2,color:"rgba(255,255,255,0.6)"}}>{homeLoading?"Caricamento...":"Nessuna task in sospeso 🎉"}</div>
                     ):sortedByPriority(homeData.sospeso).map(t=>(
-                      <TaskItem key={t.id} task={t} color="#B91C1C" onToggle={id=>toggleTask(id,"sospeso")} fontSize={fontSize} isChecked={checkedTasks[t.id]}/>
+                      <TaskItem key={t.id} task={t} color="#B91C1C" onToggle={id=>toggleTask(id,"sospeso")} fontSize={fontSize} isChecked={checkedTasks[t.id]} onSetDueDate={(id,d)=>setTaskDueDate("sospeso",id,d)}/>
                     ))}
                     <AddTaskRow draft={taskDrafts.sospeso} busy={addingTaskList==="sospeso"}
-                      onTextChange={v=>setDraftText("sospeso",v)} onPriorityChange={p=>setDraftPriority("sospeso",p)}
+                      onTextChange={v=>setDraftText("sospeso",v)} onPriorityChange={p=>setDraftPriority("sospeso",p)} onDueDateChange={d=>setDraftDueDate("sospeso",d)}
                       onSubmit={()=>addTask("sospeso")} fontSize={fontSize}/>
+                  </DCard></div>
+                </div>
+
+                {/* To Do Claudia / To Do Annarita: stesse card di To Do/Routine,
+                    stesse due liste ClickUp dedicate create nella cartella BEA
+                    (10/07, su richiesta di Dario). Riga separata invece che
+                    forzare la griglia da 3 a 5 colonne, cosi' su desktop
+                    restano leggibili fianco a fianco senza rimpicciolirsi troppo. */}
+                <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(2,1fr)",alignItems:"start",gap:12,marginBottom:12}}>
+                  <div><DCard accent="#EC4899" gradient={CARD_GRADIENTS.pink}>
+                    <DLabel style={{color:"rgba(255,255,255,0.85)"}}>📋 To Do Claudia</DLabel>
+                    {(!homeData.claudia || homeData.claudia.length===0)?(
+                      <div style={{fontSize:fontSize-2,color:"rgba(255,255,255,0.6)"}}>{homeLoading?"Caricamento...":"Nessun task 🎉"}</div>
+                    ):sortedByPriority(homeData.claudia).map(t=>(
+                      <TaskItem key={t.id} task={t} color="#BE185D" onToggle={id=>toggleTask(id,"claudia")} fontSize={fontSize} isChecked={checkedTasks[t.id]} onSetDueDate={(id,d)=>setTaskDueDate("claudia",id,d)}/>
+                    ))}
+                    <AddTaskRow draft={taskDrafts.claudia} busy={addingTaskList==="claudia"}
+                      onTextChange={v=>setDraftText("claudia",v)} onPriorityChange={p=>setDraftPriority("claudia",p)} onDueDateChange={d=>setDraftDueDate("claudia",d)}
+                      onSubmit={()=>addTask("claudia")} fontSize={fontSize}/>
+                  </DCard></div>
+
+                  <div><DCard accent="#14B8A6" gradient={CARD_GRADIENTS.teal}>
+                    <DLabel style={{color:"rgba(255,255,255,0.85)"}}>📋 To Do Annarita</DLabel>
+                    {(!homeData.annarita || homeData.annarita.length===0)?(
+                      <div style={{fontSize:fontSize-2,color:"rgba(255,255,255,0.6)"}}>{homeLoading?"Caricamento...":"Nessun task 🎉"}</div>
+                    ):sortedByPriority(homeData.annarita).map(t=>(
+                      <TaskItem key={t.id} task={t} color="#0F766E" onToggle={id=>toggleTask(id,"annarita")} fontSize={fontSize} isChecked={checkedTasks[t.id]} onSetDueDate={(id,d)=>setTaskDueDate("annarita",id,d)}/>
+                    ))}
+                    <AddTaskRow draft={taskDrafts.annarita} busy={addingTaskList==="annarita"}
+                      onTextChange={v=>setDraftText("annarita",v)} onPriorityChange={p=>setDraftPriority("annarita",p)} onDueDateChange={d=>setDraftDueDate("annarita",d)}
+                      onSubmit={()=>addTask("annarita")} fontSize={fontSize}/>
                   </DCard></div>
                 </div>
 
