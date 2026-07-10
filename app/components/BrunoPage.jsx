@@ -87,31 +87,45 @@ function lastMonths(allData, n) {
   return out;
 }
 
+// Tooltip fatto a mano invece del <title> nativo SVG: il <title> del
+// browser ha un ritardo di ~1s prima di comparire ed è facilmente
+// scambiato per "non funziona" — con lo stato React il numero appare
+// subito appena il mouse tocca la barra, spostandosi col cursore.
 function CashFlowMiniChart({ allData }) {
   const data = lastMonths(allData, 6);
   const W = 260, H = 56, gap = 10;
   const groupW = (W - gap*(data.length-1)) / data.length;
   const barW = groupW/2 - 1;
   const max = Math.max(...data.map(d=>Math.max(d.entrate,d.uscite)), 1);
+  const [hover, setHover] = useState(null); // {x,y,label}
   return (
-    <div style={{marginTop:10,background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,padding:"12px 14px"}}>
+    <div style={{marginTop:10,background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,padding:"12px 14px",position:"relative"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
         <div style={{fontSize:11,color:"var(--c-text-dim)",textTransform:"uppercase",letterSpacing:"0.06em"}}>Cash flow ultimi 6 mesi</div>
         <div style={{fontSize:10,color:"var(--c-text-faint)"}}><span style={{color:"#10B981"}}>■</span> entrate <span style={{color:"#EF4444",marginLeft:6}}>■</span> uscite</div>
       </div>
-      <svg width="100%" viewBox={`0 0 ${W} ${H-14}`} preserveAspectRatio="none" style={{display:"block"}}>
+      {hover && (
+        <div style={{position:"absolute",left:hover.x,top:hover.y,transform:"translate(-50%,-100%)",background:"#000000E0",color:"#fff",fontSize:11,fontWeight:600,padding:"4px 8px",borderRadius:6,whiteSpace:"nowrap",pointerEvents:"none",zIndex:10,marginTop:-6}}>
+          {hover.label}
+        </div>
+      )}
+      <svg width="100%" height={H-14} viewBox={`0 0 ${W} ${H-14}`} preserveAspectRatio="none" style={{display:"block"}}>
         {data.map((d,i)=>{
           const gx = i*(groupW+gap);
           const he = Math.max((d.entrate/max)*(H-24), d.entrate>0?2:0);
           const hu = Math.max((d.uscite/max)*(H-24), d.uscite>0?2:0);
+          const onMove = (label) => (e) => {
+            const rect = e.currentTarget.closest("svg").parentElement.getBoundingClientRect();
+            setHover({ x: e.clientX - rect.left, y: e.clientY - rect.top, label });
+          };
           return (
             <g key={d.mese}>
-              <rect x={gx} y={H-24-he} width={barW} height={he} rx={1.5} fill="#10B981" style={{cursor:"pointer"}}>
-                <title>{`${getMonthLabel(d.mese)} — Entrate: ${fmt(d.entrate)}€`}</title>
-              </rect>
-              <rect x={gx+barW+2} y={H-24-hu} width={barW} height={hu} rx={1.5} fill="#EF4444" style={{cursor:"pointer"}}>
-                <title>{`${getMonthLabel(d.mese)} — Uscite: ${fmt(d.uscite)}€`}</title>
-              </rect>
+              <rect x={gx} y={H-24-he} width={barW} height={he} rx={1.5} fill="#10B981" style={{cursor:"pointer"}}
+                onMouseMove={onMove(`${getMonthLabel(d.mese)} — Entrate: ${fmt(d.entrate)}€`)}
+                onMouseLeave={()=>setHover(null)}/>
+              <rect x={gx+barW+2} y={H-24-hu} width={barW} height={hu} rx={1.5} fill="#EF4444" style={{cursor:"pointer"}}
+                onMouseMove={onMove(`${getMonthLabel(d.mese)} — Uscite: ${fmt(d.uscite)}€`)}
+                onMouseLeave={()=>setHover(null)}/>
             </g>
           );
         })}
