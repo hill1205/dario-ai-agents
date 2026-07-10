@@ -981,24 +981,24 @@ export default function App() {
                     forzare la griglia da 3 a 5 colonne, cosi' su desktop
                     restano leggibili fianco a fianco senza rimpicciolirsi troppo. */}
                 <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(2,1fr)",alignItems:"start",gap:12,marginBottom:12}}>
-                  <div><DCard accent="#EC4899" gradient={CARD_GRADIENTS.pink}>
+                  <div><DCard accent="#14B8A6" gradient={CARD_GRADIENTS.teal}>
                     <DLabel style={{color:"rgba(255,255,255,0.85)"}}>📋 To Do Claudia</DLabel>
                     {(!homeData.claudia || homeData.claudia.length===0)?(
                       <div style={{fontSize:fontSize-2,color:"rgba(255,255,255,0.6)"}}>{homeLoading?"Caricamento...":"Nessun task 🎉"}</div>
                     ):sortedByPriority(homeData.claudia).map(t=>(
-                      <TaskItem key={t.id} task={t} color="#BE185D" onToggle={id=>toggleTask(id,"claudia")} fontSize={fontSize} isChecked={checkedTasks[t.id]} onSetDueDate={(id,d)=>setTaskDueDate("claudia",id,d)}/>
+                      <TaskItem key={t.id} task={t} color="#0F766E" onToggle={id=>toggleTask(id,"claudia")} fontSize={fontSize} isChecked={checkedTasks[t.id]} onSetDueDate={(id,d)=>setTaskDueDate("claudia",id,d)}/>
                     ))}
                     <AddTaskRow draft={taskDrafts.claudia} busy={addingTaskList==="claudia"}
                       onTextChange={v=>setDraftText("claudia",v)} onPriorityChange={p=>setDraftPriority("claudia",p)} onDueDateChange={d=>setDraftDueDate("claudia",d)}
                       onSubmit={()=>addTask("claudia")} fontSize={fontSize}/>
                   </DCard></div>
 
-                  <div><DCard accent="#14B8A6" gradient={CARD_GRADIENTS.teal}>
+                  <div><DCard accent="#EC4899" gradient={CARD_GRADIENTS.pink}>
                     <DLabel style={{color:"rgba(255,255,255,0.85)"}}>📋 To Do Annarita</DLabel>
                     {(!homeData.annarita || homeData.annarita.length===0)?(
                       <div style={{fontSize:fontSize-2,color:"rgba(255,255,255,0.6)"}}>{homeLoading?"Caricamento...":"Nessun task 🎉"}</div>
                     ):sortedByPriority(homeData.annarita).map(t=>(
-                      <TaskItem key={t.id} task={t} color="#0F766E" onToggle={id=>toggleTask(id,"annarita")} fontSize={fontSize} isChecked={checkedTasks[t.id]} onSetDueDate={(id,d)=>setTaskDueDate("annarita",id,d)}/>
+                      <TaskItem key={t.id} task={t} color="#BE185D" onToggle={id=>toggleTask(id,"annarita")} fontSize={fontSize} isChecked={checkedTasks[t.id]} onSetDueDate={(id,d)=>setTaskDueDate("annarita",id,d)}/>
                     ))}
                     <AddTaskRow draft={taskDrafts.annarita} busy={addingTaskList==="annarita"}
                       onTextChange={v=>setDraftText("annarita",v)} onPriorityChange={p=>setDraftPriority("annarita",p)} onDueDateChange={d=>setDraftDueDate("annarita",d)}
