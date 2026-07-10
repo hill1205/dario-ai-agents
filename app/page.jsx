@@ -769,8 +769,8 @@ export default function App() {
                     larghezza. Su mobile resta tutto a colonna singola. */}
 
                 {/* Riga statistiche corte */}
-                <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(3,1fr)",gap:12,marginBottom:12}}>
-                  <div><DCard accent="#3B82F6" gradient={CARD_GRADIENTS.blue}>
+                <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(3,1fr)",alignItems:"stretch",gap:12,marginBottom:12}}>
+                  <div><DCard accent="#3B82F6" gradient={CARD_GRADIENTS.blue} style={{height:"100%"}}>
                     <DLabel style={{color:"rgba(255,255,255,0.85)"}}>🕐 Ora</DLabel>
                     <div style={{fontSize:fontSize+12,fontWeight:800,color:"#fff",letterSpacing:"0.04em",lineHeight:1}}>{clockBucharest}</div>
                     <div style={{fontSize:fontSize-4,color:"rgba(255,255,255,0.75)",marginTop:3,marginBottom:10}}>Bucarest</div>
@@ -788,7 +788,7 @@ export default function App() {
                       </div>
                     )}
                   </DCard></div>
-                  <div><DCard accent="#F59E0B" gradient={CARD_GRADIENTS.orange}>
+                  <div><DCard accent="#F59E0B" gradient={CARD_GRADIENTS.orange} style={{height:"100%"}}>
                     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:2}}>
                       <DLabel style={{marginBottom:0,color:"rgba(255,255,255,0.85)"}}>🌍 {weather?.city || "Timișoara"}</DLabel>
                       <button onClick={toggleLocalWeather} title="Usa la posizione attuale invece della città fissa"
@@ -811,7 +811,7 @@ export default function App() {
                     )}
                   </DCard></div>
 
-                  <div><DCard accent="#F97316" gradient={CARD_GRADIENTS.orange2}>
+                  <div><DCard accent="#F97316" gradient={CARD_GRADIENTS.orange2} style={{height:"100%"}}>
                     <DLabel style={{color:"rgba(255,255,255,0.85)"}}>💪 Progressi Fisici</DLabel>
                     {homeErrors.weight && !homeLoading && (
                       <div style={{fontSize:fontSize-3,color:"#FEF3C7",background:"rgba(0,0,0,0.22)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:6,padding:"4px 8px",marginBottom:6}}>⚠️ dati non aggiornati (ClickUp non raggiungibile)</div>
