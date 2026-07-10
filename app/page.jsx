@@ -137,6 +137,7 @@ const CARD_GRADIENTS = {
   orange2: "linear-gradient(135deg,#F97316,#C2410C)",
   pink:    "linear-gradient(135deg,#EC4899,#BE185D)",
   teal:    "linear-gradient(135deg,#14B8A6,#0F766E)",
+  fuchsia: "linear-gradient(135deg,#D946EF,#A21CAF)",
 };
 
 // Testo/checkbox sempre in bianco/trasparenze: le TaskItem vivono adesso
@@ -981,12 +982,12 @@ export default function App() {
                     forzare la griglia da 3 a 5 colonne, cosi' su desktop
                     restano leggibili fianco a fianco senza rimpicciolirsi troppo. */}
                 <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(2,1fr)",alignItems:"start",gap:12,marginBottom:12}}>
-                  <div><DCard accent="#14B8A6" gradient={CARD_GRADIENTS.teal}>
+                  <div><DCard accent="#D946EF" gradient={CARD_GRADIENTS.fuchsia}>
                     <DLabel style={{color:"rgba(255,255,255,0.85)"}}>📋 To Do Claudia</DLabel>
                     {(!homeData.claudia || homeData.claudia.length===0)?(
                       <div style={{fontSize:fontSize-2,color:"rgba(255,255,255,0.6)"}}>{homeLoading?"Caricamento...":"Nessun task 🎉"}</div>
                     ):sortedByPriority(homeData.claudia).map(t=>(
-                      <TaskItem key={t.id} task={t} color="#0F766E" onToggle={id=>toggleTask(id,"claudia")} fontSize={fontSize} isChecked={checkedTasks[t.id]} onSetDueDate={(id,d)=>setTaskDueDate("claudia",id,d)}/>
+                      <TaskItem key={t.id} task={t} color="#A21CAF" onToggle={id=>toggleTask(id,"claudia")} fontSize={fontSize} isChecked={checkedTasks[t.id]} onSetDueDate={(id,d)=>setTaskDueDate("claudia",id,d)}/>
                     ))}
                     <AddTaskRow draft={taskDrafts.claudia} busy={addingTaskList==="claudia"}
                       onTextChange={v=>setDraftText("claudia",v)} onPriorityChange={p=>setDraftPriority("claudia",p)} onDueDateChange={d=>setDraftDueDate("claudia",d)}
