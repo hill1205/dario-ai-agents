@@ -2,10 +2,10 @@ const CLICKUP_API_KEY = process.env.CLICKUP_API_KEY;
 
 export async function POST(request) {
   try {
-    const { taskId, status, dueDate } = await request.json();
+    const { taskId, status, dueDate, name } = await request.json();
 
-    if (!taskId || (!status && dueDate === undefined)) {
-      return Response.json({ error: "Missing taskId or status/dueDate" }, { status: 400 });
+    if (!taskId || (!status && dueDate === undefined && name === undefined)) {
+      return Response.json({ error: "Missing taskId or status/dueDate/name" }, { status: 400 });
     }
 
     // dueDate: stringa "YYYY-MM-DD" per impostarla/spostarla, oppure null
@@ -14,6 +14,13 @@ export async function POST(request) {
     // giorno per differenza di fuso orario col server.
     const body = {};
     if (status) body.status = status;
+    // Rinomina il testo del task (10/07): richiesta da Dario per poter
+    // correggere/modificare una task già creata invece di doverla cancellare
+    // e ricrearla da capo.
+    if (name !== undefined) {
+      const trimmed = (name || "").trim();
+      if (trimmed) body.name = trimmed;
+    }
     if (dueDate !== undefined) {
       if (dueDate === null) {
         body.due_date = null;
