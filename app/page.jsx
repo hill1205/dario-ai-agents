@@ -70,6 +70,14 @@ function todayBucharest() {
   return new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Bucharest" }); // YYYY-MM-DD
 }
 
+// Tema "auto": notte (dark) dalle 21:00 alle 06:59 ora di Bucarest,
+// giorno (light) dalle 07:00 alle 20:59. Usiamo sempre il fuso di
+// Bucarest (non quello del device) per coerenza con il resto dell'app.
+function autoThemeByHour() {
+  const hour = Number(new Date().toLocaleString("en-US", { timeZone: "Europe/Bucharest", hour: "2-digit", hour12: false }));
+  return (hour >= 21 || hour < 7) ? "dark" : "light";
+}
+
 // Scadenze (ClickUp due_date): arrivano come stringa di millisecondi epoch.
 // Restituisce {label, state} dove state è "overdue"/"today"/"soon"/null,
 // usato per colorare il badge — cosi' una scadenza scaduta salta subito
@@ -329,7 +337,8 @@ export default function App() {
   const [homeErrors, setHomeErrors]         = useState({});
   const [syncError, setSyncError]           = useState(null);
   const [lastUpdated, setLastUpdated]       = useState(null);
-  const [theme, setTheme]                   = useState("dark");
+  const [themeMode, setThemeMode]           = useState("auto"); // "dark" | "light" | "auto"
+  const [theme, setTheme]                   = useState("dark"); // tema effettivamente applicato
   const [routineStreak, setRoutineStreak]   = useState(0);
   const [streakHistory, setStreakHistory]   = useState([]); // ultimi 30 giorni, da ClickUp
   const [leadDaRicontattare, setLeadDaRicontattare] = useState([]);
@@ -366,7 +375,7 @@ export default function App() {
   useEffect(()=>{
     try {
       const sr = localStorage.getItem("dario-settings");
-      if (sr) { const s=JSON.parse(sr); if(s.fontSize) setFontSize(s.fontSize); if(s.theme) setTheme(s.theme); }
+      if (sr) { const s=JSON.parse(sr); if(s.fontSize) setFontSize(s.fontSize); if(s.themeMode) setThemeMode(s.themeMode); }
       const st = localStorage.getItem("dario-routine-streak");
       if (st) { try { setRoutineStreak(JSON.parse(st).count || 0); } catch {} }
       const ct = localStorage.getItem("dario-checked-tasks");
@@ -407,8 +416,22 @@ export default function App() {
   },[]);
 
   useEffect(()=>{
-    try { localStorage.setItem("dario-settings", JSON.stringify({fontSize,theme})); } catch {}
-  },[fontSize,theme]);
+    try { localStorage.setItem("dario-settings", JSON.stringify({fontSize,themeMode})); } catch {}
+  },[fontSize,themeMode]);
+
+  // Risolve il tema effettivo da themeMode: "dark"/"light" sono fissi,
+  // "auto" segue l'orario di Bucarest (21:00-06:59 = notte). Ricontrolliamo
+  // ogni minuto cosi' l'app cambia tema da sola allo scoccare delle 21/07
+  // senza bisogno di un refresh manuale.
+  useEffect(()=>{
+    function applyAutoTheme() {
+      setTheme(themeMode === "auto" ? autoThemeByHour() : themeMode);
+    }
+    applyAutoTheme();
+    if (themeMode !== "auto") return;
+    const id = setInterval(applyAutoTheme, 60000);
+    return ()=>clearInterval(id);
+  },[themeMode]);
 
   useEffect(()=>{
     const check = ()=>setIsMobile(window.innerWidth<640);
@@ -819,14 +842,16 @@ export default function App() {
       </div>
       <div style={{fontSize:11,color:"#64748B",marginBottom:6}}>Tema (solo dashboard)</div>
       <div style={{display:"flex",gap:6}}>
-        {[["dark","🌙 Scuro"],["light","☀️ Chiaro"]].map(([id,label])=>(
-          <button key={id} onClick={()=>setTheme(id)}
-            style={{flex:1,padding:"6px 0",borderRadius:6,border:`1px solid ${theme===id?"#8B5CF6":"#1A1A2E"}`,background:theme===id?"#8B5CF620":"transparent",color:theme===id?"#8B5CF6":"#475569",cursor:"pointer",fontSize:10}}>
+        {[["auto","🌗 Auto"],["dark","🌙 Scuro"],["light","☀️ Chiaro"]].map(([id,label])=>(
+          <button key={id} onClick={()=>setThemeMode(id)}
+            style={{flex:1,padding:"6px 0",borderRadius:6,border:`1px solid ${themeMode===id?"#8B5CF6":"#1A1A2E"}`,background:themeMode===id?"#8B5CF620":"transparent",color:themeMode===id?"#8B5CF6":"#475569",cursor:"pointer",fontSize:10}}>
             {label}
           </button>
         ))}
       </div>
-      <div style={{fontSize:9,color:"#334155",marginTop:6,lineHeight:1.4}}>Si applica a tutta l'app.</div>
+      <div style={{fontSize:9,color:"#334155",marginTop:6,lineHeight:1.4}}>
+        {themeMode==="auto" ? "Auto: notte 21:00-07:00, giorno il resto (ora Bucarest)." : "Si applica a tutta l'app."}
+      </div>
 
       <div style={{marginTop:16,paddingTop:14,borderTop:`1px solid ${T.border}`}}>
         <div style={{fontSize:11,color:"#64748B",marginBottom:6}}>Backup dati</div>
