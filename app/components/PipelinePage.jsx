@@ -33,6 +33,42 @@ const THEME_VARS = {
 
 function genId() { return Math.random().toString(36).slice(2,10); }
 
+// Config per canale: cambia lunghezza/tono richiesti al modello e se va
+// generato anche un oggetto (solo email ha senso averne uno).
+const CHANNEL_CONFIG = {
+  email:     { label:"✉️ Email",       maxWords:120, hasSubject:true,  instruction:"Canale: EMAIL. Genera anche un oggetto breve e specifico (max 8 parole, no clickbait). Corpo professionale, può essere leggermente più articolato, massimo 120 parole." },
+  whatsapp:  { label:"💬 WhatsApp",     maxWords:60,  hasSubject:false, instruction:"Canale: WHATSAPP. Messaggio breve e diretto, tono colloquiale ma professionale, massimo 60 parole, nessuna firma formale, ok 1 emoji al massimo se naturale." },
+  linkedin:  { label:"💼 LinkedIn DM",  maxWords:70,  hasSubject:false, instruction:"Canale: LINKEDIN. Messaggio DM, tono professionale ma colloquiale (non da email formale), massimo 70 parole, nessuna firma con nome/ruolo ripetuti (già visibile nel profilo)." },
+  instagram: { label:"📸 Instagram DM", maxWords:50,  hasSubject:false, instruction:"Canale: INSTAGRAM DM. Messaggio molto breve e informale, massimo 50 parole, diretto, nessuna firma." },
+};
+
+// Chip di rifinitura rapida: invece di dover scrivere a mano "rendilo più
+// breve" ogni volta nel campo contesto, un click aggiunge l'istruzione e
+// rigenera subito.
+const QUICK_REFINE = [
+  { id:"breve",    label:"✂️ Più breve",        instruction:"Rendi il messaggio più breve e sintetico, meno del testo attuale." },
+  { id:"diretto",  label:"🎯 Più diretto",       instruction:"Rendi il messaggio più diretto, meno introduzione, vai subito al punto." },
+  { id:"caldo",    label:"🤝 Più caloroso",      instruction:"Rendi il tono più caloroso e personale, meno da vendita fredda." },
+  { id:"urgenza",  label:"⏰ Aggiungi urgenza",  instruction:"Aggiungi un accenno di urgenza/scarsità (es. slot limitati, offerta a tempo) senza essere aggressivo." },
+];
+
+// Storico messaggi per lead: salvato in localStorage (per-device, non
+// sincronizzato su Notion — evitiamo di aggiungere colonne al database
+// Notion esistente). Serve soprattutto a non ripetersi nei follow-up
+// successivi sullo stesso lead.
+function historyKey(entryId) { return `dario-pipeline-msg-history-${entryId}`; }
+function loadHistory(entryId) {
+  try { const s = localStorage.getItem(historyKey(entryId)); return s ? JSON.parse(s) : []; } catch { return []; }
+}
+function pushHistory(entryId, item) {
+  try {
+    const prev = loadHistory(entryId);
+    const updated = [item, ...prev].slice(0, 8); // ultimi 8 messaggi, basta per non ripetersi
+    localStorage.setItem(historyKey(entryId), JSON.stringify(updated));
+    return updated;
+  } catch { return loadHistory(entryId); }
+}
+
 // --- Import CSV -------------------------------------------------------
 // Parser CSV minimale ma robusto: gestisce virgole dentro campi tra
 // virgolette e virgolette doppie escaped (""), sia per file separati da
@@ -386,10 +422,13 @@ export default function PipelinePage({ fontSize=14, theme="dark" }) {
   const [saveStatus, setSaveStatus] = useState(null);
   const [msgLead, setMsgLead]       = useState(null);
   const [msgType, setMsgType]       = useState("primo_contatto");
+  const [msgCanale, setMsgCanale]   = useState("email");
   const [msgExtra, setMsgExtra]     = useState("");
   const [msgLoading, setMsgLoading] = useState(false);
+  const [msgSubject, setMsgSubject] = useState("");
   const [msgText, setMsgText]       = useState("");
   const [msgCopied, setMsgCopied]   = useState(false);
+  const [msgHistory, setMsgHistory] = useState([]);
   const [csvPreview, setCsvPreview] = useState(null); // entries parsate, in attesa di conferma
   const [csvImporting, setCsvImporting] = useState(false);
   const fileInputRef = useRef(null);
@@ -501,24 +540,62 @@ export default function PipelinePage({ fontSize=14, theme="dark" }) {
     setCsvImporting(false);
     setCsvPreview(null);
   };
-  const openGenMsg  = (entry)=>{ setMsgLead(entry);setMsgType("primo_contatto");setMsgExtra("");setMsgText("");setMsgCopied(false); };
+  const openGenMsg  = (entry)=>{
+    setMsgLead(entry); setMsgType("primo_contatto"); setMsgCanale("email"); setMsgExtra("");
+    setMsgText(""); setMsgSubject(""); setMsgCopied(false);
+    setMsgHistory(loadHistory(entry.id));
+  };
 
-  const generateMessage = async ()=>{
-    if(!msgLead) return; setMsgLoading(true); setMsgText(""); setMsgCopied(false);
+  // extraOverride: usato dai chip "rifinitura rapida" (punto 6) per
+  // rigenerare aggiungendo un'istruzione precisa senza dover scrivere nel
+  // campo contesto — se assente si usa il testo libero di msgExtra.
+  const generateMessage = async (extraOverride)=>{
+    if(!msgLead) return; setMsgLoading(true); setMsgText(""); setMsgSubject(""); setMsgCopied(false);
     const typeMap={primo_contatto:"primo contatto",follow_up:"follow-up",proposta:"proposta di collaborazione"};
+    const canale = CHANNEL_CONFIG[msgCanale] || CHANNEL_CONFIG.email;
+    const extra = extraOverride ?? msgExtra;
+
+    // Presenza online del lead (punto 4): oggi questi campi esistono nel
+    // form ma non venivano mai passati al prompt — usarli permette
+    // riferimenti concreti ("ho visto sul vostro sito/Instagram...").
+    const presenza = ["sito","facebook","instagram","linkedin"]
+      .filter(k=>msgLead[k]).map(k=>`${k}: ${msgLead[k]}`).join("\n");
+
+    // Storico messaggi già generati per questo lead (punto 3): passato al
+    // modello per evitare che un follow-up ripeta lo stesso aggancio del
+    // messaggio precedente.
+    const storico = msgHistory.slice(0,3).map((h,i)=>`[${i+1}] (${h.canale}, ${h.tipoLabel}) ${h.subject?`Oggetto: ${h.subject} — `:""}${h.text}`).join("\n\n");
+
     try {
       const res=await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
         model:"claude-sonnet-4-6",max_tokens:1000,
-        system:[{type:"text",text:`Sei Mario, responsabile business development di IAGREX SRL — agenzia di performance marketing specializzata in Meta Ads e Shopify per e-commerce italiani. Risultati medi clienti: +30-60% ROAS nei primi 60 giorni.\n\nScrivi messaggi di outreach in italiano: professionali, concisi, personalizzati. Max 120 parole. Tono diretto e credibile. Non usare "spero che tu stia bene". Vai subito al punto con proposta di valore specifica per quel settore.`,cache_control:{type:"ephemeral"}}],
-        messages:[{role:"user",content:`Scrivi un messaggio di ${typeMap[msgType]||"primo contatto"} per:\n\nAzienda: ${msgLead.nome}\nSettore: ${msgLead.settore||"e-commerce"}\nReferente: ${msgLead.contatto||"non specificato"}\nBudget stimato: ${msgLead.budget?msgLead.budget+"€/mese":"non specificato"}\nTentativi precedenti: ${msgLead.tentativi||0}\nNote: ${msgLead.note||"nessuna"}${msgExtra?`\nContesto: ${msgExtra}`:""}`}],
+        system:[{type:"text",text:`Sei Mario, responsabile business development di IAGREX SRL — agenzia di performance marketing specializzata in Meta Ads e Shopify per e-commerce italiani. Risultati medi clienti: +30-60% ROAS nei primi 60 giorni.\n\nScrivi messaggi di outreach in italiano: professionali, personalizzati, credibili. Non usare "spero che tu stia bene". Vai subito al punto con proposta di valore specifica per quel settore.\n\n${canale.instruction}${canale.hasSubject?`\n\nFormatta SEMPRE la risposta così, senza altro testo:\nOGGETTO: <oggetto qui>\nMESSAGGIO:\n<corpo del messaggio qui>`:"\n\nRispondi con il solo testo del messaggio, senza intestazioni o virgolette."}`,cache_control:{type:"ephemeral"}}],
+        messages:[{role:"user",content:`Scrivi un messaggio di ${typeMap[msgType]||"primo contatto"} per:\n\nAzienda: ${msgLead.nome}\nSettore: ${msgLead.settore||"e-commerce"}\nReferente: ${msgLead.contatto||"non specificato"}\nBudget stimato: ${msgLead.budget?msgLead.budget+"€/mese":"non specificato"}\nTentativi precedenti: ${msgLead.tentativi||0}\nNote: ${msgLead.note||"nessuna"}${presenza?`\nPresenza online:\n${presenza}`:""}${storico?`\n\nMessaggi già inviati in precedenza a questo lead (NON ripetere lo stesso aggancio/apertura):\n${storico}`:""}${extra?`\nIstruzioni aggiuntive: ${extra}`:""}`}],
         agentId:"mario"
       })});
-      const d=await res.json(); setMsgText(d.content?.[0]?.text||"Errore.");
+      const d=await res.json();
+      const raw = d.content?.[0]?.text || "Errore.";
+      let subject = "", body = raw;
+      if (canale.hasSubject) {
+        const m = raw.match(/OGGETTO:\s*(.+?)\s*(?:\n+MESSAGGIO:\s*)([\s\S]*)/i);
+        if (m) { subject = m[1].trim(); body = m[2].trim(); }
+      }
+      setMsgSubject(subject); setMsgText(body);
+      if (body && body !== "Errore.") {
+        const updated = pushHistory(msgLead.id, {
+          ts: Date.now(), canale: canale.label, tipoLabel: typeMap[msgType]||"primo contatto",
+          subject, text: body,
+        });
+        setMsgHistory(updated);
+      }
     } catch(e){ setMsgText("Errore: "+e.message); }
     setMsgLoading(false);
   };
 
-  const copyMessage = ()=>{ navigator.clipboard.writeText(msgText).then(()=>{ setMsgCopied(true); setTimeout(()=>setMsgCopied(false),2500); }); };
+  const copyMessage = ()=>{
+    const full = msgSubject ? `Oggetto: ${msgSubject}\n\n${msgText}` : msgText;
+    navigator.clipboard.writeText(full).then(()=>{ setMsgCopied(true); setTimeout(()=>setMsgCopied(false),2500); });
+  };
 
   const filtered      = entries.filter(e=>filter==="tutti"||e.tipo===filter);
   const activeClients = entries.filter(e=>e.tipo==="cliente"&&e.stage==="attivo");
@@ -641,8 +718,10 @@ export default function PipelinePage({ fontSize=14, theme="dark" }) {
               <div style={{fontSize:15,fontWeight:700,color:"var(--c-text-strong)"}}>🤖 Generatore Messaggio AI</div>
               <button onClick={()=>setMsgLead(null)} style={{width:28,height:28,borderRadius:6,border:"none",background:"var(--c-border)",color:"var(--c-text-dim)",cursor:"pointer",fontSize:14}}>×</button>
             </div>
-            <div style={{fontSize:12,color:"var(--c-text-faint)",marginBottom:16}}>{msgLead.nome}{msgLead.settore?` · ${msgLead.settore}`:""} {msgLead.tentativi>0?`· ${msgLead.tentativi} tentativi`:""}</div>
-            <div style={{display:"flex",gap:8,marginBottom:14}}>
+            <div style={{fontSize:12,color:"var(--c-text-faint)",marginBottom:14}}>{msgLead.nome}{msgLead.settore?` · ${msgLead.settore}`:""} {msgLead.tentativi>0?`· ${msgLead.tentativi} tentativi`:""}</div>
+
+            <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:4}}>Tipo messaggio</div>
+            <div style={{display:"flex",gap:8,marginBottom:10}}>
               {[["primo_contatto","✉️ Primo Contatto"],["follow_up","🔄 Follow-Up"],["proposta","📄 Proposta"]].map(([val,label])=>(
                 <button key={val} onClick={()=>setMsgType(val)}
                   style={{flex:1,padding:"8px 4px",borderRadius:8,border:`1px solid ${msgType===val?"#3B82F6":"var(--c-border)"}`,background:msgType===val?"#3B82F620":"transparent",color:msgType===val?"#3B82F6":"var(--c-text-faint)",cursor:"pointer",fontSize:11,fontWeight:msgType===val?600:400}}>
@@ -650,27 +729,76 @@ export default function PipelinePage({ fontSize=14, theme="dark" }) {
                 </button>
               ))}
             </div>
+
+            <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:4}}>Canale</div>
+            <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}}>
+              {Object.entries(CHANNEL_CONFIG).map(([val,cfg])=>(
+                <button key={val} onClick={()=>setMsgCanale(val)}
+                  style={{flex:"1 1 auto",padding:"7px 6px",borderRadius:8,border:`1px solid ${msgCanale===val?"#8B5CF6":"var(--c-border)"}`,background:msgCanale===val?"#8B5CF620":"transparent",color:msgCanale===val?"#8B5CF6":"var(--c-text-faint)",cursor:"pointer",fontSize:11,fontWeight:msgCanale===val?600:400}}>
+                  {cfg.label}
+                </button>
+              ))}
+            </div>
+
             <div style={{marginBottom:14}}>
               <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:4}}>Contesto aggiuntivo</div>
               <textarea value={msgExtra} onChange={e=>setMsgExtra(e.target.value)} rows={2} placeholder="es. hanno appena lanciato una nuova linea..."
                 style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:12,outline:"none",resize:"vertical",fontFamily:"inherit"}}/>
             </div>
-            <button onClick={generateMessage} disabled={msgLoading}
+
+            <button onClick={()=>generateMessage()} disabled={msgLoading}
               style={{width:"100%",padding:"11px",borderRadius:8,border:"none",background:msgLoading?"var(--c-border)":"#3B82F6",color:msgLoading?"var(--c-text-faint)":"#fff",cursor:msgLoading?"not-allowed":"pointer",fontSize:13,fontWeight:700,marginBottom:14}}>
               {msgLoading?"⏳ Generazione in corso...":"🤖 Genera Messaggio"}
             </button>
+
             {msgText && (
               <>
+                {msgSubject && (
+                  <div style={{fontSize:12,color:"var(--c-text-dim)",marginBottom:6}}>
+                    <span style={{fontWeight:700,color:"var(--c-text-strong)"}}>Oggetto:</span> {msgSubject}
+                  </div>
+                )}
                 <div style={{background:"var(--c-bg)",border:"1px solid var(--c-border)",borderRadius:8,padding:14,marginBottom:10}}>
                   <pre style={{margin:0,fontSize:13,color:"var(--c-text)",lineHeight:1.7,whiteSpace:"pre-wrap",fontFamily:"inherit"}}>{msgText}</pre>
                 </div>
+
+                {/* Rifinitura rapida (punto 6): un click aggiunge l'istruzione e rigenera subito */}
+                <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>
+                  {QUICK_REFINE.map(r=>(
+                    <button key={r.id} onClick={()=>generateMessage(r.instruction)} disabled={msgLoading}
+                      style={{padding:"5px 9px",borderRadius:20,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-faint)",cursor:msgLoading?"not-allowed":"pointer",fontSize:11}}>
+                      {r.label}
+                    </button>
+                  ))}
+                </div>
+
                 <div style={{display:"flex",gap:8}}>
                   <button onClick={copyMessage} style={{flex:1,padding:"9px",borderRadius:8,border:`1px solid ${msgCopied?"#10B981":"var(--c-border)"}`,background:msgCopied?"#10B98120":"transparent",color:msgCopied?"#10B981":"var(--c-text-muted)",cursor:"pointer",fontSize:12,fontWeight:600}}>
                     {msgCopied?"✅ Copiato!":"📋 Copia"}
                   </button>
-                  <button onClick={generateMessage} disabled={msgLoading} style={{flex:1,padding:"9px",borderRadius:8,border:"1px solid #3B82F640",background:"#3B82F610",color:"#3B82F6",cursor:"pointer",fontSize:12,fontWeight:600}}>🔄 Rigenera</button>
+                  <button onClick={()=>generateMessage()} disabled={msgLoading} style={{flex:1,padding:"9px",borderRadius:8,border:"1px solid #3B82F640",background:"#3B82F610",color:"#3B82F6",cursor:"pointer",fontSize:12,fontWeight:600}}>🔄 Rigenera</button>
                 </div>
               </>
+            )}
+
+            {/* Storico messaggi (punto 3): ultimi generati per questo lead, salvati sul device */}
+            {msgHistory.length > 0 && (
+              <div style={{marginTop:18,paddingTop:14,borderTop:"1px solid var(--c-border)"}}>
+                <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:8}}>📜 Storico messaggi per questo lead ({msgHistory.length})</div>
+                <div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:180,overflowY:"auto"}}>
+                  {msgHistory.map((h,i)=>(
+                    <div key={h.ts||i} style={{background:"var(--c-panel2)",border:"1px solid var(--c-border)",borderRadius:7,padding:"7px 9px"}}>
+                      <div style={{fontSize:10,color:"var(--c-text-faint)",marginBottom:3,display:"flex",justifyContent:"space-between"}}>
+                        <span>{h.canale} · {h.tipoLabel}</span>
+                        <span>{h.ts ? new Date(h.ts).toLocaleDateString("it-IT",{day:"2-digit",month:"short"}) : ""}</span>
+                      </div>
+                      <div style={{fontSize:11,color:"var(--c-text-muted)",lineHeight:1.4}}>
+                        {h.subject && <b>{h.subject} — </b>}{h.text.slice(0,90)}{h.text.length>90?"…":""}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             )}
           </div>
         </div>
