@@ -52,22 +52,11 @@ const QUICK_REFINE = [
   { id:"urgenza",  label:"⏰ Aggiungi urgenza",  instruction:"Aggiungi un accenno di urgenza/scarsità (es. slot limitati, offerta a tempo) senza essere aggressivo." },
 ];
 
-// Storico messaggi per lead: salvato in localStorage (per-device, non
-// sincronizzato su Notion — evitiamo di aggiungere colonne al database
-// Notion esistente). Serve soprattutto a non ripetersi nei follow-up
-// successivi sullo stesso lead.
-function historyKey(entryId) { return `dario-pipeline-msg-history-${entryId}`; }
-function loadHistory(entryId) {
-  try { const s = localStorage.getItem(historyKey(entryId)); return s ? JSON.parse(s) : []; } catch { return []; }
-}
-function pushHistory(entryId, item) {
-  try {
-    const prev = loadHistory(entryId);
-    const updated = [item, ...prev].slice(0, 8); // ultimi 8 messaggi, basta per non ripetersi
-    localStorage.setItem(historyKey(entryId), JSON.stringify(updated));
-    return updated;
-  } catch { return loadHistory(entryId); }
-}
+// Storico messaggi per lead: salvato su Notion nella colonna "Storico
+// Messaggi" (JSON in una proprietà rich_text), così è sincronizzato tra
+// dispositivi come il resto della pipeline. Teniamo solo gli ultimi 5
+// messaggi per stare comodi sotto ai limiti di dimensione di Notion.
+const MAX_HISTORY = 5;
 
 // --- Import CSV -------------------------------------------------------
 // Parser CSV minimale ma robusto: gestisce virgole dentro campi tra
@@ -543,7 +532,7 @@ export default function PipelinePage({ fontSize=14, theme="dark" }) {
   const openGenMsg  = (entry)=>{
     setMsgLead(entry); setMsgType("primo_contatto"); setMsgCanale("email"); setMsgExtra("");
     setMsgText(""); setMsgSubject(""); setMsgCopied(false);
-    setMsgHistory(loadHistory(entry.id));
+    setMsgHistory(entry.messaggi || []);
   };
 
   // extraOverride: usato dai chip "rifinitura rapida" (punto 6) per
@@ -582,11 +571,17 @@ export default function PipelinePage({ fontSize=14, theme="dark" }) {
       }
       setMsgSubject(subject); setMsgText(body);
       if (body && body !== "Errore.") {
-        const updated = pushHistory(msgLead.id, {
-          ts: Date.now(), canale: canale.label, tipoLabel: typeMap[msgType]||"primo contatto",
-          subject, text: body,
-        });
+        const item = { ts: Date.now(), canale: canale.label, tipoLabel: typeMap[msgType]||"primo contatto", subject, text: body };
+        const updated = [item, ...msgHistory].slice(0, MAX_HISTORY);
         setMsgHistory(updated);
+        // Salva lo storico su Notion (colonna "Storico Messaggi"), non solo
+        // in locale — così un follow-up fatto da un altro dispositivo vede
+        // comunque cosa è già stato mandato a questo lead. Aggiorniamo anche
+        // l'entry nello stato locale per restare coerenti finché non si
+        // ricarica dalla fonte.
+        const updatedEntry = { ...msgLead, messaggi: updated };
+        setEntries(prev => prev.map(e => e.id === msgLead.id ? updatedEntry : e));
+        fetch("/api/pipeline-data",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({entries:[updatedEntry]})}).catch(()=>{});
       }
     } catch(e){ setMsgText("Errore: "+e.message); }
     setMsgLoading(false);
