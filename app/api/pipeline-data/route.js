@@ -22,6 +22,21 @@ const STAGE_MAP_TO_APP = {
 };
 const STAGE_MAP_TO_NOTION = Object.fromEntries(Object.entries(STAGE_MAP_TO_APP).map(([k,v])=>[v,k]));
 
+// "Storico Messaggi" salva un JSON (array di messaggi generati dall'AI
+// per quel lead) dentro una proprietà rich_text — Notion limita ogni
+// blocco di rich_text a 2000 caratteri, quindi lo storico va spezzato in
+// più blocchi in scrittura (chunkText) e riunito in lettura (getLongText).
+function getLongText(prop) { return (prop?.rich_text || []).map(t => t.plain_text || "").join(""); }
+function chunkText(text, size = 1900) {
+  const chunks = [];
+  for (let i = 0; i < text.length; i += size) chunks.push(text.slice(i, i + size));
+  return chunks.length ? chunks.map(c => ({ text: { content: c } })) : [];
+}
+function parseMessaggi(text) {
+  if (!text) return [];
+  try { const arr = JSON.parse(text); return Array.isArray(arr) ? arr : []; } catch { return []; }
+}
+
 function notionPageToEntry(page) {
   const p = page.properties;
   const getText  = (prop) => prop?.rich_text?.[0]?.plain_text || "";
@@ -48,6 +63,7 @@ function notionPageToEntry(page) {
     tentativi:       p["Tentativi"]?.number || 0,
     note:            getText(p["Note"]),
     data:            page.created_time ? page.created_time.slice(0,10) : new Date().toISOString().slice(0,10),
+    messaggi:        parseMessaggi(getLongText(p["Storico Messaggi"])),
   };
 }
 
@@ -142,6 +158,7 @@ export async function POST(req) {
         "Ultimo Contatto": entry.ultimo_contatto ? { date: { start: entry.ultimo_contatto } } : { date: null },
         "Tentativi": { number: entry.tentativi || 0 },
         "Note":     { rich_text: entry.note ? [{ text: { content: entry.note } }] : [] },
+        "Storico Messaggi": { rich_text: Array.isArray(entry.messaggi) && entry.messaggi.length ? chunkText(JSON.stringify(entry.messaggi)) : [] },
       };
 
       const nameKey = (entry.nome || "").toLowerCase().trim();
