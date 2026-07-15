@@ -31,15 +31,24 @@ const EMPTY_MONTH = {
 // "unicredit_eur" (nomi usati prima di questo fix) vengono lette come
 // unicredit_ron, così lo storico non si rompe quando riapriamo mesi salvati.
 function migrateConto(id) { return (id === "unicredit" || id === "unicredit_eur") ? "unicredit_ron" : id; }
+// FIX: la versione precedente rinominava saldi.unicredit -> saldi.unicredit_ron
+// SOLO se il valore vecchio era diverso da zero ("niente da migrare" se 0).
+// Bug: se il vecchio saldo era 0, la chiave unicredit_ron non veniva mai creata,
+// quindi updateSaldi[conto] restava undefined e le entrate/uscite sul conto
+// "unicredit_ron" non venivano MAI accreditate/scalate (saveItem controlla
+// `updated.saldi[item.conto] !== undefined` prima di sommare). Ora la
+// rinomina è incondizionata: se esiste una vecchia chiave (unicredit e/o
+// unicredit_eur), sempre spostata su unicredit_ron, anche se vale 0.
 function migrateMonth(md) {
   if (!md) return md;
+  const hasOldKeys = md.saldi && ("unicredit" in md.saldi || "unicredit_eur" in md.saldi);
   const strayEur = parseFloat(md.saldi?.unicredit_eur)||0;
   const strayOld = parseFloat(md.saldi?.unicredit)||0;
   return {
     ...md,
     entrate: (md.entrate||[]).map(e => e.conto ? { ...e, conto: migrateConto(e.conto) } : e),
     uscite:  (md.uscite||[]).map(e => e.conto ? { ...e, conto: migrateConto(e.conto) } : e),
-    saldi: (strayEur || strayOld)
+    saldi: hasOldKeys
       ? { ...md.saldi, unicredit_ron: (parseFloat(md.saldi.unicredit_ron)||0) + strayEur + strayOld, unicredit_eur: undefined, unicredit: undefined }
       : md.saldi,
   };
