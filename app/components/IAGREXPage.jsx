@@ -16,6 +16,11 @@ const EMPTY_MONTH = { entrate: [], uscite: [], saldi: { unicredit_eur: 0, unicre
 
 function genId() { return Math.random().toString(36).slice(2,10); }
 function fmt(n) { return (parseFloat(n)||0).toLocaleString("it-IT",{minimumFractionDigits:0,maximumFractionDigits:2}); }
+// Arrotonda a 2 decimali PRIMA di salvare il saldo — stesso motivo di
+// BrunoPage.jsx: le somme/sottrazioni ripetute in floating point sporcano
+// il valore (es. 2347.7399999999998) e l'input numerico del saldo mostra
+// il valore grezzo, non passato per fmt().
+function round2(n) { return Math.round((parseFloat(n)||0) * 100) / 100; }
 function getMonthLabel(ym) {
   const [y,m] = ym.split("-");
   const months=["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
@@ -248,19 +253,19 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark" }) {
     let updated = {...monthData, saldi:{...monthData.saldi}};
     if (modal.tipo==="uscita") {
       if (modal.mode==="edit" && modal.item?.conto) {
-        updated.saldi[modal.item.conto] = (parseFloat(updated.saldi[modal.item.conto])||0) + (parseFloat(modal.item.importo)||0);
+        updated.saldi[modal.item.conto] = round2((parseFloat(updated.saldi[modal.item.conto])||0) + (parseFloat(modal.item.importo)||0));
       }
       if (item.conto && updated.saldi[item.conto] !== undefined) {
-        updated.saldi[item.conto] = (parseFloat(updated.saldi[item.conto])||0) - parseFloat(item.importo);
+        updated.saldi[item.conto] = round2((parseFloat(updated.saldi[item.conto])||0) - parseFloat(item.importo));
       }
       updated.uscite = modal.mode==="add"?[...updated.uscite,item]:updated.uscite.map(e=>e.id===item.id?item:e);
     } else {
       // L'entrata accredita il conto scelto (logica speculare alle uscite).
       if (modal.mode==="edit" && modal.item?.conto) {
-        updated.saldi[modal.item.conto] = (parseFloat(updated.saldi[modal.item.conto])||0) - (parseFloat(modal.item.importo)||0);
+        updated.saldi[modal.item.conto] = round2((parseFloat(updated.saldi[modal.item.conto])||0) - (parseFloat(modal.item.importo)||0));
       }
       if (item.conto && updated.saldi[item.conto] !== undefined) {
-        updated.saldi[item.conto] = (parseFloat(updated.saldi[item.conto])||0) + parseFloat(item.importo);
+        updated.saldi[item.conto] = round2((parseFloat(updated.saldi[item.conto])||0) + parseFloat(item.importo));
       }
       updated.entrate = modal.mode==="add"?[...updated.entrate,item]:updated.entrate.map(e=>e.id===item.id?item:e);
     }
@@ -274,13 +279,13 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark" }) {
     if (tipo==="uscita") {
       const item = updated.uscite.find(e=>e.id===id);
       if (item?.conto && updated.saldi[item.conto] !== undefined) {
-        updated.saldi[item.conto] = (parseFloat(updated.saldi[item.conto])||0) + parseFloat(item.importo);
+        updated.saldi[item.conto] = round2((parseFloat(updated.saldi[item.conto])||0) + parseFloat(item.importo));
       }
       updated.uscite = updated.uscite.filter(e=>e.id!==id);
     } else {
       const item = updated.entrate.find(e=>e.id===id);
       if (item?.conto && updated.saldi[item.conto] !== undefined) {
-        updated.saldi[item.conto] = (parseFloat(updated.saldi[item.conto])||0) - parseFloat(item.importo);
+        updated.saldi[item.conto] = round2((parseFloat(updated.saldi[item.conto])||0) - parseFloat(item.importo));
       }
       updated.entrate = updated.entrate.filter(e=>e.id!==id);
     }

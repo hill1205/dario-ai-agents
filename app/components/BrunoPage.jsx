@@ -51,6 +51,11 @@ function fmt(n) {
   const num = parseFloat(n) || 0;
   return num.toLocaleString("it-IT", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 }
+// Arrotonda a 2 decimali PRIMA di salvare il saldo (non solo in fase di
+// visualizzazione): sottrazioni/addizioni ripetute in floating point
+// accumulano rumore tipo 2347.7399999999998, che poi comparirebbe intero
+// nell'input numerico del saldo (che mostra il valore grezzo, non fmt()).
+function round2(n) { return Math.round((parseFloat(n)||0) * 100) / 100; }
 
 function getMonthLabel(ym) {
   const [y, m] = ym.split("-");
@@ -312,11 +317,11 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
     if (tipo==="uscita") {
       // Ripristina vecchio importo sul vecchio conto (se edit)
       if (modal.mode==="edit" && modal.item?.conto) {
-        updated.saldi[modal.item.conto] = (parseFloat(updated.saldi[modal.item.conto])||0) + (parseFloat(modal.item.importo)||0);
+        updated.saldi[modal.item.conto] = round2((parseFloat(updated.saldi[modal.item.conto])||0) + (parseFloat(modal.item.importo)||0));
       }
       // Scala nuovo importo dal nuovo conto
       if (item.conto && updated.saldi[item.conto] !== undefined) {
-        updated.saldi[item.conto] = (parseFloat(updated.saldi[item.conto])||0) - parseFloat(item.importo);
+        updated.saldi[item.conto] = round2((parseFloat(updated.saldi[item.conto])||0) - parseFloat(item.importo));
       }
       updated.uscite = modal.mode==="add" ? [...updated.uscite, item] : updated.uscite.map(e=>e.id===item.id?item:e);
     } else {
@@ -324,10 +329,10 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
       // il conto scelto (in edit prima si toglie il vecchio importo dal
       // vecchio conto, poi si aggiunge il nuovo al nuovo conto).
       if (modal.mode==="edit" && modal.item?.conto) {
-        updated.saldi[modal.item.conto] = (parseFloat(updated.saldi[modal.item.conto])||0) - (parseFloat(modal.item.importo)||0);
+        updated.saldi[modal.item.conto] = round2((parseFloat(updated.saldi[modal.item.conto])||0) - (parseFloat(modal.item.importo)||0));
       }
       if (item.conto && updated.saldi[item.conto] !== undefined) {
-        updated.saldi[item.conto] = (parseFloat(updated.saldi[item.conto])||0) + parseFloat(item.importo);
+        updated.saldi[item.conto] = round2((parseFloat(updated.saldi[item.conto])||0) + parseFloat(item.importo));
       }
       updated.entrate = modal.mode==="add" ? [...updated.entrate, item] : updated.entrate.map(e=>e.id===item.id?item:e);
     }
@@ -341,13 +346,13 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
     if (tipo==="uscita") {
       const item = updated.uscite.find(e=>e.id===id);
       if (item?.conto && updated.saldi[item.conto] !== undefined) {
-        updated.saldi[item.conto] = (parseFloat(updated.saldi[item.conto])||0) + parseFloat(item.importo);
+        updated.saldi[item.conto] = round2((parseFloat(updated.saldi[item.conto])||0) + parseFloat(item.importo));
       }
       updated.uscite = updated.uscite.filter(e=>e.id!==id);
     } else {
       const item = updated.entrate.find(e=>e.id===id);
       if (item?.conto && updated.saldi[item.conto] !== undefined) {
-        updated.saldi[item.conto] = (parseFloat(updated.saldi[item.conto])||0) - parseFloat(item.importo);
+        updated.saldi[item.conto] = round2((parseFloat(updated.saldi[item.conto])||0) - parseFloat(item.importo));
       }
       updated.entrate = updated.entrate.filter(e=>e.id!==id);
     }
