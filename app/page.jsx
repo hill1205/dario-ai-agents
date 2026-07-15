@@ -6,6 +6,7 @@ import ClientiPage from "./components/ClientiPage";
 import IAGREXPage from "./components/IAGREXPage";
 import IdeasPage from "./components/IdeasPage";
 import SimulatorPage from "./components/SimulatorPage";
+import CalculatorPage from "./components/CalculatorPage";
 
 const DONE_STATUSES = ["complete","completed","done","chiuso","closed","fatto","completato","completata"];
 
@@ -19,6 +20,7 @@ const NAV_ITEMS = [
   { id:"finanze",  icon:"💰", label:"Finanze",    color:"#F59E0B" },
   { id:"iagrex",   icon:"📊", label:"IAGREX",     color:"#3B82F6" },
   { id:"simulatore", icon:"🚀", label:"Simulatore 1M€", color:"#EC4899" },
+  { id:"calcolatrice", icon:"🧮", label:"Calcolatrice", color:"#14B8A6" },
   // "Sospese" non è più una pagina a parte (10/07): le task sospese si
   // vedono e si gestiscono direttamente dalla card in home, come To Do e
   // Routine — una vista in meno da mantenere sincronizzata.
@@ -908,6 +910,7 @@ export default function App() {
           {view==="clienti"  && <ClientiPage  fontSize={fontSize} theme={theme}/>}
           {view==="idee"     && <IdeasPage    fontSize={fontSize} theme={theme}/>}
           {view==="simulatore" && <SimulatorPage fontSize={fontSize} onBack={()=>setView("home")} theme={theme}/>}
+          {view==="calcolatrice" && <CalculatorPage fontSize={fontSize} onBack={()=>setView("home")} theme={theme}/>}
 
           {view==="home" && (
             <>
