@@ -33,6 +33,34 @@ const THEME_VARS = {
 
 function genId() { return Math.random().toString(36).slice(2,10); }
 
+// Follow-up automatico: un lead "in corso" (contattato/proposta/trattativa)
+// senza un nuovo contatto da FOLLOWUP_DAYS_THRESHOLD giorni rischia di
+// essere dimenticato — invece di doverlo notare scorrendo a occhio le date,
+// la card lo segnala da sola con un badge.
+const FOLLOWUP_STAGES = ["contattato","proposta_inviata","in_trattativa"];
+const FOLLOWUP_DAYS_THRESHOLD = 4;
+function daysSince(dateStr) {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return null;
+  const today = new Date(new Date().toISOString().slice(0,10));
+  return Math.floor((today - new Date(dateStr)) / 86400000);
+}
+function isFollowUpDue(entry) {
+  if (entry.tipo !== "lead" || !FOLLOWUP_STAGES.includes(entry.stage)) return false;
+  const days = daysSince(entry.ultimo_contatto || entry.data);
+  return days != null && days >= FOLLOWUP_DAYS_THRESHOLD;
+}
+
+// Firma personalizzabile: salvata in localStorage, non su Notion (è una
+// preferenza personale di Dario, non un dato del lead) — così resta
+// impostata una volta e viene appesa automaticamente ai messaggi email.
+const SIGNATURE_KEY = "dario-outreach-signature";
+const EMPTY_SIGNATURE = { nome:"Dario Angeloro", email:"", telefono:"", calendly:"" };
+function loadSignature() {
+  try { const s = localStorage.getItem(SIGNATURE_KEY); return s ? { ...EMPTY_SIGNATURE, ...JSON.parse(s) } : EMPTY_SIGNATURE; } catch { return EMPTY_SIGNATURE; }
+}
+
 // Config per canale: cambia lunghezza/tono richiesti al modello e se va
 // generato anche un oggetto (solo email ha senso averne uno).
 const CHANNEL_CONFIG = {
@@ -198,17 +226,26 @@ function InfoRow({ icon, value, href, dim=false, fs }) {
 
 function EntryCard({ entry, onEdit, onDelete, onGenMsg, fs, onDragStart, isDragging, onIncrTentativi }) {
   const color = stageColor(entry.stage, entry.tipo);
+  const followUpDue = isFollowUpDue(entry);
   return (
     <div
       draggable
       onDragStart={e => onDragStart(e, entry)}
       style={{
-        background:"var(--c-panel)", border:"1px solid var(--c-border)",
+        background:"var(--c-panel)", border: followUpDue ? "1px solid #F59E0B80" : "1px solid var(--c-border)",
         borderLeft:`3px solid ${color}`, borderRadius:9, padding:11,
         cursor:"grab", opacity: isDragging ? 0.4 : 1,
         transition:"opacity 0.15s", userSelect:"none",
       }}
     >
+      {/* Badge follow-up: lead "in corso" senza contatto da N giorni */}
+      {followUpDue && (
+        <button onMouseDown={e=>e.stopPropagation()} onClick={()=>onGenMsg(entry,"follow_up")}
+          style={{width:"100%",marginBottom:7,padding:"5px 7px",borderRadius:6,border:"1px solid #F59E0B60",background:"#F59E0B18",color:"#F59E0B",cursor:"pointer",fontSize:fs-5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
+          🔔 Pronto per follow-up — {daysSince(entry.ultimo_contatto||entry.data)}g senza contatto
+        </button>
+      )}
+
       {/* Header: nome + azioni */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
         <div style={{flex:1,paddingRight:6}}>
@@ -388,7 +425,12 @@ function ListView({ entries, fs, onEdit, onDelete, onGenMsg }) {
               <div style={{...cell,gap:4}}>
                 <button onClick={()=>onEdit(entry)} style={{width:24,height:24,borderRadius:5,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-dim)",cursor:"pointer",fontSize:10}}>✏️</button>
                 <button onClick={()=>onDelete(entry.id)} style={{width:24,height:24,borderRadius:5,border:"1px solid #2A1A1A",background:"transparent",color:"#EF4444",cursor:"pointer",fontSize:12,fontWeight:700}}>×</button>
-                {entry.tipo==="lead" && <button onClick={()=>onGenMsg(entry)} title="Genera messaggio" style={{width:24,height:24,borderRadius:5,border:"1px solid #3B82F640",background:"#3B82F610",color:"#3B82F6",cursor:"pointer",fontSize:11}}>🤖</button>}
+                {entry.tipo==="lead" && (
+                <button onClick={()=>onGenMsg(entry)} title={isFollowUpDue(entry)?"Pronto per follow-up":"Genera messaggio"}
+                  style={{width:24,height:24,borderRadius:5,border:`1px solid ${isFollowUpDue(entry)?"#F59E0B60":"#3B82F640"}`,background:isFollowUpDue(entry)?"#F59E0B18":"#3B82F610",color:isFollowUpDue(entry)?"#F59E0B":"#3B82F6",cursor:"pointer",fontSize:11}}>
+                  {isFollowUpDue(entry)?"🔔":"🤖"}
+                </button>
+              )}
               </div>
             </div>
           );
@@ -418,6 +460,17 @@ export default function PipelinePage({ fontSize=14, theme="dark" }) {
   const [msgText, setMsgText]       = useState("");
   const [msgCopied, setMsgCopied]   = useState(false);
   const [msgHistory, setMsgHistory] = useState([]);
+  const [signature, setSignature]   = useState(EMPTY_SIGNATURE);
+  const [showSigEditor, setShowSigEditor] = useState(false);
+
+  useEffect(()=>{ setSignature(loadSignature()); },[]);
+  const updateSignature = (patch)=>{
+    setSignature(prev=>{
+      const updated = { ...prev, ...patch };
+      try { localStorage.setItem(SIGNATURE_KEY, JSON.stringify(updated)); } catch {}
+      return updated;
+    });
+  };
   const [csvPreview, setCsvPreview] = useState(null); // entries parsate, in attesa di conferma
   const [csvImporting, setCsvImporting] = useState(false);
   const fileInputRef = useRef(null);
@@ -529,8 +582,8 @@ export default function PipelinePage({ fontSize=14, theme="dark" }) {
     setCsvImporting(false);
     setCsvPreview(null);
   };
-  const openGenMsg  = (entry)=>{
-    setMsgLead(entry); setMsgType("primo_contatto"); setMsgCanale("email"); setMsgExtra("");
+  const openGenMsg  = (entry, presetType)=>{
+    setMsgLead(entry); setMsgType(presetType || "primo_contatto"); setMsgCanale("email"); setMsgExtra("");
     setMsgText(""); setMsgSubject(""); setMsgCopied(false);
     setMsgHistory(entry.messaggi || []);
   };
@@ -558,7 +611,7 @@ export default function PipelinePage({ fontSize=14, theme="dark" }) {
     try {
       const res=await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
         model:"claude-sonnet-4-6",max_tokens:1000,
-        system:[{type:"text",text:`Sei Dario Angeloro, fondatore di IAGREX SRL — agenzia di performance marketing specializzata in Meta Ads e Shopify per e-commerce italiani. Risultati medi clienti: +30-60% ROAS nei primi 60 giorni.\n\nScrivi messaggi di outreach in italiano: professionali, personalizzati, credibili. Non usare "spero che tu stia bene". Vai subito al punto con proposta di valore specifica per quel settore. Se il messaggio prevede una firma, firma sempre come "Dario Angeloro" (mai altri nomi).\n\n${canale.instruction}${canale.hasSubject?`\n\nFormatta SEMPRE la risposta così, senza altro testo:\nOGGETTO: <oggetto qui>\nMESSAGGIO:\n<corpo del messaggio qui>`:"\n\nRispondi con il solo testo del messaggio, senza intestazioni o virgolette."}`,cache_control:{type:"ephemeral"}}],
+        system:[{type:"text",text:`Sei Dario Angeloro, fondatore di IAGREX SRL — agenzia di performance marketing specializzata in Meta Ads e Shopify per e-commerce italiani. Risultati medi clienti: +30-60% ROAS nei primi 60 giorni.\n\nScrivi messaggi di outreach in italiano: professionali, personalizzati, credibili. Non usare "spero che tu stia bene". Vai subito al punto con proposta di valore specifica per quel settore.\n\n${canale.instruction}${canale.hasSubject?`\n\nNon aggiungere una firma finale (nome/ruolo/azienda) al messaggio: viene aggiunta automaticamente dopo, non serve scriverla tu — il messaggio deve terminare con l'ultima frase di contenuto.\n\nFormatta SEMPRE la risposta così, senza altro testo:\nOGGETTO: <oggetto qui>\nMESSAGGIO:\n<corpo del messaggio qui>`:"\n\nRispondi con il solo testo del messaggio, senza intestazioni o virgolette."}`,cache_control:{type:"ephemeral"}}],
         messages:[{role:"user",content:`Scrivi un messaggio di ${typeMap[msgType]||"primo contatto"} per:\n\nAzienda: ${msgLead.nome}\nSettore: ${msgLead.settore||"e-commerce"}\nReferente: ${msgLead.contatto||"non specificato"}\nBudget stimato: ${msgLead.budget?msgLead.budget+"€/mese":"non specificato"}\nTentativi precedenti: ${msgLead.tentativi||0}\nNote: ${msgLead.note||"nessuna"}${presenza?`\nPresenza online:\n${presenza}`:""}${storico?`\n\nMessaggi già inviati in precedenza a questo lead (NON ripetere lo stesso aggancio/apertura):\n${storico}`:""}${extra?`\nIstruzioni aggiuntive: ${extra}`:""}`}],
         agentId:"mario"
       })});
@@ -587,10 +640,27 @@ export default function PipelinePage({ fontSize=14, theme="dark" }) {
     setMsgLoading(false);
   };
 
+  // Firma aggiunta in coda solo per i canali con oggetto (email/proposta):
+  // su WhatsApp/LinkedIn/Instagram una firma formale stona (il canale
+  // stesso mostra già chi scrive) e le istruzioni al modello per quei
+  // canali già dicono di non metterla.
+  const activeChannelHasSubject = (CHANNEL_CONFIG[msgCanale] || CHANNEL_CONFIG.email).hasSubject;
+  const signatureBlock = [signature.nome, signature.email, signature.telefono, signature.calendly].filter(Boolean).join("\n");
+  const fullMessage = (activeChannelHasSubject && signatureBlock) ? `${msgText}\n\n${signatureBlock}` : msgText;
+
   const copyMessage = ()=>{
-    const full = msgSubject ? `Oggetto: ${msgSubject}\n\n${msgText}` : msgText;
+    const full = msgSubject ? `Oggetto: ${msgSubject}\n\n${fullMessage}` : fullMessage;
     navigator.clipboard.writeText(full).then(()=>{ setMsgCopied(true); setTimeout(()=>setMsgCopied(false),2500); });
   };
+
+  // Invio diretto (punto 2 del batch): apre WhatsApp/email già precompilati
+  // invece di dover copiare e incollare a mano nell'altra app.
+  const whatsappHref = msgLead?.telefono
+    ? `https://wa.me/${msgLead.telefono.replace(/\D/g,"")}?text=${encodeURIComponent(msgText)}`
+    : null;
+  const mailtoHref = msgLead?.email
+    ? `mailto:${msgLead.email}?subject=${encodeURIComponent(msgSubject||"")}&body=${encodeURIComponent(fullMessage)}`
+    : null;
 
   const filtered      = entries.filter(e=>filter==="tutti"||e.tipo===filter);
   const activeClients = entries.filter(e=>e.tipo==="cliente"&&e.stage==="attivo");
@@ -741,6 +811,27 @@ export default function PipelinePage({ fontSize=14, theme="dark" }) {
                 style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:12,outline:"none",resize:"vertical",fontFamily:"inherit"}}/>
             </div>
 
+            {/* Firma (punto 1 del batch): salvata in locale, appesa in automatico ai messaggi email/proposta */}
+            <div style={{marginBottom:14}}>
+              <button onClick={()=>setShowSigEditor(s=>!s)}
+                style={{display:"flex",alignItems:"center",gap:5,padding:0,border:"none",background:"transparent",color:"var(--c-text-faint)",cursor:"pointer",fontSize:11}}>
+                ✏️ Firma{signature.nome?`: ${signature.nome}`:""} {showSigEditor?"▲":"▼"}
+              </button>
+              {showSigEditor && (
+                <div style={{marginTop:8,padding:10,borderRadius:8,border:"1px solid var(--c-border)",background:"var(--c-bg)",display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                  <input value={signature.nome} onChange={e=>updateSignature({nome:e.target.value})} placeholder="Nome"
+                    style={{padding:"7px 9px",borderRadius:6,border:"1px solid var(--c-border)",background:"var(--c-panel)",color:"var(--c-text)",fontSize:12,outline:"none",gridColumn:"1 / -1"}}/>
+                  <input value={signature.email} onChange={e=>updateSignature({email:e.target.value})} placeholder="Email"
+                    style={{padding:"7px 9px",borderRadius:6,border:"1px solid var(--c-border)",background:"var(--c-panel)",color:"var(--c-text)",fontSize:12,outline:"none"}}/>
+                  <input value={signature.telefono} onChange={e=>updateSignature({telefono:e.target.value})} placeholder="Telefono"
+                    style={{padding:"7px 9px",borderRadius:6,border:"1px solid var(--c-border)",background:"var(--c-panel)",color:"var(--c-text)",fontSize:12,outline:"none"}}/>
+                  <input value={signature.calendly} onChange={e=>updateSignature({calendly:e.target.value})} placeholder="Link calendario (Calendly ecc.)"
+                    style={{padding:"7px 9px",borderRadius:6,border:"1px solid var(--c-border)",background:"var(--c-panel)",color:"var(--c-text)",fontSize:12,outline:"none",gridColumn:"1 / -1"}}/>
+                  <div style={{fontSize:9,color:"var(--c-text-faintest)",gridColumn:"1 / -1"}}>Si aggiunge automaticamente in coda ai messaggi Email/Proposta (non su WhatsApp/LinkedIn/Instagram).</div>
+                </div>
+              )}
+            </div>
+
             <button onClick={()=>generateMessage()} disabled={msgLoading}
               style={{width:"100%",padding:"11px",borderRadius:8,border:"none",background:msgLoading?"var(--c-border)":"#3B82F6",color:msgLoading?"var(--c-text-faint)":"#fff",cursor:msgLoading?"not-allowed":"pointer",fontSize:13,fontWeight:700,marginBottom:14}}>
               {msgLoading?"⏳ Generazione in corso...":"🤖 Genera Messaggio"}
@@ -755,6 +846,9 @@ export default function PipelinePage({ fontSize=14, theme="dark" }) {
                 )}
                 <div style={{background:"var(--c-bg)",border:"1px solid var(--c-border)",borderRadius:8,padding:14,marginBottom:10}}>
                   <pre style={{margin:0,fontSize:13,color:"var(--c-text)",lineHeight:1.7,whiteSpace:"pre-wrap",fontFamily:"inherit"}}>{msgText}</pre>
+                  {activeChannelHasSubject && signatureBlock && (
+                    <pre style={{margin:"10px 0 0",paddingTop:10,borderTop:"1px solid var(--c-border)",fontSize:13,color:"var(--c-text-faint)",lineHeight:1.7,whiteSpace:"pre-wrap",fontFamily:"inherit"}}>{signatureBlock}</pre>
+                  )}
                 </div>
 
                 {/* Rifinitura rapida (punto 6): un click aggiunge l'istruzione e rigenera subito */}
@@ -767,12 +861,24 @@ export default function PipelinePage({ fontSize=14, theme="dark" }) {
                   ))}
                 </div>
 
-                <div style={{display:"flex",gap:8}}>
+                <div style={{display:"flex",gap:8,marginBottom: (whatsappHref||mailtoHref) ? 8 : 0}}>
                   <button onClick={copyMessage} style={{flex:1,padding:"9px",borderRadius:8,border:`1px solid ${msgCopied?"#10B981":"var(--c-border)"}`,background:msgCopied?"#10B98120":"transparent",color:msgCopied?"#10B981":"var(--c-text-muted)",cursor:"pointer",fontSize:12,fontWeight:600}}>
                     {msgCopied?"✅ Copiato!":"📋 Copia"}
                   </button>
                   <button onClick={()=>generateMessage()} disabled={msgLoading} style={{flex:1,padding:"9px",borderRadius:8,border:"1px solid #3B82F640",background:"#3B82F610",color:"#3B82F6",cursor:"pointer",fontSize:12,fontWeight:600}}>🔄 Rigenera</button>
                 </div>
+
+                {/* Invio diretto (punto 2 del batch): apre WhatsApp/email già precompilati */}
+                {msgCanale==="whatsapp" && (
+                  whatsappHref
+                    ? <a href={whatsappHref} target="_blank" rel="noreferrer" style={{display:"block",textAlign:"center",padding:"9px",borderRadius:8,border:"none",background:"#25D366",color:"#fff",textDecoration:"none",fontSize:12,fontWeight:700}}>📲 Apri in WhatsApp</a>
+                    : <div style={{fontSize:11,color:"var(--c-text-faintest)",textAlign:"center"}}>Aggiungi un numero di telefono al lead per aprire WhatsApp direttamente.</div>
+                )}
+                {activeChannelHasSubject && (
+                  mailtoHref
+                    ? <a href={mailtoHref} style={{display:"block",textAlign:"center",padding:"9px",borderRadius:8,border:"none",background:"#3B82F6",color:"#fff",textDecoration:"none",fontSize:12,fontWeight:700}}>✉️ Apri in Email</a>
+                    : <div style={{fontSize:11,color:"var(--c-text-faintest)",textAlign:"center"}}>Aggiungi un'email al lead per aprire il client di posta direttamente.</div>
+                )}
               </>
             )}
 
