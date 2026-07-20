@@ -444,7 +444,7 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
   );
 
   return (
-    <div style={{...themeVars,display:"flex",flexDirection:"column",height:"100%",overflow:"hidden",background:"var(--c-bg)"}}>
+    <div style={{...themeVars,display:"flex",flexDirection:"column",height:"100%",overflow:isMobile?"auto":"hidden",background:"var(--c-bg)"}}>
 
       {/* Header */}
       <div style={{padding:"14px 20px",borderBottom:"1px solid var(--c-border)",flexShrink:0}}>
@@ -525,7 +525,7 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
       {loading && <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",color:"var(--c-text-faintest)"}}>⏳ Caricamento...</div>}
 
       {!loading && (
-        <div style={{flex:1,overflowY:"auto",padding:16}}>
+        <div style={{flex:isMobile?"unset":1,overflowY:isMobile?"visible":"auto",padding:16,minHeight:isMobile?0:undefined}}>
 
           {tab==="entrate" && (
             <div>
