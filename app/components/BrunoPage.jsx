@@ -558,16 +558,19 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
           {/* ENTRATE */}
           {tab==="entrate" && (
             <div>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12, gap:8, flexWrap:"wrap" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10, gap:8 }}>
                 <div style={{ fontSize:fs-2, color:"var(--c-text-dim)" }}>Totale: <span style={{ color:"#10B981", fontWeight:700 }}>+{fmt(monthData.entrate.filter(inDateRange).reduce((s,e)=>s+toEur(e),0))}€</span></div>
-                <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
+                <button onClick={()=>openAdd("entrata")} style={{ padding:"6px 14px", borderRadius:7, border:"none", background:"#10B981", color:"#fff", cursor:"pointer", fontSize:12, fontWeight:600, whiteSpace:"nowrap" }}>+ Aggiungi</button>
+              </div>
+              <div style={{ display:"flex", flexDirection:isMobile?"column":"row", alignItems:isMobile?"stretch":"center", gap:6, marginBottom:12, padding:"8px 10px", background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:8 }}>
+                <span style={{ fontSize:11, color:"var(--c-text-faint)", whiteSpace:"nowrap" }}>📅 Periodo</span>
+                <div style={{ display:"flex", alignItems:"center", gap:6, flex:1 }}>
                   <input type="date" value={filtroDataDa} onChange={e=>setFiltroDataDa(e.target.value)} title="Data da"
-                    style={{ padding:"6px 8px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-panel)", color:"var(--c-text)", fontSize:12 }}/>
+                    style={{ flex:1, minWidth:0, padding:"6px 8px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:12 }}/>
                   <span style={{ fontSize:11, color:"var(--c-text-faint)" }}>–</span>
                   <input type="date" value={filtroDataA} onChange={e=>setFiltroDataA(e.target.value)} title="Data a"
-                    style={{ padding:"6px 8px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-panel)", color:"var(--c-text)", fontSize:12 }}/>
-                  {(filtroDataDa||filtroDataA) && <button onClick={()=>{setFiltroDataDa("");setFiltroDataA("");}} style={{ padding:"6px 8px", borderRadius:7, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-faint)", cursor:"pointer", fontSize:11 }}>✕</button>}
-                  <button onClick={()=>openAdd("entrata")} style={{ padding:"6px 14px", borderRadius:7, border:"none", background:"#10B981", color:"#fff", cursor:"pointer", fontSize:12, fontWeight:600 }}>+ Aggiungi</button>
+                    style={{ flex:1, minWidth:0, padding:"6px 8px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:12 }}/>
+                  {(filtroDataDa||filtroDataA) && <button onClick={()=>{setFiltroDataDa("");setFiltroDataA("");}} style={{ flexShrink:0, padding:"6px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-faint)", cursor:"pointer", fontSize:11 }}>✕</button>}
                 </div>
               </div>
               <div style={{ background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10, overflow:"hidden" }}>
@@ -591,20 +594,26 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
           {/* USCITE */}
           {tab==="uscite" && (
             <div>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12, gap:8, flexWrap:"wrap" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10, gap:8 }}>
                 <div style={{ fontSize:fs-2, color:"var(--c-text-dim)" }}>Totale: <span style={{ color:"#EF4444", fontWeight:700 }}>-{fmt(monthData.uscite.filter(e=>(!filtroConto||e.conto===filtroConto)&&inDateRange(e)).reduce((s,e)=>s+toEur(e),0))}€</span></div>
-                <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
-                  <select value={filtroConto} onChange={e=>setFiltroConto(e.target.value)} style={{ padding:"6px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-panel)", color:"var(--c-text)", fontSize:12 }}>
+                <button onClick={()=>openAdd("uscita")} style={{ padding:"6px 14px", borderRadius:7, border:"none", background:"#EF4444", color:"#fff", cursor:"pointer", fontSize:12, fontWeight:600, whiteSpace:"nowrap" }}>+ Aggiungi</button>
+              </div>
+              <div style={{ display:"flex", flexDirection:isMobile?"column":"row", alignItems:isMobile?"stretch":"center", gap:6, marginBottom:12, padding:"8px 10px", background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:8 }}>
+                <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                  <span style={{ fontSize:11, color:"var(--c-text-faint)", whiteSpace:"nowrap" }}>🏦 Conto</span>
+                  <select value={filtroConto} onChange={e=>setFiltroConto(e.target.value)} style={{ flex:isMobile?1:"none", minWidth:0, padding:"6px 8px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:12 }}>
                     <option value="">Tutti i conti</option>
                     {CONTI.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
                   </select>
+                </div>
+                <div style={{ display:"flex", alignItems:"center", gap:6, flex:1 }}>
+                  <span style={{ fontSize:11, color:"var(--c-text-faint)", whiteSpace:"nowrap" }}>📅 Periodo</span>
                   <input type="date" value={filtroDataDa} onChange={e=>setFiltroDataDa(e.target.value)} title="Data da"
-                    style={{ padding:"6px 8px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-panel)", color:"var(--c-text)", fontSize:12 }}/>
+                    style={{ flex:1, minWidth:0, padding:"6px 8px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:12 }}/>
                   <span style={{ fontSize:11, color:"var(--c-text-faint)" }}>–</span>
                   <input type="date" value={filtroDataA} onChange={e=>setFiltroDataA(e.target.value)} title="Data a"
-                    style={{ padding:"6px 8px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-panel)", color:"var(--c-text)", fontSize:12 }}/>
-                  {(filtroDataDa||filtroDataA) && <button onClick={()=>{setFiltroDataDa("");setFiltroDataA("");}} style={{ padding:"6px 8px", borderRadius:7, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-faint)", cursor:"pointer", fontSize:11 }}>✕</button>}
-                  <button onClick={()=>openAdd("uscita")} style={{ padding:"6px 14px", borderRadius:7, border:"none", background:"#EF4444", color:"#fff", cursor:"pointer", fontSize:12, fontWeight:600 }}>+ Aggiungi</button>
+                    style={{ flex:1, minWidth:0, padding:"6px 8px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:12 }}/>
+                  {(filtroDataDa||filtroDataA) && <button onClick={()=>{setFiltroDataDa("");setFiltroDataA("");}} style={{ flexShrink:0, padding:"6px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-faint)", cursor:"pointer", fontSize:11 }}>✕</button>}
                 </div>
               </div>
               {/* Raggruppate per categoria (filtrate per conto e/o data se selezionati) */}
