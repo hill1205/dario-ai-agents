@@ -28,7 +28,7 @@ async function readStreakDoc() {
 async function writeStreakDoc(days) {
   const json = JSON.stringify(days);
   const content = `STORICO STREAK ROUTINE DARIO\n\nNon modificare a mano: viene letto/scritto dalla dashboard.\n\nSTREAK_DATA_JSON:${json}`;
-  await fetch(
+  const res = await fetch(
     `https://api.clickup.com/api/v3/workspaces/${WORKSPACE_ID}/docs/${DOC_ID}/pages/${PAGE_ID}`,
     {
       method: "PUT",
@@ -36,6 +36,7 @@ async function writeStreakDoc(days) {
       body: JSON.stringify({ content }),
     }
   );
+  if (!res.ok) throw new Error(`ClickUp doc write error: ${res.status}`);
 }
 
 // Calcola lo streak corrente: numero di giorni consecutivi (fino a oggi o
