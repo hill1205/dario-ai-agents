@@ -140,6 +140,7 @@ export async function POST(req) {
       } while (cursor);
     }
 
+    const failed = [];
     for (const entry of entries) {
       const properties = {
         "Nome":     { title: [{ text: { content: entry.nome || "" } }] },
@@ -164,22 +165,23 @@ export async function POST(req) {
       const nameKey = (entry.nome || "").toLowerCase().trim();
       const matchedByName = existingByName.get(nameKey);
 
+      let res;
       if (entry.notionId || (entry.id && entry.id.includes("-"))) {
         // Pagina esistente su Notion -> update
         const pageId = entry.notionId || entry.id;
-        await notionFetch(`/pages/${pageId}`, {
+        res = await notionFetch(`/pages/${pageId}`, {
           method: "PATCH",
           body: JSON.stringify({ properties }),
         });
       } else if (matchedByName) {
         // Trovata pagina con lo stesso nome -> update invece di creare doppione
-        await notionFetch(`/pages/${matchedByName}`, {
+        res = await notionFetch(`/pages/${matchedByName}`, {
           method: "PATCH",
           body: JSON.stringify({ properties }),
         });
       } else {
         // Nuova entry, nessun match -> crea pagina su Notion
-        await notionFetch(`/pages`, {
+        res = await notionFetch(`/pages`, {
           method: "POST",
           body: JSON.stringify({
             parent: { data_source_id: DATA_SOURCE_ID },
@@ -187,8 +189,24 @@ export async function POST(req) {
           }),
         });
       }
+      // Non ignorare un fallimento della singola entry: senza questo
+      // controllo il loop proseguiva e la route rispondeva comunque
+      // "success: true" anche se quella entry non era stata salvata su
+      // Notion (es. rate limit o proprietà non valida) — l'utente vedeva
+      // il salvataggio andare a buon fine mentre in realtà aveva perso dati.
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "");
+        failed.push({ nome: entry.nome || "(senza nome)", status: res.status, error: errText });
+      }
     }
 
+    if (failed.length) {
+      // Status non-2xx (non 207, che è comunque nel range 2xx) così il
+      // frontend, che controlla solo res.ok, mostra correttamente "errore"
+      // invece di "salvato" quando anche una sola entry non è andata a buon
+      // fine su Notion.
+      return NextResponse.json({ success: false, error: "Alcune entry non sono state salvate su Notion", failed }, { status: 500 });
+    }
     return NextResponse.json({ success: true });
   } catch (e) {
     return NextResponse.json({ error: e.message }, { status: 500 });
