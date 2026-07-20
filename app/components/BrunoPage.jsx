@@ -483,6 +483,33 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
     return true;
   };
 
+  // Esporta in CSV esattamente le righe filtrate (stesso periodo/conto
+  // visibili a schermo), non l'intero mese: così l'export corrisponde
+  // sempre a quello che l'utente sta guardando. Generato lato client con
+  // un Blob, senza passare dal server.
+  const exportCSV = (items, tipo) => {
+    const header = ["Data","Descrizione","Categoria","Conto","Importo","Valuta"];
+    const rows = items.map(e => [
+      e.data || "",
+      (e.descrizione||"").replace(/"/g,'""'),
+      (e.categoria||"").replace(/"/g,'""'),
+      CONTI_BY_ID[e.conto]?.label || e.conto || "",
+      e.importo,
+      contoCurrency(e.conto)==="RON"?"RON":"EUR",
+    ]);
+    const csv = [header, ...rows].map(r => r.map(v => `"${v}"`).join(";")).join("\n");
+    const blob = new Blob(["﻿"+csv], { type:"text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const periodo = (filtroDataDa||filtroDataA) ? `${filtroDataDa||"inizio"}_${filtroDataA||"fine"}` : month;
+    a.href = url;
+    a.download = `${tipo}_${periodo}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   const Cell = ({ style={}, children }) => (
     <div style={{ padding:"10px 12px", fontSize:fs-2, color:"var(--c-text-muted)", display:"flex", alignItems:"center", ...style }}>{children}</div>
   );
@@ -571,6 +598,8 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                   <input type="date" value={filtroDataA} onChange={e=>setFiltroDataA(e.target.value)} title="Data a"
                     style={{ flex:1, minWidth:0, padding:"6px 8px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:12 }}/>
                   {(filtroDataDa||filtroDataA) && <button onClick={()=>{setFiltroDataDa("");setFiltroDataA("");}} style={{ flexShrink:0, padding:"6px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-faint)", cursor:"pointer", fontSize:11 }}>✕</button>}
+                  <button onClick={()=>exportCSV(monthData.entrate.filter(inDateRange),"entrate")} title="Esporta le entrate filtrate in CSV"
+                    style={{ flexShrink:0, padding:"6px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-dim)", cursor:"pointer", fontSize:11, whiteSpace:"nowrap" }}>📥 CSV</button>
                 </div>
               </div>
               <div style={{ background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10, overflow:"hidden" }}>
@@ -614,6 +643,8 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                   <input type="date" value={filtroDataA} onChange={e=>setFiltroDataA(e.target.value)} title="Data a"
                     style={{ flex:1, minWidth:0, padding:"6px 8px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:12 }}/>
                   {(filtroDataDa||filtroDataA) && <button onClick={()=>{setFiltroDataDa("");setFiltroDataA("");}} style={{ flexShrink:0, padding:"6px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-faint)", cursor:"pointer", fontSize:11 }}>✕</button>}
+                  <button onClick={()=>exportCSV(monthData.uscite.filter(e=>(!filtroConto||e.conto===filtroConto)&&inDateRange(e)),"uscite")} title="Esporta le uscite filtrate in CSV"
+                    style={{ flexShrink:0, padding:"6px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-dim)", cursor:"pointer", fontSize:11, whiteSpace:"nowrap" }}>📥 CSV</button>
                 </div>
               </div>
               {/* Raggruppate per categoria (filtrate per conto e/o data se selezionati) */}
