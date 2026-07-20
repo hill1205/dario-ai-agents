@@ -197,6 +197,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
   const [allData, setAllData]   = useState({});
   const [month, setMonth]       = useState(getCurrentMonth());
   const [tab, setTab]           = useState("entrate");
+  const [filtroConto, setFiltroConto] = useState("");
   const [loading, setLoading]   = useState(true);
   const [saveStatus, setSaveStatus] = useState(null);
   const [modal, setModal]       = useState(null); // {tipo:"entrata"|"uscita", mode:"add"|"edit", item?}
@@ -473,13 +474,21 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
           {/* USCITE */}
           {tab==="uscite" && (
             <div>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
-                <div style={{ fontSize:fs-2, color:"var(--c-text-dim)" }}>Totale: <span style={{ color:"#EF4444", fontWeight:700 }}>-{fmt(totUscite)}€</span></div>
-                <button onClick={()=>openAdd("uscita")} style={{ padding:"6px 14px", borderRadius:7, border:"none", background:"#EF4444", color:"#fff", cursor:"pointer", fontSize:12, fontWeight:600 }}>+ Aggiungi</button>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12, gap:8, flexWrap:"wrap" }}>
+                <div style={{ fontSize:fs-2, color:"var(--c-text-dim)" }}>Totale: <span style={{ color:"#EF4444", fontWeight:700 }}>-{fmt(filtroConto ? monthData.uscite.filter(e=>e.conto===filtroConto).reduce((s,e)=>s+toEur(e),0) : totUscite)}€</span></div>
+                <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                  <select value={filtroConto} onChange={e=>setFiltroConto(e.target.value)} style={{ padding:"6px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-panel)", color:"var(--c-text)", fontSize:12 }}>
+                    <option value="">Tutti i conti</option>
+                    {CONTI.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
+                  </select>
+                  <button onClick={()=>openAdd("uscita")} style={{ padding:"6px 14px", borderRadius:7, border:"none", background:"#EF4444", color:"#fff", cursor:"pointer", fontSize:12, fontWeight:600 }}>+ Aggiungi</button>
+                </div>
               </div>
-              {/* Raggruppate per categoria */}
+              {/* Raggruppate per categoria (filtrate per conto se selezionato) */}
               {Object.entries(
-                monthData.uscite.reduce((acc,e)=>{ (acc[e.categoria]=acc[e.categoria]||[]).push(e); return acc; },{})
+                monthData.uscite
+                  .filter(e=>!filtroConto || e.conto===filtroConto)
+                  .reduce((acc,e)=>{ (acc[e.categoria]=acc[e.categoria]||[]).push(e); return acc; },{})
               ).map(([cat,items])=>(
                 <div key={cat} style={{ marginBottom:12 }}>
                   <div style={{ fontSize:fs-3, fontWeight:700, color:"var(--c-text-dim)", textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:6, display:"flex", justifyContent:"space-between" }}>
@@ -489,7 +498,10 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                   <div style={{ background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10, overflow:"hidden" }}>
                     {items.map((e,i)=>(
                       <div key={e.id} style={{ display:"grid", gridTemplateColumns:"1fr auto auto auto", gap:0, borderTop:i===0?"none":"1px solid var(--c-border)", background:i%2===0?"var(--c-panel)":"var(--c-panel2)" }}>
-                        <Cell style={{ color:"var(--c-text)" }}>{e.descrizione}</Cell>
+                        <Cell style={{ flexDirection:"column", alignItems:"flex-start", gap:2 }}>
+                          <span style={{ color:"var(--c-text)" }}>{e.descrizione}</span>
+                          {e.conto && <span style={{ fontSize:fs-4, color:"var(--c-text-faint)" }}>{CONTI_BY_ID[e.conto]?.label||e.conto}</span>}
+                        </Cell>
                         <Cell style={{ color:"#EF4444", fontWeight:700 }}>-{fmt(e.importo)}{contoCurrency(e.conto)==="RON"?" RON":"€"}</Cell>
                         <Cell><button onClick={()=>openEdit("uscita",e)} style={{ width:24, height:24, borderRadius:5, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-dim)", cursor:"pointer", fontSize:10 }}>✏️</button></Cell>
                         <Cell><button onClick={()=>deleteItem("uscita",e.id)} style={{ width:24, height:24, borderRadius:5, border:"1px solid #2A1A1A", background:"transparent", color:"#EF4444", cursor:"pointer", fontSize:12, fontWeight:700 }}>×</button></Cell>
