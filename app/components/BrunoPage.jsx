@@ -635,6 +635,15 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                   <div style={{ padding:"8px 12px", borderTop:"1px solid var(--c-border)", fontSize:fs-4, color:"var(--c-text-faintest)" }}>
                     Conti in RON convertiti a EUR (÷{rate.toFixed(2)}{rateIsLive?" · cambio live BCE":" · cambio fisso di riserva"})
                   </div>
+                  <div style={{ padding:"10px 12px", borderTop:"1px solid var(--c-border)", display:"flex", justifyContent:"space-between", alignItems:"center", background:"var(--c-bg)" }}>
+                    <div>
+                      <div style={{ fontSize:fs-2, fontWeight:700, color:"#F59E0B" }}>Totale liquidità RON</div>
+                      <div style={{ fontSize:fs-4, color:"var(--c-text-faintest)", marginTop:2 }}>Revolut RON + UniCredit Romania</div>
+                    </div>
+                    <span style={{ fontSize:fs-1, fontWeight:800, color:"#F59E0B" }}>
+                      {fmt((parseFloat(monthData.saldi?.revolut_ron)||0) + (parseFloat(monthData.saldi?.unicredit_ron)||0))} RON
+                    </span>
+                  </div>
                   <div style={{ padding:"10px 12px", borderTop:"1px solid var(--c-border)", display:"flex", justifyContent:"space-between", background:"var(--c-bg)" }}>
                     <span style={{ fontSize:fs-2, fontWeight:700, color:"#8B5CF6" }}>Totale liquidità</span>
                     <span style={{ fontSize:fs-1, fontWeight:800, color:"#8B5CF6" }}>{fmt(totPatrimonio - (parseFloat(monthData.investimenti)||0) - (parseFloat(monthData.risparmi)||0))}€</span>
