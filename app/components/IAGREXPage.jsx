@@ -136,13 +136,26 @@ function CategoryBars({ data, total, color, fs, fmt }) {
   });
 }
 
-export default function IAGREXPage({ fontSize=14, onBack, theme="dark" }) {
+export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile: isMobileProp }) {
   const fs = fontSize;
   const themeVars = THEME_VARS[theme] || THEME_VARS.dark;
+  // isMobile può arrivare da page.jsx; se non arriva (component usato
+  // altrove) lo calcoliamo qui come fallback — stesso pattern di BrunoPage.
+  const [isMobileLocal, setIsMobileLocal] = useState(false);
+  useEffect(()=>{
+    if (isMobileProp !== undefined) return;
+    const check = ()=>setIsMobileLocal(window.innerWidth<640);
+    check();
+    window.addEventListener("resize",check);
+    return ()=>window.removeEventListener("resize",check);
+  },[isMobileProp]);
+  const isMobile = isMobileProp !== undefined ? isMobileProp : isMobileLocal;
   const [allData, setAllData]     = useState({});
   const [month, setMonth]         = useState(getCurrentMonth());
   const [tab, setTab]             = useState("entrate");
   const [filtroConto, setFiltroConto] = useState("");
+  const [filtroDataDa, setFiltroDataDa] = useState("");
+  const [filtroDataA, setFiltroDataA]   = useState("");
   const [loading, setLoading]     = useState(true);
   const [saveStatus, setSaveStatus] = useState(null);
   const [modal, setModal]         = useState(null);
@@ -275,7 +288,7 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark" }) {
   const usciteByCat  = monthData.uscite.filter(isReal).reduce((acc,e)=>{ acc[e.categoria]=(acc[e.categoria]||0)+toEur(e); return acc; },{});
   const entrateByCat = monthData.entrate.filter(isReal).reduce((acc,e)=>{ acc[e.categoria]=(acc[e.categoria]||0)+toEur(e); return acc; },{});
 
-  const openAdd = (tipo) => { setForm({descrizione:"",importo:"",categoria:tipo==="entrata"?CAT_ENTRATE[0]:CAT_USCITE[0],cliente:"",conto:CONTI_IAGREX[0].id}); setModal({tipo,mode:"add"}); };
+  const openAdd = (tipo) => { setForm({descrizione:"",importo:"",categoria:tipo==="entrata"?CAT_ENTRATE[0]:CAT_USCITE[0],cliente:"",conto:CONTI_IAGREX[0].id,data:new Date().toISOString().slice(0,10)}); setModal({tipo,mode:"add"}); };
   const openEdit = (tipo,item) => { setForm({...item}); setModal({tipo,mode:"edit",item}); };
   const closeModal = () => { setModal(null); setForm({}); };
 
@@ -337,6 +350,43 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark" }) {
 
   const updateSaldo = (contoId,val) => {
     updateMonth({...monthData,saldi:{...monthData.saldi,[contoId]:parseFloat(val)||0}});
+  };
+
+  // Filtro data (entrate/uscite): confronto su stringhe "YYYY-MM-DD",
+  // ignora le voci senza data quando il filtro è attivo (stessa logica di
+  // BrunoPage).
+  const inDateRange = (item) => {
+    if (!filtroDataDa && !filtroDataA) return true;
+    if (!item.data) return false;
+    if (filtroDataDa && item.data < filtroDataDa) return false;
+    if (filtroDataA && item.data > filtroDataA) return false;
+    return true;
+  };
+
+  // Esporta in CSV esattamente le righe filtrate visibili a schermo
+  // (stesso periodo/conto), generato lato client con un Blob.
+  const exportCSV = (items, tipo) => {
+    const header = ["Data","Descrizione","Categoria","Cliente","Conto","Importo","Valuta"];
+    const rows = items.map(e => [
+      e.data || "",
+      (e.descrizione||"").replace(/"/g,'""'),
+      (e.categoria||"").replace(/"/g,'""'),
+      (e.cliente||"").replace(/"/g,'""'),
+      CONTI_IAGREX_BY_ID[e.conto]?.label || e.conto || "",
+      e.importo,
+      contoCurrency(e.conto)==="RON"?"RON":"EUR",
+    ]);
+    const csv = [header, ...rows].map(r => r.map(v => `"${v}"`).join(";")).join("\n");
+    const blob = new Blob(["﻿"+csv], { type:"text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const periodo = (filtroDataDa||filtroDataA) ? `${filtroDataDa||"inizio"}_${filtroDataA||"fine"}` : month;
+    a.href = url;
+    a.download = `${tipo}_iagrex_${periodo}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   // --- Conversione tra conti (es. cambio EUR->RON fatto in banca) -------
@@ -479,49 +529,75 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark" }) {
 
           {tab==="entrate" && (
             <div>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-                <div style={{fontSize:fs-2,color:"var(--c-text-dim)"}}>Totale: <span style={{color:"#10B981",fontWeight:700}}>+{fmt(totEntrate)}€</span></div>
-                <button onClick={()=>openAdd("entrata")} style={{padding:"6px 14px",borderRadius:7,border:"none",background:"#10B981",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:600}}>+ Aggiungi</button>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,gap:8}}>
+                <div style={{fontSize:fs-2,color:"var(--c-text-dim)"}}>Totale: <span style={{color:"#10B981",fontWeight:700}}>+{fmt(monthData.entrate.filter(inDateRange).reduce((s,e)=>s+toEur(e),0))}€</span></div>
+                <button onClick={()=>openAdd("entrata")} style={{padding:"6px 14px",borderRadius:7,border:"none",background:"#10B981",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:600,whiteSpace:"nowrap"}}>+ Aggiungi</button>
+              </div>
+              <div style={{display:"flex",flexDirection:isMobile?"column":"row",alignItems:isMobile?"stretch":"center",gap:6,marginBottom:12,padding:"8px 10px",background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:8}}>
+                <span style={{fontSize:11,color:"var(--c-text-faint)",whiteSpace:"nowrap"}}>📅 Periodo</span>
+                <div style={{display:"flex",alignItems:"center",gap:6,flex:1}}>
+                  <input type="date" value={filtroDataDa} onChange={e=>setFiltroDataDa(e.target.value)} title="Data da"
+                    style={{flex:1,minWidth:0,padding:"6px 8px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:12}}/>
+                  <span style={{fontSize:11,color:"var(--c-text-faint)"}}>–</span>
+                  <input type="date" value={filtroDataA} onChange={e=>setFiltroDataA(e.target.value)} title="Data a"
+                    style={{flex:1,minWidth:0,padding:"6px 8px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:12}}/>
+                  {(filtroDataDa||filtroDataA) && <button onClick={()=>{setFiltroDataDa("");setFiltroDataA("");}} style={{flexShrink:0,padding:"6px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-faint)",cursor:"pointer",fontSize:11}}>✕</button>}
+                  <button onClick={()=>exportCSV(monthData.entrate.filter(inDateRange),"entrate")} title="Esporta le entrate filtrate in CSV"
+                    style={{flexShrink:0,padding:"6px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-dim)",cursor:"pointer",fontSize:11,whiteSpace:"nowrap"}}>📥 CSV</button>
+                </div>
               </div>
               <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,overflow:"hidden"}}>
-                {monthData.entrate.length===0
-                  ? <div style={{padding:20,textAlign:"center",color:"var(--c-text-faintest)",fontSize:fs-2}}>Nessuna entrata — aggiungi la prima</div>
-                  : monthData.entrate.map((e,i)=>(
+                {(() => { const filtered = monthData.entrate.filter(inDateRange); return filtered.length===0
+                  ? <div style={{padding:20,textAlign:"center",color:"var(--c-text-faintest)",fontSize:fs-2}}>{monthData.entrate.length===0?"Nessuna entrata — aggiungi la prima":"Nessuna entrata nel periodo selezionato"}</div>
+                  : filtered.map((e,i)=>(
                     <div key={e.id} style={{display:"grid",gridTemplateColumns:"1fr auto auto auto",gap:0,borderTop:i===0?"none":"1px solid var(--c-border)",background:i%2===0?"var(--c-panel)":"var(--c-panel2)"}}>
                       <Cell style={{flexDirection:"column",alignItems:"flex-start",gap:2}}>
                         <span style={{color:"var(--c-text)",fontWeight:600}}>{e.descrizione}</span>
-                        <span style={{fontSize:fs-4,color:"var(--c-text-faint)"}}>{e.categoria}{e.cliente?` · ${e.cliente}`:""}{e.conto?` · ${CONTI_IAGREX_BY_ID[e.conto]?.label||e.conto}`:""}</span>
+                        <span style={{fontSize:fs-4,color:"var(--c-text-faint)"}}>{e.data?`${e.data} · `:""}{e.categoria}{e.cliente?` · ${e.cliente}`:""}{e.conto?` · ${CONTI_IAGREX_BY_ID[e.conto]?.label||e.conto}`:""}</span>
                       </Cell>
                       <Cell style={{color:"#10B981",fontWeight:700}}>+{fmt(e.importo)}{contoCurrency(e.conto)==="RON"?" RON":"€"}</Cell>
                       <Cell><button onClick={()=>openEdit("entrata",e)} style={{width:24,height:24,borderRadius:5,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-dim)",cursor:"pointer",fontSize:10}}>✏️</button></Cell>
                       <Cell><button onClick={()=>deleteItem("entrata",e.id)} style={{width:24,height:24,borderRadius:5,border:"1px solid #2A1A1A",background:"transparent",color:"#EF4444",cursor:"pointer",fontSize:12,fontWeight:700}}>×</button></Cell>
                     </div>
-                  ))
-                }
+                  )); })()}
               </div>
             </div>
           )}
 
           {tab==="uscite" && (
             <div>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,gap:8,flexWrap:"wrap"}}>
-                <div style={{fontSize:fs-2,color:"var(--c-text-dim)"}}>Totale: <span style={{color:"#EF4444",fontWeight:700}}>-{fmt(filtroConto ? monthData.uscite.filter(e=>e.conto===filtroConto).reduce((s,e)=>s+toEur(e),0) : totUscite)}€</span></div>
-                <div style={{display:"flex",alignItems:"center",gap:8}}>
-                  <select value={filtroConto} onChange={e=>setFiltroConto(e.target.value)} style={{padding:"6px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-panel)",color:"var(--c-text)",fontSize:12}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,gap:8}}>
+                <div style={{fontSize:fs-2,color:"var(--c-text-dim)"}}>Totale: <span style={{color:"#EF4444",fontWeight:700}}>-{fmt(monthData.uscite.filter(e=>(!filtroConto||e.conto===filtroConto)&&inDateRange(e)).reduce((s,e)=>s+toEur(e),0))}€</span></div>
+                <button onClick={()=>openAdd("uscita")} style={{padding:"6px 14px",borderRadius:7,border:"none",background:"#EF4444",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:600,whiteSpace:"nowrap"}}>+ Aggiungi</button>
+              </div>
+              <div style={{display:"flex",flexDirection:isMobile?"column":"row",alignItems:isMobile?"stretch":"center",gap:6,marginBottom:12,padding:"8px 10px",background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:8}}>
+                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <span style={{fontSize:11,color:"var(--c-text-faint)",whiteSpace:"nowrap"}}>🏦 Conto</span>
+                  <select value={filtroConto} onChange={e=>setFiltroConto(e.target.value)} style={{flex:isMobile?1:"none",minWidth:0,padding:"6px 8px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:12}}>
                     <option value="">Tutti i conti</option>
                     {CONTI_IAGREX.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
                   </select>
-                  <button onClick={()=>openAdd("uscita")} style={{padding:"6px 14px",borderRadius:7,border:"none",background:"#EF4444",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:600}}>+ Aggiungi</button>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:6,flex:1}}>
+                  <span style={{fontSize:11,color:"var(--c-text-faint)",whiteSpace:"nowrap"}}>📅 Periodo</span>
+                  <input type="date" value={filtroDataDa} onChange={e=>setFiltroDataDa(e.target.value)} title="Data da"
+                    style={{flex:1,minWidth:0,padding:"6px 8px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:12}}/>
+                  <span style={{fontSize:11,color:"var(--c-text-faint)"}}>–</span>
+                  <input type="date" value={filtroDataA} onChange={e=>setFiltroDataA(e.target.value)} title="Data a"
+                    style={{flex:1,minWidth:0,padding:"6px 8px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:12}}/>
+                  {(filtroDataDa||filtroDataA) && <button onClick={()=>{setFiltroDataDa("");setFiltroDataA("");}} style={{flexShrink:0,padding:"6px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-faint)",cursor:"pointer",fontSize:11}}>✕</button>}
+                  <button onClick={()=>exportCSV(monthData.uscite.filter(e=>(!filtroConto||e.conto===filtroConto)&&inDateRange(e)),"uscite")} title="Esporta le uscite filtrate in CSV"
+                    style={{flexShrink:0,padding:"6px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-dim)",cursor:"pointer",fontSize:11,whiteSpace:"nowrap"}}>📥 CSV</button>
                 </div>
               </div>
               <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,overflow:"hidden"}}>
-                {(() => { const filtered = monthData.uscite.filter(e=>!filtroConto || e.conto===filtroConto); return filtered.length===0
-                  ? <div style={{padding:20,textAlign:"center",color:"var(--c-text-faintest)",fontSize:fs-2}}>Nessuna uscita</div>
+                {(() => { const filtered = monthData.uscite.filter(e=>(!filtroConto || e.conto===filtroConto)&&inDateRange(e)); return filtered.length===0
+                  ? <div style={{padding:20,textAlign:"center",color:"var(--c-text-faintest)",fontSize:fs-2}}>{monthData.uscite.length===0?"Nessuna uscita — aggiungi la prima":"Nessuna uscita nel periodo/conto selezionato"}</div>
                   : filtered.map((e,i)=>(
                     <div key={e.id} style={{display:"grid",gridTemplateColumns:"1fr auto auto auto",gap:0,borderTop:i===0?"none":"1px solid var(--c-border)",background:i%2===0?"var(--c-panel)":"var(--c-panel2)"}}>
                       <Cell style={{flexDirection:"column",alignItems:"flex-start",gap:2}}>
                         <span style={{color:"var(--c-text)",fontWeight:600}}>{e.descrizione}</span>
-                        <span style={{fontSize:fs-4,color:"var(--c-text-faint)"}}>{e.categoria}{e.conto?` · ${CONTI_IAGREX_BY_ID[e.conto]?.label||e.conto}`:""}</span>
+                        <span style={{fontSize:fs-4,color:"var(--c-text-faint)"}}>{e.data?`${e.data} · `:""}{e.categoria}{e.conto?` · ${CONTI_IAGREX_BY_ID[e.conto]?.label||e.conto}`:""}</span>
                       </Cell>
                       <Cell style={{color:"#EF4444",fontWeight:700}}>-{fmt(e.importo)}{contoCurrency(e.conto)==="RON"?" RON":"€"}</Cell>
                       <Cell><button onClick={()=>openEdit("uscita",e)} style={{width:24,height:24,borderRadius:5,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-dim)",cursor:"pointer",fontSize:10}}>✏️</button></Cell>
@@ -633,6 +709,11 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark" }) {
                   Importo {contoCurrency(form.conto)} *
                 </div>
                 <input type="number" value={form.importo||""} onChange={e=>setForm(p=>({...p,importo:e.target.value}))}
+                  style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:13,outline:"none"}}/>
+              </div>
+              <div>
+                <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:4}}>Data</div>
+                <input type="date" value={form.data||""} onChange={e=>setForm(p=>({...p,data:e.target.value}))}
                   style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:13,outline:"none"}}/>
               </div>
             </div>
