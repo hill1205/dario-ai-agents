@@ -28,7 +28,7 @@ async function writeWeightDoc(entries) {
   const json = JSON.stringify(entries);
   const ultimo = entries[entries.length - 1];
   const content = `STORICO PESO DARIO\n\nObiettivo: ${OBIETTIVO_PESO} kg\nPeso iniziale: ${PESO_INIZIALE} kg\nUltimo peso: ${ultimo?.peso || "N/D"} kg (${ultimo?.data || ""})\n\nWEIGHT_DATA_JSON:${json}`;
-  await fetch(
+  const res = await fetch(
     `https://api.clickup.com/api/v3/workspaces/${WORKSPACE_ID}/docs/${DOC_ID}/pages/${PAGE_ID}`,
     {
       method: "PUT",
@@ -36,6 +36,7 @@ async function writeWeightDoc(entries) {
       body: JSON.stringify({ content }),
     }
   );
+  if (!res.ok) throw new Error(`ClickUp doc write error: ${res.status}`);
 }
 
 export async function GET() {
@@ -53,9 +54,12 @@ export async function GET() {
 export async function POST(request) {
   try {
     const { data, peso } = await request.json();
-    if (!data || !peso) return Response.json({ error: "Missing data or peso" }, { status: 400 });
+    const pesoNum = parseFloat(peso);
+    if (!data || peso === undefined || peso === null || peso === "" || isNaN(pesoNum)) {
+      return Response.json({ error: "Missing data or peso" }, { status: 400 });
+    }
     const entries = await readWeightDoc();
-    entries.push({ data, peso: parseFloat(peso) });
+    entries.push({ data, peso: pesoNum });
     entries.sort((a, b) => new Date(a.data) - new Date(b.data));
     await writeWeightDoc(entries);
     return Response.json({ success: true, entries });
