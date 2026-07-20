@@ -185,7 +185,26 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark" }) {
     setLoading(false);
   };
 
-  const monthData = allData[month] || EMPTY_MONTH;
+  // Riporto automatico dei saldi: se il mese selezionato non ha ancora
+  // dati propri, i saldi di partenza sono quelli di chiusura del mese
+  // precedente più recente con dati (invece di ripartire sempre da zero).
+  // Prima di questo fix, aprire un mese nuovo e iniziare subito a
+  // registrare entrate/uscite senza riscrivere a mano il saldo reale
+  // portava esattamente allo sfasamento di saldo riscontrato a luglio
+  // 2026 (i saldi correnti restano comunque sempre modificabili a mano
+  // dalla tab Saldi, per correggere eventuali imprecisioni).
+  const getCarriedSaldi = (allData, month) => {
+    let [y, m] = month.split("-").map(Number);
+    for (let i = 0; i < 24; i++) {
+      m -= 1;
+      if (m === 0) { m = 12; y -= 1; }
+      const ym = `${y}-${String(m).padStart(2, "0")}`;
+      if (allData[ym]?.saldi) return allData[ym].saldi;
+    }
+    return EMPTY_MONTH.saldi;
+  };
+
+  const monthData = allData[month] || { ...EMPTY_MONTH, saldi: getCarriedSaldi(allData, month) };
 
   const saveData = useCallback(async (newAllData) => {
     if (!loadOk) {

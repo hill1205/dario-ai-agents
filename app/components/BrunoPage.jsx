@@ -242,7 +242,26 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
     setLoading(false);
   };
 
-  const monthData = allData[month] || EMPTY_MONTH;
+  // Riporto automatico di saldi/investimenti/risparmi: se il mese
+  // selezionato non ha ancora dati propri, si parte dai valori di
+  // chiusura del mese precedente più recente con dati invece che da
+  // zero. Senza questo, registrare entrate/uscite in un mese nuovo prima
+  // di riscrivere a mano il saldo reale porta i saldi a sfasarsi dal
+  // conto vero (bug riscontrato e corretto su IAGREX a luglio 2026) — i
+  // valori restano comunque sempre modificabili a mano dalla tab Saldi.
+  const getCarriedFinancials = (allData, month) => {
+    let [y, m] = month.split("-").map(Number);
+    for (let i = 0; i < 24; i++) {
+      m -= 1;
+      if (m === 0) { m = 12; y -= 1; }
+      const ym = `${y}-${String(m).padStart(2, "0")}`;
+      const md = allData[ym];
+      if (md?.saldi) return { saldi: md.saldi, investimenti: md.investimenti ?? EMPTY_MONTH.investimenti, risparmi: md.risparmi ?? EMPTY_MONTH.risparmi };
+    }
+    return { saldi: EMPTY_MONTH.saldi, investimenti: EMPTY_MONTH.investimenti, risparmi: EMPTY_MONTH.risparmi };
+  };
+
+  const monthData = allData[month] || { ...EMPTY_MONTH, ...getCarriedFinancials(allData, month) };
 
   const saveData = useCallback(async (newAllData) => {
     if (!loadOk) {
