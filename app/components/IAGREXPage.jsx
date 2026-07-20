@@ -1,8 +1,8 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
 
-const CAT_ENTRATE = ["Retainer","One-time","Consulenza","Bonus","Altro"];
-const CAT_USCITE  = ["Keez / Commercialista","Software & Tools","Marketing","Hosting","Personale IAGREX","Tasse & Contributi","Altro"];
+const CAT_ENTRATE = ["Retainer","One-time","Consulenza","Bonus","Conversione","Altro"];
+const CAT_USCITE  = ["Keez / Commercialista","Software & Tools","Marketing","Hosting","Personale IAGREX","Tasse & Contributi","Conversione","Altro"];
 const EUR_RON_FALLBACK = 5; // usato solo se il fetch del cambio live fallisce
 const OBIETTIVO_ANNUO = 1000000;
 
@@ -44,11 +44,14 @@ function lastMonths(allData, n) {
     const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
     const ym = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
     const md = allData[ym] || { entrate:[], uscite:[] };
+    // I movimenti di conversione tra conti (isConversione) non sono
+    // fatturato/spesa vera: escluderli evita di gonfiare artificialmente
+    // il cash flow visualizzato nel grafico.
     out.push({
       mese: ym,
       label: getMonthLabel(ym).slice(0,3),
-      entrate: (md.entrate||[]).reduce((s,e)=>s+(parseFloat(e.importo)||0),0),
-      uscite:  (md.uscite||[]).reduce((s,e)=>s+(parseFloat(e.importo)||0),0),
+      entrate: (md.entrate||[]).filter(e=>!e.isConversione).reduce((s,e)=>s+(parseFloat(e.importo)||0),0),
+      uscite:  (md.uscite||[]).filter(e=>!e.isConversione).reduce((s,e)=>s+(parseFloat(e.importo)||0),0),
     });
   }
   return out;
@@ -144,6 +147,8 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark" }) {
   const [saveStatus, setSaveStatus] = useState(null);
   const [modal, setModal]         = useState(null);
   const [form, setForm]           = useState({});
+  const [convModal, setConvModal] = useState(false);
+  const [convForm, setConvForm]   = useState({});
   // true finché non abbiamo la certezza di aver letto lo storico vero da
   // ClickUp. Finché resta true, blocchiamo il salvataggio: altrimenti un
   // "allData" ancora vuoto (perché il fetch è fallito, non perché lo
@@ -227,22 +232,29 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark" }) {
     return contoCurrency(item.conto)==="RON" ? val/rate : val;
   };
 
+  // I movimenti generati dal tasto "Conversione" (spostamento di soldi
+  // già esistenti tra UniCredit EUR e UniCredit RON) non sono fatturato
+  // né spesa reale: vanno esclusi da entrate/uscite/YTD, altrimenti una
+  // conversione gonfierebbe artificialmente il progresso verso 1.000.000€
+  // (o le uscite del mese) pur non essendo un vero incasso/costo.
+  const isReal = (e) => !e.isConversione;
+
   // YTD progress — converte anche le entrate storiche in RON prima di
   // sommarle, altrimenti il progresso verso 1.000.000€ mischierebbe RON e EUR.
   const year = getCurrentYear();
   const ytdRevenue = Object.entries(allData)
     .filter(([k])=>k.startsWith(year))
-    .reduce((s,[,v])=>s+(v.entrate||[]).reduce((ss,e)=>ss+toEur(e),0),0);
+    .reduce((s,[,v])=>s+(v.entrate||[]).filter(isReal).reduce((ss,e)=>ss+toEur(e),0),0);
   const ytdPct = Math.min(Math.round((ytdRevenue/OBIETTIVO_ANNUO)*100*10)/10, 100);
   const mesiRimanenti = 13 - (new Date().getMonth()+1); // dicembre incluso = 1
   const ritmoMensileNecessario = Math.round(Math.max(OBIETTIVO_ANNUO-ytdRevenue,0)/mesiRimanenti);
 
-  const totEntrate = monthData.entrate.reduce((s,e)=>s+toEur(e),0);
-  const totUscite  = monthData.uscite.reduce((s,e)=>s+toEur(e),0);
+  const totEntrate = monthData.entrate.filter(isReal).reduce((s,e)=>s+toEur(e),0);
+  const totUscite  = monthData.uscite.filter(isReal).reduce((s,e)=>s+toEur(e),0);
   const saldoNetto = totEntrate - totUscite;
   // Recap "dove vanno i soldi": aggregato per categoria del mese selezionato.
-  const usciteByCat  = monthData.uscite.reduce((acc,e)=>{ acc[e.categoria]=(acc[e.categoria]||0)+toEur(e); return acc; },{});
-  const entrateByCat = monthData.entrate.reduce((acc,e)=>{ acc[e.categoria]=(acc[e.categoria]||0)+toEur(e); return acc; },{});
+  const usciteByCat  = monthData.uscite.filter(isReal).reduce((acc,e)=>{ acc[e.categoria]=(acc[e.categoria]||0)+toEur(e); return acc; },{});
+  const entrateByCat = monthData.entrate.filter(isReal).reduce((acc,e)=>{ acc[e.categoria]=(acc[e.categoria]||0)+toEur(e); return acc; },{});
 
   const openAdd = (tipo) => { setForm({descrizione:"",importo:"",categoria:tipo==="entrata"?CAT_ENTRATE[0]:CAT_USCITE[0],cliente:"",conto:CONTI_IAGREX[0].id}); setModal({tipo,mode:"add"}); };
   const openEdit = (tipo,item) => { setForm({...item}); setModal({tipo,mode:"edit",item}); };
@@ -277,24 +289,85 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark" }) {
   const deleteItem = (tipo,id) => {
     if (!confirm("Eliminare?")) return;
     let updated = {...monthData, saldi:{...monthData.saldi}};
-    if (tipo==="uscita") {
-      const item = updated.uscite.find(e=>e.id===id);
-      if (item?.conto && updated.saldi[item.conto] !== undefined) {
-        updated.saldi[item.conto] = round2((parseFloat(updated.saldi[item.conto])||0) + parseFloat(item.importo));
+    const item = (tipo==="uscita"?updated.uscite:updated.entrate).find(e=>e.id===id);
+    // Annulla l'effetto sul saldo del conto: un'uscita torna ad accreditare
+    // il conto, un'entrata torna a scalarlo (logica inversa di saveItem).
+    const reverse = (it, eraUscita) => {
+      if (!it?.conto || updated.saldi[it.conto] === undefined) return;
+      updated.saldi[it.conto] = round2((parseFloat(updated.saldi[it.conto])||0) + (eraUscita?1:-1)*parseFloat(it.importo));
+    };
+    reverse(item, tipo==="uscita");
+    updated.uscite  = updated.uscite.filter(e=>e.id!==id);
+    updated.entrate = updated.entrate.filter(e=>e.id!==id);
+    // Le voci create dal tasto "Conversione" sono in coppia (uscita da un
+    // conto + entrata sull'altro, stesso pairId). Se l'utente ne cancella
+    // una sola, l'altra resterebbe come movimento orfano che sposta un
+    // saldo senza contropartita — quindi eliminiamo anche la gemella.
+    if (item?.pairId) {
+      const pairInUscite  = updated.uscite.find(e=>e.pairId===item.pairId);
+      const pairInEntrate = updated.entrate.find(e=>e.pairId===item.pairId);
+      const pair = pairInUscite || pairInEntrate;
+      if (pair) {
+        reverse(pair, !!pairInUscite);
+        updated.uscite  = updated.uscite.filter(e=>e.id!==pair.id);
+        updated.entrate = updated.entrate.filter(e=>e.id!==pair.id);
       }
-      updated.uscite = updated.uscite.filter(e=>e.id!==id);
-    } else {
-      const item = updated.entrate.find(e=>e.id===id);
-      if (item?.conto && updated.saldi[item.conto] !== undefined) {
-        updated.saldi[item.conto] = round2((parseFloat(updated.saldi[item.conto])||0) - parseFloat(item.importo));
-      }
-      updated.entrate = updated.entrate.filter(e=>e.id!==id);
     }
     updateMonth(updated);
   };
 
   const updateSaldo = (contoId,val) => {
     updateMonth({...monthData,saldi:{...monthData.saldi,[contoId]:parseFloat(val)||0}});
+  };
+
+  // --- Conversione tra conti (es. cambio EUR->RON fatto in banca) -------
+  // Genera automaticamente un'uscita sul conto di partenza e un'entrata
+  // sul conto di arrivo, collegate dallo stesso pairId, così l'utente non
+  // deve inserirle a mano separatamente né rischiare di farle sballare i
+  // saldi se dimentica un lato del movimento.
+  const otherConto = (contoId) => CONTI_IAGREX.find(c=>c.id!==contoId)?.id || contoId;
+  const openConversione = () => {
+    setConvForm({
+      da: CONTI_IAGREX[0].id,
+      a: CONTI_IAGREX[1].id,
+      importoDa: "",
+      tasso: (eurRonRate||EUR_RON_FALLBACK).toFixed(4),
+      data: new Date().toISOString().slice(0,10),
+    });
+    setConvModal(true);
+  };
+  const closeConv = () => { setConvModal(false); setConvForm({}); };
+
+  // Il tasso rappresenta sempre "1 EUR = tasso RON", coerente con
+  // eurRonRate/toEur usati nel resto della pagina — così l'utente inserisce
+  // lo stesso numero che vede scritto sull'home banking, in qualunque
+  // direzione stia convertendo.
+  const calcImportoA = (form) => {
+    const importoDa = parseFloat(form.importoDa)||0;
+    const tasso = parseFloat(form.tasso)||0;
+    if (!importoDa || !tasso || !form.da || !form.a) return 0;
+    const daCcy = contoCurrency(form.da), aCcy = contoCurrency(form.a);
+    if (daCcy===aCcy) return importoDa;
+    return daCcy==="€" ? importoDa*tasso : importoDa/tasso;
+  };
+
+  const saveConversione = () => {
+    const importoDa = parseFloat(convForm.importoDa);
+    const tasso = parseFloat(convForm.tasso);
+    if (!importoDa || importoDa<=0 || !tasso || tasso<=0 || !convForm.da || !convForm.a || convForm.da===convForm.a) return;
+    const importoA = calcImportoA(convForm);
+    const pairId = genId();
+    const descrizione = `Conversione ${CONTI_IAGREX_BY_ID[convForm.da]?.label} → ${CONTI_IAGREX_BY_ID[convForm.a]?.label} (tasso ${tasso})`;
+    const uscitaItem  = { id:genId(), descrizione, categoria:"Conversione", conto:convForm.da, importo:round2(importoDa), data:convForm.data, isConversione:true, pairId };
+    const entrataItem = { id:genId(), descrizione, categoria:"Conversione", conto:convForm.a,  importo:round2(importoA),  data:convForm.data, isConversione:true, pairId, cliente:"" };
+
+    let updated = {...monthData, saldi:{...monthData.saldi}};
+    updated.saldi[convForm.da] = round2((parseFloat(updated.saldi[convForm.da])||0) - importoDa);
+    updated.saldi[convForm.a]  = round2((parseFloat(updated.saldi[convForm.a])||0) + importoA);
+    updated.uscite  = [...updated.uscite, uscitaItem];
+    updated.entrate = [...updated.entrate, entrataItem];
+    updateMonth(updated);
+    closeConv();
   };
 
   const Cell = ({style={},children}) => (
@@ -368,10 +441,16 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark" }) {
       </div>
 
       {/* Tabs */}
-      <div style={{display:"flex",borderBottom:"1px solid var(--c-border)",flexShrink:0,background:"var(--c-bg)"}}>
-        {[["entrate","💚 Entrate"],["uscite","🔴 Uscite"],["saldi","🏦 Saldi"],["recap","📊 Recap"]].map(([t,label])=>(
-          <button key={t} onClick={()=>setTab(t)} style={{padding:"10px 16px",border:"none",background:"transparent",cursor:"pointer",fontSize:fs-2,fontWeight:tab===t?700:400,color:tab===t?"var(--c-text-strong)":"var(--c-text-faint)",borderBottom:tab===t?"2px solid #3B82F6":"2px solid transparent"}}>{label}</button>
-        ))}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:"1px solid var(--c-border)",flexShrink:0,background:"var(--c-bg)"}}>
+        <div style={{display:"flex"}}>
+          {[["entrate","💚 Entrate"],["uscite","🔴 Uscite"],["saldi","🏦 Saldi"],["recap","📊 Recap"]].map(([t,label])=>(
+            <button key={t} onClick={()=>setTab(t)} style={{padding:"10px 16px",border:"none",background:"transparent",cursor:"pointer",fontSize:fs-2,fontWeight:tab===t?700:400,color:tab===t?"var(--c-text-strong)":"var(--c-text-faint)",borderBottom:tab===t?"2px solid #3B82F6":"2px solid transparent"}}>{label}</button>
+          ))}
+        </div>
+        <button onClick={openConversione} title="Registra un cambio di valuta tra i due conti UniCredit senza contarlo come entrata/uscita reale"
+          style={{marginRight:12,padding:"6px 12px",borderRadius:7,border:"1px solid #8B5CF650",background:"#8B5CF61A",color:"#8B5CF6",cursor:"pointer",fontSize:12,fontWeight:600,whiteSpace:"nowrap"}}>
+          🔄 Conversione
+        </button>
       </div>
 
       {loading && <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",color:"var(--c-text-faintest)"}}>⏳ Caricamento...</div>}
@@ -541,6 +620,61 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark" }) {
             <div style={{display:"flex",gap:8,marginTop:20}}>
               <button onClick={closeModal} style={{flex:1,padding:10,borderRadius:8,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-faint)",cursor:"pointer",fontSize:13}}>Annulla</button>
               <button onClick={saveItem} style={{flex:2,padding:10,borderRadius:8,border:"none",background:modal.tipo==="entrata"?"#10B981":"#EF4444",color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700}}>Salva</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Conversione tra conti */}
+      {convModal && (
+        <div style={{position:"fixed",inset:0,background:"#00000090",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={closeConv}>
+          <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:16,padding:24,width:"100%",maxWidth:400,maxHeight:"90vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:15,fontWeight:700,color:"var(--c-text-strong)",marginBottom:6}}>🔄 Conversione tra conti</div>
+            <div style={{fontSize:11,color:"var(--c-text-faint)",marginBottom:20}}>
+              Registra un cambio valuta fatto in banca: crea automaticamente un'uscita sul conto di partenza e un'entrata sul conto di arrivo, senza contarle come fatturato o spesa.
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:12}}>
+              <div>
+                <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:4}}>Da conto 🏦</div>
+                <select value={convForm.da||""} onChange={e=>{ const da=e.target.value; setConvForm(p=>({...p,da,a:p.a===da?otherConto(da):p.a})); }}
+                  style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:13,outline:"none"}}>
+                  {CONTI_IAGREX.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:4}}>A conto 🏦</div>
+                <select value={convForm.a||""} onChange={e=>{ const a=e.target.value; setConvForm(p=>({...p,a,da:p.da===a?otherConto(a):p.da})); }}
+                  style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:13,outline:"none"}}>
+                  {CONTI_IAGREX.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:4}}>
+                  Importo cambiato {contoCurrency(convForm.da)} *
+                </div>
+                <input type="number" value={convForm.importoDa||""} onChange={e=>setConvForm(p=>({...p,importoDa:e.target.value}))}
+                  style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:13,outline:"none"}}/>
+              </div>
+              <div>
+                <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:4}}>
+                  Tasso di cambio (1 EUR = ? RON) *
+                </div>
+                <input type="number" step="0.0001" value={convForm.tasso||""} onChange={e=>setConvForm(p=>({...p,tasso:e.target.value}))}
+                  style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:13,outline:"none"}}/>
+                <div style={{fontSize:10,color:"var(--c-text-faintest)",marginTop:4}}>Precompilato con il cambio {rateIsLive?"live BCE":"fisso di riserva"} — modificalo con il tasso applicato dalla banca, se diverso.</div>
+              </div>
+              <div>
+                <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:4}}>Data</div>
+                <input type="date" value={convForm.data||""} onChange={e=>setConvForm(p=>({...p,data:e.target.value}))}
+                  style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:13,outline:"none"}}/>
+              </div>
+              <div style={{background:"#8B5CF615",border:"1px solid #8B5CF640",borderRadius:8,padding:"10px 12px",fontSize:12,color:"var(--c-text)"}}>
+                Accrediterai su <b>{CONTI_IAGREX_BY_ID[convForm.a]?.label}</b>: <b style={{color:"#8B5CF6"}}>{fmt(calcImportoA(convForm))} {contoCurrency(convForm.a)}</b>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:8,marginTop:20}}>
+              <button onClick={closeConv} style={{flex:1,padding:10,borderRadius:8,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-faint)",cursor:"pointer",fontSize:13}}>Annulla</button>
+              <button onClick={saveConversione} style={{flex:2,padding:10,borderRadius:8,border:"none",background:"#8B5CF6",color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700}}>Registra conversione</button>
             </div>
           </div>
         </div>
