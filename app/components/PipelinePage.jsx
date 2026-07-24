@@ -224,7 +224,7 @@ function InfoRow({ icon, value, href, dim=false, fs }) {
   );
 }
 
-function EntryCard({ entry, onEdit, onDelete, onGenMsg, fs, onDragStart, isDragging, onIncrTentativi }) {
+function EntryCard({ entry, onEdit, onDelete, onGenMsg, fs, onDragStart, isDragging, onIncrTentativi, onSegnaFatturato }) {
   const color = stageColor(entry.stage, entry.tipo);
   const followUpDue = isFollowUpDue(entry);
   return (
@@ -317,11 +317,22 @@ function EntryCard({ entry, onEdit, onDelete, onGenMsg, fs, onDragStart, isDragg
           🤖 Genera Messaggio Outreach
         </button>
       )}
+
+      {/* Registra fatturazione su IAGREX: evita di ridigitare nome cliente
+          e budget già presenti qui — pre-compila la modale "Nuova entrata"
+          su IAGREX e ti fa solo confermare. */}
+      {entry.tipo==="cliente" && onSegnaFatturato && (
+        <button onMouseDown={e=>e.stopPropagation()} onClick={()=>onSegnaFatturato(entry)}
+          title="Pre-compila una nuova entrata su Finanze IAGREX con nome cliente e budget"
+          style={{width:"100%",padding:"6px",borderRadius:6,border:"1px solid #10B98150",background:"#10B9810D",color:"#10B981",cursor:"pointer",fontSize:fs-4,fontWeight:600,display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
+          💰 Registra fatturazione IAGREX
+        </button>
+      )}
     </div>
   );
 }
 
-function KanbanView({ entries, filter, fs, onEdit, onDelete, openAdd, onGenMsg, onDropToStage, onIncrTentativi }) {
+function KanbanView({ entries, filter, fs, onEdit, onDelete, openAdd, onGenMsg, onDropToStage, onIncrTentativi, onSegnaFatturato }) {
   const [draggedId, setDraggedId]     = useState(null);
   const [dragOverCol, setDragOverCol] = useState(null);
 
@@ -367,7 +378,7 @@ function KanbanView({ entries, filter, fs, onEdit, onDelete, openAdd, onGenMsg, 
             <div style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",gap:8,paddingRight:2}}>
               {colEntries.map(e=>(
                 <EntryCard key={e.id} entry={e} onEdit={onEdit} onDelete={onDelete} onGenMsg={onGenMsg}
-                  fs={fs} onDragStart={handleDragStart} isDragging={draggedId===e.id} onIncrTentativi={onIncrTentativi}/>
+                  fs={fs} onDragStart={handleDragStart} isDragging={draggedId===e.id} onIncrTentativi={onIncrTentativi} onSegnaFatturato={onSegnaFatturato}/>
               ))}
               {colEntries.length===0 && (
                 <div style={{fontSize:fs-4,color:"var(--c-text-faintest)",textAlign:"center",padding:"20px 0",border:"1px dashed var(--c-border)",borderRadius:7,marginTop:4}}>
@@ -440,7 +451,7 @@ function ListView({ entries, fs, onEdit, onDelete, onGenMsg }) {
   );
 }
 
-export default function PipelinePage({ fontSize=14, theme="dark" }) {
+export default function PipelinePage({ fontSize=14, theme="dark", onGoToIagrex }) {
   const fs = fontSize;
   const themeVars = THEME_VARS[theme] || THEME_VARS.dark;
   const [entries, setEntries]       = useState([]);
@@ -526,6 +537,24 @@ export default function PipelinePage({ fontSize=14, theme="dark" }) {
       return updated;
     });
   },[]);
+
+  // Ponte verso Finanze IAGREX: invece di dover riscrivere a mano nome
+  // cliente e importo (già presenti qui come "budget"), salviamo un draft
+  // in localStorage che IAGREXPage legge al mount per pre-compilare la
+  // modale "Nuova entrata" — l'utente deve solo controllare e confermare,
+  // non ridigitare da zero. Chiave condivisa con IAGREXPage.jsx.
+  const segnaFatturato = (entry) => {
+    try {
+      localStorage.setItem("dario-iagrex-draft-entrata", JSON.stringify({
+        descrizione: `${entry.nome}${entry.settore?` - ${entry.settore}`:""}`,
+        cliente: entry.nome,
+        importo: entry.budget || "",
+        categoria: "Retainer",
+        data: new Date().toISOString().slice(0,10),
+      }));
+    } catch {}
+    if (onGoToIagrex) onGoToIagrex();
+  };
 
   const openAdd    = (tipo="lead",stage=null)=>{ setForm({...EMPTY_FORM,tipo,stage:stage||(tipo==="lead"?"da_contattare":"attivo"),data:new Date().toISOString().slice(0,10)}); setModal("add"); };
   const openEdit   = (entry)=>{ setForm({...EMPTY_FORM,...entry}); setModal("edit"); };
@@ -727,7 +756,7 @@ export default function PipelinePage({ fontSize=14, theme="dark" }) {
       {loading && <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",color:"var(--c-text-faintest)",fontSize:fs-2}}>⏳ Caricamento...</div>}
 
       {!loading && (view==="kanban"
-        ? <KanbanView entries={filtered} filter={filter} fs={fs} onEdit={openEdit} onDelete={deleteEntry} openAdd={openAdd} onGenMsg={openGenMsg} onDropToStage={handleDropToStage} onIncrTentativi={handleIncrTentativi}/>
+        ? <KanbanView entries={filtered} filter={filter} fs={fs} onEdit={openEdit} onDelete={deleteEntry} openAdd={openAdd} onGenMsg={openGenMsg} onDropToStage={handleDropToStage} onIncrTentativi={handleIncrTentativi} onSegnaFatturato={segnaFatturato}/>
         : <ListView   entries={filtered} fs={fs} onEdit={openEdit} onDelete={deleteEntry} onGenMsg={openGenMsg}/>
       )}
 

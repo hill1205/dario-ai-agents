@@ -335,6 +335,30 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
 
   useEffect(()=>{ loadData(); loadRate(); },[]);
 
+  // Ponte dalla Pipeline: se arrivi qui dal tasto "💰 Registra fatturazione
+  // IAGREX" su un cliente, un draft con nome/budget già compilati ti aspetta
+  // in localStorage — lo consumiamo una sola volta aprendo subito la modale
+  // "Nuova entrata" pre-riempita, invece di farti ridigitare da zero dati
+  // già presenti in pipeline. Chiave condivisa con PipelinePage.jsx.
+  useEffect(()=>{
+    try {
+      const raw = localStorage.getItem("dario-iagrex-draft-entrata");
+      if (!raw) return;
+      localStorage.removeItem("dario-iagrex-draft-entrata");
+      const draft = JSON.parse(raw);
+      setForm({
+        descrizione: draft.descrizione||"",
+        importo: draft.importo||"",
+        categoria: draft.categoria || CAT_ENTRATE[0],
+        cliente: draft.cliente||"",
+        conto: CONTI_IAGREX[0].id,
+        data: draft.data || new Date().toISOString().slice(0,10),
+      });
+      setModal({ tipo:"entrata", mode:"add" });
+      setTab("entrate");
+    } catch {}
+  },[]);
+
   const loadRate = async () => {
     try {
       const res = await fetch("https://api.frankfurter.dev/v1/latest?from=EUR&to=RON");
@@ -442,6 +466,31 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
   const totEntrate = monthData.entrate.filter(isReal).reduce((s,e)=>s+toEur(e),0);
   const totUscite  = monthData.uscite.filter(isReal).reduce((s,e)=>s+toEur(e),0);
   const saldoNetto = totEntrate - totUscite;
+
+  // Confronto anno su anno: stesso mese dell'anno precedente, per capire se
+  // il trend sta davvero accelerando o è solo l'effetto stagionale del
+  // mese. Mostrato solo se esiste storico per quel mese (altrimenti "vs
+  // 0€" sarebbe fuorviante, non un vero confronto).
+  const [annoSel, meseSel] = month.split("-").map(Number);
+  const mesePrecAnno = `${annoSel-1}-${String(meseSel).padStart(2,"0")}`;
+  const datiAnnoScorso = allData[mesePrecAnno];
+  const entrateAnnoScorso = datiAnnoScorso ? (datiAnnoScorso.entrate||[]).filter(isReal).reduce((s,e)=>s+toEur(e),0) : null;
+  const yoyDeltaPct = (entrateAnnoScorso!=null && entrateAnnoScorso>0) ? Math.round(((totEntrate-entrateAnnoScorso)/entrateAnnoScorso)*100) : null;
+
+  // Alert ritmo mensile: confronta quanto fatturato finora nel mese CORRENTE
+  // con quanto ci si aspetterebbe di aver fatturato a questo punto del mese,
+  // proporzionalmente al ritmo necessario per arrivare a 1.000.000€ entro
+  // dicembre. Mostrato solo quando si sta guardando il mese in corso (non ha
+  // senso su mesi passati o futuri, già chiusi o non ancora iniziati) — così
+  // il numero passivo di "ritmo necessario" diventa un avviso attivo invece
+  // di richiedere un calcolo mentale ogni volta.
+  const isCurrentMonthView = month === getCurrentMonth();
+  const oggi = new Date();
+  const giornoOggi = oggi.getDate();
+  const giorniNelMese = new Date(oggi.getFullYear(), oggi.getMonth()+1, 0).getDate();
+  const attesoAOggi = ritmoMensileNecessario * (giornoOggi/giorniNelMese);
+  const scostamentoPct = attesoAOggi>0 ? Math.round(((totEntrate-attesoAOggi)/attesoAOggi)*100) : 0;
+  const ritmoStatus = !isCurrentMonthView ? null : (totEntrate < attesoAOggi*0.9 ? "sotto" : totEntrate > attesoAOggi*1.1 ? "sopra" : "linea");
   // Recap "dove vanno i soldi": aggregato per categoria del mese selezionato.
   const usciteByCat  = monthData.uscite.filter(isReal).reduce((acc,e)=>{ acc[e.categoria]=(acc[e.categoria]||0)+toEur(e); return acc; },{});
   const entrateByCat = monthData.entrate.filter(isReal).reduce((acc,e)=>{ acc[e.categoria]=(acc[e.categoria]||0)+toEur(e); return acc; },{});
@@ -647,6 +696,18 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
               ripetuto per ciascuno dei {mesiRimanenti} mes{mesiRimanenti===1?"e rimanente":"i rimanenti"} per arrivare a 1.000.000€
             </div>
           </div>
+          {ritmoStatus && (
+            <div style={{marginTop:8,padding:"8px 10px",borderRadius:8,display:"flex",alignItems:"center",gap:8,
+              background: ritmoStatus==="sotto"?"#EF44441A":ritmoStatus==="sopra"?"#10B9811A":"#3B82F61A",
+              border:`1px solid ${ritmoStatus==="sotto"?"#EF444450":ritmoStatus==="sopra"?"#10B98150":"#3B82F650"}`}}>
+              <span style={{fontSize:16}}>{ritmoStatus==="sotto"?"⚠️":ritmoStatus==="sopra"?"🚀":"✅"}</span>
+              <div style={{fontSize:fs-3,color:"var(--c-text)"}}>
+                {ritmoStatus==="sotto" && <>Sei <b style={{color:"#EF4444"}}>sotto ritmo</b> questo mese: a oggi (giorno {giornoOggi}/{giorniNelMese}) ti aspetteresti {fmt(attesoAOggi)}€ fatturati, ne hai {fmt(totEntrate)}€ ({scostamentoPct}%).</>}
+                {ritmoStatus==="sopra" && <>Sei <b style={{color:"#10B981"}}>sopra ritmo</b> questo mese: {fmt(totEntrate)}€ fatturati contro {fmt(attesoAOggi)}€ attesi a oggi (+{scostamentoPct}%).</>}
+                {ritmoStatus==="linea" && <>Sei <b style={{color:"#3B82F6"}}>in linea</b> col ritmo necessario per il mese ({fmt(totEntrate)}€ contro {fmt(attesoAOggi)}€ attesi).</>}
+              </div>
+            </div>
+          )}
         </div>
 
         <CashFlowMiniChart allData={allData}/>
@@ -665,6 +726,13 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
             </div>
           ))}
         </div>
+
+        {entrateAnnoScorso!=null && (
+          <div style={{marginTop:8,fontSize:fs-4,color:"var(--c-text-faint)"}}>
+            📈 vs {getMonthLabel(mesePrecAnno)}: {fmt(entrateAnnoScorso)}€ entrate
+            {yoyDeltaPct!=null && <span style={{marginLeft:6,fontWeight:700,color:yoyDeltaPct>=0?"#10B981":"#EF4444"}}>{yoyDeltaPct>=0?"+":""}{yoyDeltaPct}%</span>}
+          </div>
+        )}
       </div>
 
       {/* Tabs */}

@@ -482,6 +482,15 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
   const totEntrate  = monthData.entrate.filter(isReal).reduce((s,e)=>s+toEur(e),0);
   const totUscite   = monthData.uscite.filter(isReal).reduce((s,e)=>s+toEur(e),0);
   const saldoNetto  = totEntrate - totUscite;
+
+  // Confronto anno su anno: stesso mese dell'anno precedente, per capire se
+  // il trend personale sta davvero migliorando o è solo l'effetto stagionale
+  // del mese. Mostrato solo se esiste storico per quel mese.
+  const [annoSel, meseSel] = month.split("-").map(Number);
+  const mesePrecAnno = `${annoSel-1}-${String(meseSel).padStart(2,"0")}`;
+  const datiAnnoScorso = allData[mesePrecAnno];
+  const usciteAnnoScorso = datiAnnoScorso ? (datiAnnoScorso.uscite||[]).filter(isReal).reduce((s,e)=>s+toEur(e),0) : null;
+  const yoyUsciteDeltaPct = (usciteAnnoScorso!=null && usciteAnnoScorso>0) ? Math.round(((totUscite-usciteAnnoScorso)/usciteAnnoScorso)*100) : null;
   // Recap "dove vanno i soldi": uscite/entrate convertite in EUR (toEur
   // gestisce già i conti in RON) prima di raggrupparle per categoria.
   const usciteByCat  = monthData.uscite.filter(isReal).reduce((acc,e)=>{ acc[e.categoria]=(acc[e.categoria]||0)+toEur(e); return acc; },{});
@@ -721,6 +730,13 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
         </div>
 
         <CashFlowMiniChart allData={allData}/>
+
+        {usciteAnnoScorso!=null && (
+          <div style={{marginTop:8,fontSize:fs-4,color:"var(--c-text-faint)"}}>
+            📉 Uscite vs {getMonthLabel(mesePrecAnno)}: {fmt(usciteAnnoScorso)}€
+            {yoyUsciteDeltaPct!=null && <span style={{marginLeft:6,fontWeight:700,color:yoyUsciteDeltaPct<=0?"#10B981":"#EF4444"}}>{yoyUsciteDeltaPct>=0?"+":""}{yoyUsciteDeltaPct}%</span>}
+          </div>
+        )}
       </div>
 
       {/* Tabs */}
