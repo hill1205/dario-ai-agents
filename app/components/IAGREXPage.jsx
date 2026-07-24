@@ -110,14 +110,14 @@ function DateRangePicker({ da, a, onChange, accent="#3B82F6" }) {
   const cells = daysGrid(viewY, viewM);
 
   return (
-    <div ref={wrapRef} style={{ position:"relative" }}>
+    <div ref={wrapRef} style={{ position:"relative", display:"flex", alignItems:"center", gap:4, flexShrink:0 }}>
       <button onClick={()=>setOpen(o=>!o)} title="Filtra per periodo"
-        style={{ display:"flex", alignItems:"center", gap:6, padding:"6px 10px", borderRadius:7, border:`1px solid ${(da||a)?accent:"var(--c-border)"}`, background:(da||a)?`${accent}15`:"var(--c-bg)", color:(da||a)?accent:"var(--c-text-dim)", cursor:"pointer", fontSize:12, fontWeight:(da||a)?600:400, whiteSpace:"nowrap" }}>
+        style={{ display:"flex", alignItems:"center", gap:6, padding:"6px 10px", borderRadius:7, border:`1px solid ${(da||a)?accent:"var(--c-border)"}`, background:(da||a)?`${accent}15`:"var(--c-bg)", color:(da||a)?accent:"var(--c-text-dim)", cursor:"pointer", fontSize:12, fontWeight:(da||a)?600:400, whiteSpace:"nowrap", flexShrink:0 }}>
         📅 {label}
       </button>
       {(da||a) && (
         <button onClick={()=>{ onChange("",""); setOpen(false); }} title="Rimuovi filtro periodo"
-          style={{ marginLeft:4, padding:"6px 8px", borderRadius:7, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-faint)", cursor:"pointer", fontSize:11 }}>✕</button>
+          style={{ flexShrink:0, padding:"6px 8px", borderRadius:7, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-faint)", cursor:"pointer", fontSize:11 }}>✕</button>
       )}
       {open && (
         <div style={{ position:"absolute", top:"calc(100% + 6px)", left:0, zIndex:100, background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10, padding:12, width:240, boxShadow:"0 12px 28px -8px #00000060" }}>
