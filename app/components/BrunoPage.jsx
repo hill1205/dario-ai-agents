@@ -62,6 +62,35 @@ function sortByDataDesc(items) {
   return [...items].sort((a,b) => (b.data||"").localeCompare(a.data||""));
 }
 
+// Raggruppa per giorno (vista "più recenti"): un blocco per data, ordinati
+// dal più recente, con il totale del giorno in testa. Le voci senza data
+// finiscono tutte insieme in fondo sotto "Senza data".
+function groupByDayDesc(items) {
+  const sorted = sortByDataDesc(items);
+  const groups = [];
+  let current = null;
+  for (const it of sorted) {
+    const key = it.data || "__nodate__";
+    if (!current || current.key !== key) {
+      current = { key, data: it.data || null, items: [] };
+      groups.push(current);
+    }
+    current.items.push(it);
+  }
+  return groups;
+}
+
+// "2026-07-24" -> "Gio 24 Luglio 2026" (giorno della settimana incluso,
+// utile per riconoscere weekend/pattern di spesa a colpo d'occhio).
+function formatDayLabel(ymd) {
+  if (!ymd) return "Senza data";
+  const d = new Date(ymd + "T00:00:00");
+  if (isNaN(d.getTime())) return ymd;
+  const giorni = ["Dom","Lun","Mar","Mer","Gio","Ven","Sab"];
+  const mesi = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
+  return `${giorni[d.getDay()]} ${d.getDate()} ${mesi[d.getMonth()]} ${d.getFullYear()}`;
+}
+
 // Piccolo toggle "Per categoria / Più recenti" riusato da entrate e uscite.
 function VistaToggle({ vista, onChange, accent }) {
   const opts = [["categoria","📁 Per categoria"],["recenti","🕒 Più recenti"]];
@@ -649,11 +678,17 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                     <Cell><button onClick={()=>deleteItem("entrata",e.id)} style={{ width:24, height:24, borderRadius:5, border:"1px solid #2A1A1A", background:"transparent", color:"#EF4444", cursor:"pointer", fontSize:12, fontWeight:700 }}>×</button></Cell>
                   </div>
                 );
-                if (vistaEntrate==="recenti") return (
-                  <div style={{ background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10, overflow:"hidden" }}>
-                    {sortByDataDesc(filtered).map(Row)}
+                if (vistaEntrate==="recenti") return groupByDayDesc(filtered).map(({key,data,items})=>(
+                  <div key={key} style={{ marginBottom:12 }}>
+                    <div style={{ fontSize:fs-3, fontWeight:700, color:"var(--c-text-dim)", marginBottom:6, display:"flex", justifyContent:"space-between" }}>
+                      <span>{formatDayLabel(data)}</span>
+                      <span style={{ color:"#10B981" }}>+{fmt(items.reduce((s,e)=>s+toEur(e),0))}€</span>
+                    </div>
+                    <div style={{ background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10, overflow:"hidden" }}>
+                      {items.map(Row)}
+                    </div>
                   </div>
-                );
+                ));
                 const grouped = filtered.reduce((acc,e)=>{ (acc[e.categoria]=acc[e.categoria]||[]).push(e); return acc; },{});
                 return Object.entries(grouped).map(([cat,items])=>(
                   <div key={cat} style={{ marginBottom:12 }}>
@@ -715,11 +750,17 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                     <Cell><button onClick={()=>deleteItem("uscita",e.id)} style={{ width:24, height:24, borderRadius:5, border:"1px solid #2A1A1A", background:"transparent", color:"#EF4444", cursor:"pointer", fontSize:12, fontWeight:700 }}>×</button></Cell>
                   </div>
                 );
-                if (vistaUscite==="recenti") return (
-                  <div style={{ background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10, overflow:"hidden" }}>
-                    {sortByDataDesc(filtered).map(Row)}
+                if (vistaUscite==="recenti") return groupByDayDesc(filtered).map(({key,data,items})=>(
+                  <div key={key} style={{ marginBottom:12 }}>
+                    <div style={{ fontSize:fs-3, fontWeight:700, color:"var(--c-text-dim)", marginBottom:6, display:"flex", justifyContent:"space-between" }}>
+                      <span>{formatDayLabel(data)}</span>
+                      <span style={{ color:"#EF4444" }}>-{fmt(items.reduce((s,e)=>s+toEur(e),0))}€</span>
+                    </div>
+                    <div style={{ background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10, overflow:"hidden" }}>
+                      {items.map(Row)}
+                    </div>
                   </div>
-                );
+                ));
                 const grouped = filtered.reduce((acc,e)=>{ (acc[e.categoria]=acc[e.categoria]||[]).push(e); return acc; },{});
                 return Object.entries(grouped).map(([cat,items])=>(
                   <div key={cat} style={{ marginBottom:12 }}>
