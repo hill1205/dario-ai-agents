@@ -256,7 +256,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
   // storico delle uscite), "recenti" mostra tutto in un'unica lista ordinata
   // per data decrescente (più recente in cima). Scelta indipendente per tab.
   const [vistaEntrate, setVistaEntrate] = useState("recenti");
-  const [vistaUscite, setVistaUscite]   = useState("categoria");
+  const [vistaUscite, setVistaUscite]   = useState("recenti");
   const [loading, setLoading]   = useState(true);
   const [saveStatus, setSaveStatus] = useState(null);
   const [modal, setModal]       = useState(null); // {tipo:"entrata"|"uscita", mode:"add"|"edit", item?}

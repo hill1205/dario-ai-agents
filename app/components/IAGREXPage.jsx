@@ -209,7 +209,7 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
   // Vista lista entrate/uscite: "categoria" raggruppa per categoria,
   // "recenti" mostra tutto in un'unica lista ordinata per data decrescente.
   const [vistaEntrate, setVistaEntrate] = useState("recenti");
-  const [vistaUscite, setVistaUscite]   = useState("categoria");
+  const [vistaUscite, setVistaUscite]   = useState("recenti");
   const [loading, setLoading]     = useState(true);
   const [saveStatus, setSaveStatus] = useState(null);
   const [modal, setModal]         = useState(null);
