@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
 // Revolut è diviso in due saldi (EUR/RON) perché Dario spende in RON da
 // quel conto: stessa idea di UniCredit Romania su IAGREXPage, con
@@ -89,6 +89,110 @@ function formatDayLabel(ymd) {
   const giorni = ["Dom","Lun","Mar","Mer","Gio","Ven","Sab"];
   const mesi = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
   return `${giorni[d.getDay()]} ${d.getDate()} ${mesi[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+// Selettore periodo "da...a" in un unico tasto con calendario a comparsa
+// (stile Booking.com): un clic apre il popup, primo giorno cliccato = inizio,
+// secondo = fine (le date intermedie si illuminano). Sostituisce i due
+// vecchi input <input type="date"> separati.
+const MESI_BREVI = ["gen","feb","mar","apr","mag","giu","lug","ago","set","ott","nov","dic"];
+const MESI_LUNGHI = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
+const GIORNI_SETT = ["Lu","Ma","Me","Gi","Ve","Sa","Do"];
+
+function pad2(n) { return String(n).padStart(2,"0"); }
+function ymdStr(y,m,d) { return `${y}-${pad2(m)}-${pad2(d)}`; }
+function fmtShortDate(ymd) {
+  if (!ymd) return "";
+  const [y,m,d] = ymd.split("-").map(Number);
+  return `${d} ${MESI_BREVI[m-1]}`;
+}
+function daysGrid(y,m) {
+  const first = new Date(y, m-1, 1);
+  const startWeekday = (first.getDay()+6)%7; // Lunedì=0
+  const numDays = new Date(y, m, 0).getDate();
+  const cells = [];
+  for (let i=0;i<startWeekday;i++) cells.push(null);
+  for (let d=1; d<=numDays; d++) cells.push(d);
+  return cells;
+}
+
+function DateRangePicker({ da, a, onChange, accent="#3B82F6" }) {
+  const [open, setOpen] = useState(false);
+  const today = new Date();
+  const [viewY, setViewY] = useState(today.getFullYear());
+  const [viewM, setViewM] = useState(today.getMonth()+1); // 1-12
+  const wrapRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const base = a || da;
+    if (base) { const [y,m] = base.split("-").map(Number); setViewY(y); setViewM(m); }
+    const onDocClick = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [open]);
+
+  const label = da && a ? `${fmtShortDate(da)} – ${fmtShortDate(a)}` : da ? `Da ${fmtShortDate(da)}` : "Tutto il periodo";
+
+  const prevMonth = () => { let y=viewY, m=viewM-1; if (m<1){m=12;y--;} setViewY(y); setViewM(m); };
+  const nextMonth = () => { let y=viewY, m=viewM+1; if (m>12){m=1;y++;} setViewY(y); setViewM(m); };
+
+  const handleDayClick = (d) => {
+    const dstr = ymdStr(viewY, viewM, d);
+    if (!da || (da && a)) {
+      onChange(dstr, "");
+    } else {
+      if (dstr < da) onChange(dstr, da); else onChange(da, dstr);
+      setOpen(false);
+    }
+  };
+
+  const cells = daysGrid(viewY, viewM);
+
+  return (
+    <div ref={wrapRef} style={{ position:"relative" }}>
+      <button onClick={()=>setOpen(o=>!o)} title="Filtra per periodo"
+        style={{ display:"flex", alignItems:"center", gap:6, padding:"6px 10px", borderRadius:7, border:`1px solid ${(da||a)?accent:"var(--c-border)"}`, background:(da||a)?`${accent}15`:"var(--c-bg)", color:(da||a)?accent:"var(--c-text-dim)", cursor:"pointer", fontSize:12, fontWeight:(da||a)?600:400, whiteSpace:"nowrap" }}>
+        📅 {label}
+      </button>
+      {(da||a) && (
+        <button onClick={()=>{ onChange("",""); setOpen(false); }} title="Rimuovi filtro periodo"
+          style={{ marginLeft:4, padding:"6px 8px", borderRadius:7, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-faint)", cursor:"pointer", fontSize:11 }}>✕</button>
+      )}
+      {open && (
+        <div style={{ position:"absolute", top:"calc(100% + 6px)", left:0, zIndex:100, background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10, padding:12, width:240, boxShadow:"0 12px 28px -8px #00000060" }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+            <button onClick={prevMonth} style={{ width:24, height:24, borderRadius:6, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-dim)", cursor:"pointer", fontSize:12 }}>‹</button>
+            <span style={{ fontSize:12, fontWeight:700, color:"var(--c-text-strong)" }}>{MESI_LUNGHI[viewM-1]} {viewY}</span>
+            <button onClick={nextMonth} style={{ width:24, height:24, borderRadius:6, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-dim)", cursor:"pointer", fontSize:12 }}>›</button>
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:2, marginBottom:2 }}>
+            {GIORNI_SETT.map(g=>(
+              <div key={g} style={{ textAlign:"center", fontSize:10, color:"var(--c-text-faint)", padding:"2px 0" }}>{g}</div>
+            ))}
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:2 }}>
+            {cells.map((d,i) => {
+              if (!d) return <div key={i}/>;
+              const dstr = ymdStr(viewY, viewM, d);
+              const isStart = dstr===da, isEnd = dstr===a;
+              const inRange = da && a && dstr>da && dstr<a;
+              const isEdge = isStart || isEnd;
+              return (
+                <button key={i} onClick={()=>handleDayClick(d)}
+                  style={{
+                    height:26, borderRadius:6, border:"none", cursor:"pointer", fontSize:11,
+                    background: isEdge ? accent : inRange ? `${accent}30` : "transparent",
+                    color: isEdge ? "#fff" : "var(--c-text)",
+                    fontWeight: isEdge ? 700 : 400,
+                  }}>{d}</button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // Piccolo toggle "Per categoria / Più recenti" riusato da entrate e uscite.
@@ -648,17 +752,9 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                 </div>
               </div>
               <div style={{ display:"flex", flexDirection:isMobile?"column":"row", alignItems:isMobile?"stretch":"center", gap:6, marginBottom:12, padding:"8px 10px", background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:8 }}>
-                <span style={{ fontSize:11, color:"var(--c-text-faint)", whiteSpace:"nowrap" }}>📅 Periodo</span>
-                <div style={{ display:"flex", alignItems:"center", gap:6, flex:1 }}>
-                  <input type="date" value={filtroDataDa} onChange={e=>setFiltroDataDa(e.target.value)} title="Data da"
-                    style={{ flex:1, minWidth:0, padding:"6px 8px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:12 }}/>
-                  <span style={{ fontSize:11, color:"var(--c-text-faint)" }}>–</span>
-                  <input type="date" value={filtroDataA} onChange={e=>setFiltroDataA(e.target.value)} title="Data a"
-                    style={{ flex:1, minWidth:0, padding:"6px 8px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:12 }}/>
-                  {(filtroDataDa||filtroDataA) && <button onClick={()=>{setFiltroDataDa("");setFiltroDataA("");}} style={{ flexShrink:0, padding:"6px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-faint)", cursor:"pointer", fontSize:11 }}>✕</button>}
-                  <button onClick={()=>exportCSV(monthData.entrate.filter(inDateRange),"entrate")} title="Esporta le entrate filtrate in CSV"
-                    style={{ flexShrink:0, padding:"6px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-dim)", cursor:"pointer", fontSize:11, whiteSpace:"nowrap" }}>📥 CSV</button>
-                </div>
+                <DateRangePicker da={filtroDataDa} a={filtroDataA} onChange={(d,a)=>{setFiltroDataDa(d);setFiltroDataA(a);}} accent="#10B981"/>
+                <button onClick={()=>exportCSV(monthData.entrate.filter(inDateRange),"entrate")} title="Esporta le entrate filtrate in CSV"
+                  style={{ flexShrink:0, padding:"6px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-dim)", cursor:"pointer", fontSize:11, whiteSpace:"nowrap" }}>📥 CSV</button>
               </div>
               {(() => {
                 const filtered = monthData.entrate.filter(inDateRange);
@@ -724,13 +820,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                   </select>
                 </div>
                 <div style={{ display:"flex", alignItems:"center", gap:6, flex:1 }}>
-                  <span style={{ fontSize:11, color:"var(--c-text-faint)", whiteSpace:"nowrap" }}>📅 Periodo</span>
-                  <input type="date" value={filtroDataDa} onChange={e=>setFiltroDataDa(e.target.value)} title="Data da"
-                    style={{ flex:1, minWidth:0, padding:"6px 8px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:12 }}/>
-                  <span style={{ fontSize:11, color:"var(--c-text-faint)" }}>–</span>
-                  <input type="date" value={filtroDataA} onChange={e=>setFiltroDataA(e.target.value)} title="Data a"
-                    style={{ flex:1, minWidth:0, padding:"6px 8px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:12 }}/>
-                  {(filtroDataDa||filtroDataA) && <button onClick={()=>{setFiltroDataDa("");setFiltroDataA("");}} style={{ flexShrink:0, padding:"6px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-faint)", cursor:"pointer", fontSize:11 }}>✕</button>}
+                  <DateRangePicker da={filtroDataDa} a={filtroDataA} onChange={(d,a)=>{setFiltroDataDa(d);setFiltroDataA(a);}} accent="#EF4444"/>
                   <button onClick={()=>exportCSV(monthData.uscite.filter(e=>(!filtroConto||e.conto===filtroConto)&&inDateRange(e)),"uscite")} title="Esporta le uscite filtrate in CSV"
                     style={{ flexShrink:0, padding:"6px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-dim)", cursor:"pointer", fontSize:11, whiteSpace:"nowrap" }}>📥 CSV</button>
                 </div>
