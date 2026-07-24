@@ -471,6 +471,18 @@ export default function App() {
   },[]);
 
   useEffect(()=>{ if(view==="home") loadHomeData(); },[view]);
+  // Ri-sincronizza con ClickUp quando torni sulla tab/app dopo un po' (es.
+  // il giorno dopo, o dopo che il cron notturno ha resettato le routine):
+  // senza questo, homeData/checkedTasks potevano restare fermi a quando la
+  // pagina era stata caricata l'ultima volta, mostrando uno stato "vecchio"
+  // finché non si ricaricava manualmente — stessa famiglia di bug del
+  // disallineamento dashboard/ClickUp riscontrato sull'outreach.
+  useEffect(()=>{
+    const onVisible = () => { if (document.visibilityState==="visible" && view==="home") loadHomeData(); };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => { document.removeEventListener("visibilitychange", onVisible); window.removeEventListener("focus", onVisible); };
+  },[view]);
   useEffect(()=>{ if(view==="home" && useLocalWeather) loadLocalWeather(); },[view, useLocalWeather]);
 
   // Meteo sulla posizione attuale: a differenza del fuso orario (letto senza
@@ -612,6 +624,18 @@ export default function App() {
     try {
       const res = await fetch("/api/update-task",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({taskId,status:next?"completata":"da fare"})});
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      // Non basta che ClickUp risponda 200: verifichiamo che lo status
+      // REALMENTE tornato indietro corrisponda a quanto richiesto. Se la
+      // lista di questo task usa nomi di stato diversi da "completata"/"da
+      // fare" (es. una lista con vocabolario custom), ClickUp può accettare
+      // la PUT senza applicare davvero il cambiamento — è esattamente il
+      // tipo di disallineamento dashboard-vs-ClickUp riscontrato a luglio
+      // 2026 su una task di outreach. Qui confrontiamo lo stato tornato con
+      // DONE_STATUSES: se non coincide con "next", trattiamo come fallimento
+      // e facciamo rollback invece di fidarci ciecamente dell'ottimismo locale.
+      const data = await res.json();
+      const confirmedDone = DONE_STATUSES.includes((data?.status?.status||"").toLowerCase());
+      if (confirmedDone !== next) throw new Error("Stato non confermato da ClickUp");
     } catch (e) {
       const reverted = {...newChecked,[taskId]:cur};
       setCheckedTasks(reverted);
@@ -906,7 +930,7 @@ export default function App() {
 
           {view==="iagrex"   && <IAGREXPage fontSize={fontSize} onBack={()=>setView("home")} theme={theme} isMobile={isMobile}/>}
           {view==="finanze"  && <BrunoPage  fontSize={fontSize} theme={theme} isMobile={isMobile}/>}
-          {view==="pipeline" && <PipelinePage fontSize={fontSize} theme={theme}/>}
+          {view==="pipeline" && <PipelinePage fontSize={fontSize} theme={theme} onGoToIagrex={()=>setView("iagrex")}/>}
           {view==="clienti"  && <ClientiPage  fontSize={fontSize} theme={theme}/>}
           {view==="idee"     && <IdeasPage    fontSize={fontSize} theme={theme}/>}
           {view==="simulatore" && <SimulatorPage fontSize={fontSize} onBack={()=>setView("home")} theme={theme}/>}
