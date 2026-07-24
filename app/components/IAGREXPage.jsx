@@ -15,6 +15,27 @@ const CONTI_IAGREX_BY_ID = Object.fromEntries(CONTI_IAGREX.map(c=>[c.id,c]));
 const EMPTY_MONTH = { entrate: [], uscite: [], saldi: { unicredit_eur: 0, unicredit_ron: 0 } };
 
 function genId() { return Math.random().toString(36).slice(2,10); }
+
+// Ordina per data decrescente (più recente prima); voci senza data restano
+// in fondo invece di rompere l'ordinamento.
+function sortByDataDesc(items) {
+  return [...items].sort((a,b) => (b.data||"").localeCompare(a.data||""));
+}
+
+// Piccolo toggle "Per categoria / Più recenti" riusato da entrate e uscite.
+function VistaToggle({ vista, onChange, accent }) {
+  const opts = [["categoria","📁 Per categoria"],["recenti","🕒 Più recenti"]];
+  return (
+    <div style={{ display:"flex", gap:4 }}>
+      {opts.map(([v,label])=>(
+        <button key={v} onClick={()=>onChange(v)}
+          style={{ padding:"5px 10px", borderRadius:6, border:`1px solid ${vista===v?accent:"var(--c-border)"}`, background:vista===v?`${accent}20`:"transparent", color:vista===v?accent:"var(--c-text-faint)", cursor:"pointer", fontSize:11, fontWeight:vista===v?700:400, whiteSpace:"nowrap" }}>
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
 function fmt(n) { return (parseFloat(n)||0).toLocaleString("it-IT",{minimumFractionDigits:0,maximumFractionDigits:2}); }
 // Arrotonda a 2 decimali PRIMA di salvare il saldo — stesso motivo di
 // BrunoPage.jsx: le somme/sottrazioni ripetute in floating point sporcano
@@ -156,6 +177,10 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
   const [filtroConto, setFiltroConto] = useState("");
   const [filtroDataDa, setFiltroDataDa] = useState("");
   const [filtroDataA, setFiltroDataA]   = useState("");
+  // Vista lista entrate/uscite: "categoria" raggruppa per categoria,
+  // "recenti" mostra tutto in un'unica lista ordinata per data decrescente.
+  const [vistaEntrate, setVistaEntrate] = useState("recenti");
+  const [vistaUscite, setVistaUscite]   = useState("categoria");
   const [loading, setLoading]     = useState(true);
   const [saveStatus, setSaveStatus] = useState(null);
   const [modal, setModal]         = useState(null);
@@ -444,7 +469,7 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
   );
 
   return (
-    <div style={{...themeVars,display:"flex",flexDirection:"column",height:"100%",overflow:isMobile?"auto":"hidden",background:"var(--c-bg)"}}>
+    <div style={{...themeVars,display:"flex",flexDirection:"column",height:"100%",overflow:"auto",background:"var(--c-bg)"}}>
 
       {/* Header */}
       <div style={{padding:"14px 20px",borderBottom:"1px solid var(--c-border)",flexShrink:0}}>
@@ -525,13 +550,16 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
       {loading && <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",color:"var(--c-text-faintest)"}}>⏳ Caricamento...</div>}
 
       {!loading && (
-        <div style={{flex:isMobile?"unset":1,overflowY:isMobile?"visible":"auto",padding:16,minHeight:isMobile?0:undefined}}>
+        <div style={{flex:"unset",overflowY:"visible",padding:16}}>
 
           {tab==="entrate" && (
             <div>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,gap:8}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,gap:8,flexWrap:"wrap"}}>
                 <div style={{fontSize:fs-2,color:"var(--c-text-dim)"}}>Totale: <span style={{color:"#10B981",fontWeight:700}}>+{fmt(monthData.entrate.filter(inDateRange).reduce((s,e)=>s+toEur(e),0))}€</span></div>
-                <button onClick={()=>openAdd("entrata")} style={{padding:"6px 14px",borderRadius:7,border:"none",background:"#10B981",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:600,whiteSpace:"nowrap"}}>+ Aggiungi</button>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <VistaToggle vista={vistaEntrate} onChange={setVistaEntrate} accent="#10B981"/>
+                  <button onClick={()=>openAdd("entrata")} style={{padding:"6px 14px",borderRadius:7,border:"none",background:"#10B981",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:600,whiteSpace:"nowrap"}}>+ Aggiungi</button>
+                </div>
               </div>
               <div style={{display:"flex",flexDirection:isMobile?"column":"row",alignItems:isMobile?"stretch":"center",gap:6,marginBottom:12,padding:"8px 10px",background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:8}}>
                 <span style={{fontSize:11,color:"var(--c-text-faint)",whiteSpace:"nowrap"}}>📅 Periodo</span>
@@ -546,29 +574,53 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
                     style={{flexShrink:0,padding:"6px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-dim)",cursor:"pointer",fontSize:11,whiteSpace:"nowrap"}}>📥 CSV</button>
                 </div>
               </div>
-              <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,overflow:"hidden"}}>
-                {(() => { const filtered = monthData.entrate.filter(inDateRange); return filtered.length===0
-                  ? <div style={{padding:20,textAlign:"center",color:"var(--c-text-faintest)",fontSize:fs-2}}>{monthData.entrate.length===0?"Nessuna entrata — aggiungi la prima":"Nessuna entrata nel periodo selezionato"}</div>
-                  : filtered.map((e,i)=>(
-                    <div key={e.id} style={{display:"grid",gridTemplateColumns:"1fr auto auto auto",gap:0,borderTop:i===0?"none":"1px solid var(--c-border)",background:i%2===0?"var(--c-panel)":"var(--c-panel2)"}}>
-                      <Cell style={{flexDirection:"column",alignItems:"flex-start",gap:2}}>
-                        <span style={{color:"var(--c-text)",fontWeight:600}}>{e.descrizione}</span>
-                        <span style={{fontSize:fs-4,color:"var(--c-text-faint)"}}>{e.data?`${e.data} · `:""}{e.categoria}{e.cliente?` · ${e.cliente}`:""}{e.conto?` · ${CONTI_IAGREX_BY_ID[e.conto]?.label||e.conto}`:""}</span>
-                      </Cell>
-                      <Cell style={{color:"#10B981",fontWeight:700}}>+{fmt(e.importo)}{contoCurrency(e.conto)==="RON"?" RON":"€"}</Cell>
-                      <Cell><button onClick={()=>openEdit("entrata",e)} style={{width:24,height:24,borderRadius:5,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-dim)",cursor:"pointer",fontSize:10}}>✏️</button></Cell>
-                      <Cell><button onClick={()=>deleteItem("entrata",e.id)} style={{width:24,height:24,borderRadius:5,border:"1px solid #2A1A1A",background:"transparent",color:"#EF4444",cursor:"pointer",fontSize:12,fontWeight:700}}>×</button></Cell>
+              {(() => {
+                const filtered = monthData.entrate.filter(inDateRange);
+                if (filtered.length===0) return (
+                  <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,padding:20,textAlign:"center",color:"var(--c-text-faintest)",fontSize:fs-2}}>
+                    {monthData.entrate.length===0?"Nessuna entrata — aggiungi la prima":"Nessuna entrata nel periodo selezionato"}
+                  </div>
+                );
+                const Row = (e,i) => (
+                  <div key={e.id} style={{display:"grid",gridTemplateColumns:"1fr auto auto auto",gap:0,borderTop:i===0?"none":"1px solid var(--c-border)",background:i%2===0?"var(--c-panel)":"var(--c-panel2)"}}>
+                    <Cell style={{flexDirection:"column",alignItems:"flex-start",gap:2}}>
+                      <span style={{color:"var(--c-text)",fontWeight:600}}>{e.descrizione}</span>
+                      <span style={{fontSize:fs-4,color:"var(--c-text-faint)"}}>{e.data?`${e.data} · `:""}{e.categoria}{e.cliente?` · ${e.cliente}`:""}{e.conto?` · ${CONTI_IAGREX_BY_ID[e.conto]?.label||e.conto}`:""}</span>
+                    </Cell>
+                    <Cell style={{color:"#10B981",fontWeight:700}}>+{fmt(e.importo)}{contoCurrency(e.conto)==="RON"?" RON":"€"}</Cell>
+                    <Cell><button onClick={()=>openEdit("entrata",e)} style={{width:24,height:24,borderRadius:5,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-dim)",cursor:"pointer",fontSize:10}}>✏️</button></Cell>
+                    <Cell><button onClick={()=>deleteItem("entrata",e.id)} style={{width:24,height:24,borderRadius:5,border:"1px solid #2A1A1A",background:"transparent",color:"#EF4444",cursor:"pointer",fontSize:12,fontWeight:700}}>×</button></Cell>
+                  </div>
+                );
+                if (vistaEntrate==="recenti") return (
+                  <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,overflow:"hidden"}}>
+                    {sortByDataDesc(filtered).map(Row)}
+                  </div>
+                );
+                const grouped = filtered.reduce((acc,e)=>{ (acc[e.categoria]=acc[e.categoria]||[]).push(e); return acc; },{});
+                return Object.entries(grouped).map(([cat,items])=>(
+                  <div key={cat} style={{marginBottom:12}}>
+                    <div style={{fontSize:fs-3,fontWeight:700,color:"var(--c-text-dim)",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6,display:"flex",justifyContent:"space-between"}}>
+                      <span>{cat}</span>
+                      <span style={{color:"#10B981"}}>+{fmt(items.reduce((s,e)=>s+toEur(e),0))}€</span>
                     </div>
-                  )); })()}
-              </div>
+                    <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,overflow:"hidden"}}>
+                      {items.map(Row)}
+                    </div>
+                  </div>
+                ));
+              })()}
             </div>
           )}
 
           {tab==="uscite" && (
             <div>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,gap:8}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,gap:8,flexWrap:"wrap"}}>
                 <div style={{fontSize:fs-2,color:"var(--c-text-dim)"}}>Totale: <span style={{color:"#EF4444",fontWeight:700}}>-{fmt(monthData.uscite.filter(e=>(!filtroConto||e.conto===filtroConto)&&inDateRange(e)).reduce((s,e)=>s+toEur(e),0))}€</span></div>
-                <button onClick={()=>openAdd("uscita")} style={{padding:"6px 14px",borderRadius:7,border:"none",background:"#EF4444",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:600,whiteSpace:"nowrap"}}>+ Aggiungi</button>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <VistaToggle vista={vistaUscite} onChange={setVistaUscite} accent="#EF4444"/>
+                  <button onClick={()=>openAdd("uscita")} style={{padding:"6px 14px",borderRadius:7,border:"none",background:"#EF4444",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:600,whiteSpace:"nowrap"}}>+ Aggiungi</button>
+                </div>
               </div>
               <div style={{display:"flex",flexDirection:isMobile?"column":"row",alignItems:isMobile?"stretch":"center",gap:6,marginBottom:12,padding:"8px 10px",background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:8}}>
                 <div style={{display:"flex",alignItems:"center",gap:6}}>
@@ -590,21 +642,39 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
                     style={{flexShrink:0,padding:"6px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-dim)",cursor:"pointer",fontSize:11,whiteSpace:"nowrap"}}>📥 CSV</button>
                 </div>
               </div>
-              <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,overflow:"hidden"}}>
-                {(() => { const filtered = monthData.uscite.filter(e=>(!filtroConto || e.conto===filtroConto)&&inDateRange(e)); return filtered.length===0
-                  ? <div style={{padding:20,textAlign:"center",color:"var(--c-text-faintest)",fontSize:fs-2}}>{monthData.uscite.length===0?"Nessuna uscita — aggiungi la prima":"Nessuna uscita nel periodo/conto selezionato"}</div>
-                  : filtered.map((e,i)=>(
-                    <div key={e.id} style={{display:"grid",gridTemplateColumns:"1fr auto auto auto",gap:0,borderTop:i===0?"none":"1px solid var(--c-border)",background:i%2===0?"var(--c-panel)":"var(--c-panel2)"}}>
-                      <Cell style={{flexDirection:"column",alignItems:"flex-start",gap:2}}>
-                        <span style={{color:"var(--c-text)",fontWeight:600}}>{e.descrizione}</span>
-                        <span style={{fontSize:fs-4,color:"var(--c-text-faint)"}}>{e.data?`${e.data} · `:""}{e.categoria}{e.conto?` · ${CONTI_IAGREX_BY_ID[e.conto]?.label||e.conto}`:""}</span>
-                      </Cell>
-                      <Cell style={{color:"#EF4444",fontWeight:700}}>-{fmt(e.importo)}{contoCurrency(e.conto)==="RON"?" RON":"€"}</Cell>
-                      <Cell><button onClick={()=>openEdit("uscita",e)} style={{width:24,height:24,borderRadius:5,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-dim)",cursor:"pointer",fontSize:10}}>✏️</button></Cell>
-                      <Cell><button onClick={()=>deleteItem("uscita",e.id)} style={{width:24,height:24,borderRadius:5,border:"1px solid #2A1A1A",background:"transparent",color:"#EF4444",cursor:"pointer",fontSize:12,fontWeight:700}}>×</button></Cell>
+              {(() => {
+                const filtered = monthData.uscite.filter(e=>(!filtroConto || e.conto===filtroConto)&&inDateRange(e));
+                if (monthData.uscite.length===0) return <div style={{padding:20,textAlign:"center",color:"var(--c-text-faintest)",fontSize:fs-2,background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10}}>Nessuna uscita — aggiungi la prima</div>;
+                if (filtered.length===0) return <div style={{padding:20,textAlign:"center",color:"var(--c-text-faintest)",fontSize:fs-2,background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10}}>Nessuna uscita nel periodo/conto selezionato</div>;
+                const Row = (e,i) => (
+                  <div key={e.id} style={{display:"grid",gridTemplateColumns:"1fr auto auto auto",gap:0,borderTop:i===0?"none":"1px solid var(--c-border)",background:i%2===0?"var(--c-panel)":"var(--c-panel2)"}}>
+                    <Cell style={{flexDirection:"column",alignItems:"flex-start",gap:2}}>
+                      <span style={{color:"var(--c-text)",fontWeight:600}}>{e.descrizione}</span>
+                      <span style={{fontSize:fs-4,color:"var(--c-text-faint)"}}>{e.data?`${e.data} · `:""}{e.categoria}{e.conto?` · ${CONTI_IAGREX_BY_ID[e.conto]?.label||e.conto}`:""}</span>
+                    </Cell>
+                    <Cell style={{color:"#EF4444",fontWeight:700}}>-{fmt(e.importo)}{contoCurrency(e.conto)==="RON"?" RON":"€"}</Cell>
+                    <Cell><button onClick={()=>openEdit("uscita",e)} style={{width:24,height:24,borderRadius:5,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-dim)",cursor:"pointer",fontSize:10}}>✏️</button></Cell>
+                    <Cell><button onClick={()=>deleteItem("uscita",e.id)} style={{width:24,height:24,borderRadius:5,border:"1px solid #2A1A1A",background:"transparent",color:"#EF4444",cursor:"pointer",fontSize:12,fontWeight:700}}>×</button></Cell>
+                  </div>
+                );
+                if (vistaUscite==="recenti") return (
+                  <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,overflow:"hidden"}}>
+                    {sortByDataDesc(filtered).map(Row)}
+                  </div>
+                );
+                const grouped = filtered.reduce((acc,e)=>{ (acc[e.categoria]=acc[e.categoria]||[]).push(e); return acc; },{});
+                return Object.entries(grouped).map(([cat,items])=>(
+                  <div key={cat} style={{marginBottom:12}}>
+                    <div style={{fontSize:fs-3,fontWeight:700,color:"var(--c-text-dim)",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6,display:"flex",justifyContent:"space-between"}}>
+                      <span>{cat}</span>
+                      <span style={{color:"#EF4444"}}>-{fmt(items.reduce((s,e)=>s+toEur(e),0))}€</span>
                     </div>
-                  )); })()}
-              </div>
+                    <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,overflow:"hidden"}}>
+                      {items.map(Row)}
+                    </div>
+                  </div>
+                ));
+              })()}
             </div>
           )}
 
