@@ -618,6 +618,73 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
     saveData({ ...allData, checkSaldi: checkSaldi.filter(c=>c.id!==id) });
   };
 
+  // --- Confronto movimento per movimento: carica il PDF dell'estratto,
+  // lo confronta con le entrate/uscite già registrate per quel mese/conto.
+  // Non modifica nulla in automatico: evidenzia solo in arancione (via
+  // flaggedIds) le voci in app senza riscontro sull'estratto, così Dario
+  // le corregge lui a mano — vedi Row più sotto.
+  const [reconcileModal, setReconcileModal] = useState(null);
+  const [reconcileForm, setReconcileForm] = useState({});
+  const [reconcileResult, setReconcileResult] = useState(null);
+  const [reconcileLoading, setReconcileLoading] = useState(false);
+  const [flaggedIds, setFlaggedIds] = useState(() => new Set());
+
+  const openReconcile = () => {
+    setReconcileForm({ mese: prevMonthYm(), conto: CONTI[0].id, file: null });
+    setReconcileResult(null);
+    setReconcileModal(true);
+  };
+  const closeReconcile = () => { setReconcileModal(null); setReconcileForm({}); setReconcileResult(null); };
+
+  const runReconcile = async () => {
+    const { mese, conto, file } = reconcileForm;
+    if (!mese || !conto || !file) return;
+    setReconcileLoading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/parse-statement", { method:"POST", body: fd });
+      const json = await res.json();
+      if (!res.ok) { setReconcileResult({ error: json.error || `Errore ${res.status}` }); setReconcileLoading(false); return; }
+
+      const md = allData[mese] || EMPTY_MONTH;
+      const appMovs = [
+        ...(md.entrate||[]).filter(e=>e.conto===conto).map(e=>({ ...e, tipo:"entrata" })),
+        ...(md.uscite ||[]).filter(e=>e.conto===conto).map(e=>({ ...e, tipo:"uscita"  })),
+      ];
+      const usedIds = new Set();
+      const mancantiInApp = [];
+      for (const mov of (json.movimenti||[])) {
+        const target = Math.abs(round2(mov.importo));
+        // Match per importo assoluto (il segno sull'estratto non è
+        // affidabile in modo uniforme tra banche) + data entro 3 giorni,
+        // scegliendo il più vicino in data tra i candidati non ancora usati.
+        const candidati = appMovs.filter(a => !usedIds.has(a.id) && Math.abs(round2(Math.abs(a.importo)) - target) < 0.01);
+        let best = null, bestDist = Infinity;
+        for (const c of candidati) {
+          const dist = (c.data && mov.data) ? Math.abs(new Date(c.data) - new Date(mov.data)) : 999*86400000;
+          if (dist < bestDist && dist <= 4*86400000) { best = c; bestDist = dist; }
+        }
+        if (!best && candidati.length) best = candidati[0]; // nessuna data affidabile: prendi il primo per importo
+        if (best) usedIds.add(best.id);
+        else mancantiInApp.push(mov);
+      }
+      const mancantiInEstratto = appMovs.filter(a => !usedIds.has(a.id));
+      setFlaggedIds(new Set(mancantiInEstratto.map(a=>a.id)));
+      setReconcileResult({
+        totaleEstratto: (json.movimenti||[]).length,
+        abbinati: usedIds.size,
+        mancantiInApp,
+        mancantiInEstratto,
+        righeRiconosciute: json.righeRiconosciute,
+        righeTotali: json.righeTotali,
+      });
+    } catch (e) {
+      setReconcileResult({ error: e.message });
+    }
+    setReconcileLoading(false);
+  };
+
   const updateField = (field, val) => {
     updateMonth({ ...monthData, [field]: parseFloat(val)||0 });
   };
@@ -816,9 +883,9 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                   </div>
                 );
                 const Row = (e,i) => (
-                  <div key={e.id} style={{ display:"grid", gridTemplateColumns:"1fr auto auto auto", gap:0, borderTop:i===0?"none":"1px solid var(--c-border)", background:i%2===0?"var(--c-panel)":"var(--c-panel2)" }}>
+                  <div key={e.id} style={{ display:"grid", gridTemplateColumns:"1fr auto auto auto", gap:0, borderTop:i===0?"none":"1px solid var(--c-border)", background:flaggedIds.has(e.id)?"#F59E0B1F":(i%2===0?"var(--c-panel)":"var(--c-panel2)"), boxShadow:flaggedIds.has(e.id)?"inset 3px 0 0 #F59E0B":"none" }}>
                     <Cell style={{ flexDirection:"column", alignItems:"flex-start", gap:2 }}>
-                      <span style={{ color:"var(--c-text)", fontWeight:600 }}>{e.descrizione}</span>
+                      <span style={{ color:"var(--c-text)", fontWeight:600 }}>{flaggedIds.has(e.id)?"⚠️ ":""}{e.descrizione}</span>
                       <span style={{ fontSize:fs-4, color:"var(--c-text-faint)" }}>{e.data?`${e.data} · `:""}{e.categoria}{e.conto?` · ${CONTI_BY_ID[e.conto]?.label||e.conto}`:""}</span>
                     </Cell>
                     <Cell style={{ color:"#10B981", fontWeight:700 }}>+{fmt(e.importo)}{contoCurrency(e.conto)==="RON"?" RON":"€"}</Cell>
@@ -882,9 +949,9 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                 if (monthData.uscite.length===0) return <div style={{ padding:20, textAlign:"center", color:"var(--c-text-faintest)", fontSize:fs-2, background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10 }}>Nessuna uscita — aggiungi la prima</div>;
                 if (filtered.length===0) return <div style={{ padding:20, textAlign:"center", color:"var(--c-text-faintest)", fontSize:fs-2, background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10 }}>Nessuna uscita nel periodo/conto selezionato</div>;
                 const Row = (e,i) => (
-                  <div key={e.id} style={{ display:"grid", gridTemplateColumns:"1fr auto auto auto", gap:0, borderTop:i===0?"none":"1px solid var(--c-border)", background:i%2===0?"var(--c-panel)":"var(--c-panel2)" }}>
+                  <div key={e.id} style={{ display:"grid", gridTemplateColumns:"1fr auto auto auto", gap:0, borderTop:i===0?"none":"1px solid var(--c-border)", background:flaggedIds.has(e.id)?"#F59E0B1F":(i%2===0?"var(--c-panel)":"var(--c-panel2)"), boxShadow:flaggedIds.has(e.id)?"inset 3px 0 0 #F59E0B":"none" }}>
                     <Cell style={{ flexDirection:"column", alignItems:"flex-start", gap:2 }}>
-                      <span style={{ color:"var(--c-text)" }}>{e.descrizione}</span>
+                      <span style={{ color:"var(--c-text)" }}>{flaggedIds.has(e.id)?"⚠️ ":""}{e.descrizione}</span>
                       <span style={{ fontSize:fs-4, color:"var(--c-text-faint)" }}>{e.data?`${e.data}`:""}{e.data?" · ":""}{e.categoria}{e.conto?` · ${CONTI_BY_ID[e.conto]?.label||e.conto}`:""}</span>
                     </Cell>
                     <Cell style={{ color:"#EF4444", fontWeight:700 }}>-{fmt(e.importo)}{contoCurrency(e.conto)==="RON"?" RON":"€"}</Cell>
@@ -964,8 +1031,17 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
               <div>
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
                   <div style={{ fontSize:fs-3, fontWeight:700, color:"#06B6D4", textTransform:"uppercase", letterSpacing:"0.08em" }}>📄 Check Estratto Conto</div>
-                  <button onClick={openCheckAdd} style={{ padding:"5px 12px", borderRadius:7, border:"none", background:"#06B6D4", color:"#fff", cursor:"pointer", fontSize:11, fontWeight:600 }}>+ Nuovo check</button>
+                  <div style={{ display:"flex", gap:6 }}>
+                    <button onClick={openReconcile} title="Carica il PDF dell'estratto e confronta movimento per movimento con le entrate/uscite registrate"
+                      style={{ padding:"5px 12px", borderRadius:7, border:"1px solid #06B6D4", background:"transparent", color:"#06B6D4", cursor:"pointer", fontSize:11, fontWeight:600 }}>🔍 Confronta movimenti</button>
+                    <button onClick={openCheckAdd} style={{ padding:"5px 12px", borderRadius:7, border:"none", background:"#06B6D4", color:"#fff", cursor:"pointer", fontSize:11, fontWeight:600 }}>+ Nuovo check</button>
+                  </div>
                 </div>
+                {flaggedIds.size > 0 && (
+                  <div style={{ fontSize:fs-4, color:"#F59E0B", marginBottom:8, background:"#F59E0B15", border:"1px solid #F59E0B40", borderRadius:8, padding:"6px 10px" }}>
+                    ⚠️ {flaggedIds.size} movimento{flaggedIds.size>1?"i":""} senza riscontro sull'estratto, evidenziat{flaggedIds.size>1?"i":"o"} in arancione in Entrate/Uscite — <button onClick={()=>setFlaggedIds(new Set())} style={{ background:"none", border:"none", color:"#F59E0B", textDecoration:"underline", cursor:"pointer", fontSize:fs-4, padding:0 }}>pulisci evidenziazione</button>
+                  </div>
+                )}
                 <div style={{ background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10, overflow:"hidden" }}>
                   {checkSaldi.length===0 ? (
                     <div style={{ padding:16, textAlign:"center", color:"var(--c-text-faintest)", fontSize:fs-3 }}>
@@ -1205,6 +1281,76 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
             <div style={{ display:"flex", gap:8, marginTop:20 }}>
               <button onClick={closeCheckModal} style={{ flex:1, padding:10, borderRadius:8, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-faint)", cursor:"pointer", fontSize:13 }}>Annulla</button>
               <button onClick={saveCheck} style={{ flex:2, padding:10, borderRadius:8, border:"none", background:"#06B6D4", color:"#fff", cursor:"pointer", fontSize:13, fontWeight:700 }}>Salva check</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Confronto movimento per movimento (carica PDF estratto) */}
+      {reconcileModal && (
+        <div style={{ position:"fixed", inset:0, background:"#00000090", zIndex:999, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }} onClick={closeReconcile}>
+          <div style={{ background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:16, padding:24, width:"100%", maxWidth:460, maxHeight:"90vh", overflowY:"auto" }} onClick={e=>e.stopPropagation()}>
+            <div style={{ fontSize:15, fontWeight:700, color:"var(--c-text-strong)", marginBottom:6 }}>🔍 Confronta movimenti</div>
+            <div style={{ fontSize:11, color:"var(--c-text-faint)", marginBottom:20 }}>
+              Carica il PDF dell'estratto conto: lo confronto riga per riga con le entrate/uscite già registrate per il mese e conto scelti. È un'estrazione automatica dal PDF (euristica, può sbagliare qualche riga) — il risultato va sempre controllato a occhio.
+            </div>
+            <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+              <div>
+                <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:4 }}>Mese</div>
+                <input type="month" value={reconcileForm.mese||""} onChange={e=>setReconcileForm(p=>({...p,mese:e.target.value}))}
+                  style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:13, outline:"none" }}/>
+              </div>
+              <div>
+                <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:4 }}>Conto 🏦</div>
+                <select value={reconcileForm.conto||""} onChange={e=>setReconcileForm(p=>({...p,conto:e.target.value}))}
+                  style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:13, outline:"none" }}>
+                  {CONTI.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:4 }}>Estratto conto (PDF)</div>
+                <input type="file" accept="application/pdf" onChange={e=>setReconcileForm(p=>({...p,file:e.target.files?.[0]||null}))}
+                  style={{ width:"100%", fontSize:12, color:"var(--c-text-dim)" }}/>
+              </div>
+            </div>
+
+            {reconcileResult?.error && (
+              <div style={{ marginTop:16, background:"#EF444415", border:"1px solid #EF444440", borderRadius:8, padding:"10px 12px", fontSize:12, color:"#EF4444" }}>
+                Errore: {reconcileResult.error}
+              </div>
+            )}
+            {reconcileResult && !reconcileResult.error && (
+              <div style={{ marginTop:16, display:"flex", flexDirection:"column", gap:8 }}>
+                <div style={{ fontSize:12, color:"var(--c-text)" }}>
+                  Trovati <b>{reconcileResult.totaleEstratto}</b> movimenti sul PDF ({reconcileResult.righeRiconosciute}/{reconcileResult.righeTotali} righe riconosciute) · <b style={{color:"#10B981"}}>{reconcileResult.abbinati} abbinati</b>
+                </div>
+                {reconcileResult.mancantiInApp.length > 0 && (
+                  <div style={{ background:"#EF444415", border:"1px solid #EF444440", borderRadius:8, padding:"8px 10px" }}>
+                    <div style={{ fontSize:12, fontWeight:700, color:"#EF4444", marginBottom:4 }}>Sull'estratto ma non in app ({reconcileResult.mancantiInApp.length})</div>
+                    {reconcileResult.mancantiInApp.map((m,i)=>(
+                      <div key={i} style={{ fontSize:11, color:"var(--c-text-dim)", padding:"2px 0" }}>{m.data} · {m.descrizione} · {fmt(m.importo)}</div>
+                    ))}
+                  </div>
+                )}
+                {reconcileResult.mancantiInEstratto.length > 0 && (
+                  <div style={{ background:"#F59E0B15", border:"1px solid #F59E0B40", borderRadius:8, padding:"8px 10px" }}>
+                    <div style={{ fontSize:12, fontWeight:700, color:"#F59E0B", marginBottom:4 }}>In app ma non sull'estratto ({reconcileResult.mancantiInEstratto.length}) — evidenziati in arancione in Entrate/Uscite</div>
+                    {reconcileResult.mancantiInEstratto.map((m)=>(
+                      <div key={m.id} style={{ fontSize:11, color:"var(--c-text-dim)", padding:"2px 0" }}>{m.data||"(senza data)"} · {m.descrizione} · {fmt(m.importo)}</div>
+                    ))}
+                  </div>
+                )}
+                {reconcileResult.mancantiInApp.length===0 && reconcileResult.mancantiInEstratto.length===0 && (
+                  <div style={{ fontSize:12, color:"#10B981", fontWeight:600 }}>✅ Tutti i movimenti combaciano.</div>
+                )}
+              </div>
+            )}
+
+            <div style={{ display:"flex", gap:8, marginTop:20 }}>
+              <button onClick={closeReconcile} style={{ flex:1, padding:10, borderRadius:8, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-faint)", cursor:"pointer", fontSize:13 }}>Chiudi</button>
+              <button onClick={runReconcile} disabled={reconcileLoading || !reconcileForm.file} style={{ flex:2, padding:10, borderRadius:8, border:"none", background:"#06B6D4", color:"#fff", cursor:reconcileLoading?"default":"pointer", fontSize:13, fontWeight:700, opacity:(reconcileLoading||!reconcileForm.file)?0.6:1 }}>
+                {reconcileLoading ? "Confronto in corso..." : "Confronta"}
+              </button>
             </div>
           </div>
         </div>
