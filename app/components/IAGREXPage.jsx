@@ -1230,7 +1230,7 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
           <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:16,padding:24,width:"100%",maxWidth:460,maxHeight:"90vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
             <div style={{fontSize:15,fontWeight:700,color:"var(--c-text-strong)",marginBottom:6}}>🔍 Confronta movimenti</div>
             <div style={{fontSize:11,color:"var(--c-text-faint)",marginBottom:20}}>
-              Carica il PDF dell'estratto conto IAGREX: lo confronto riga per riga con le entrate/uscite già registrate per il mese e conto scelti. È un'estrazione automatica dal PDF (euristica, può sbagliare qualche riga) — il risultato va sempre controllato a occhio.
+              Carica il PDF o il CSV dell'estratto conto IAGREX: lo confronto riga per riga con le entrate/uscite già registrate per il mese e conto scelti. Il CSV (se ha un'intestazione riconoscibile: data/importo o entrata-uscita) è più preciso; il PDF usa un'estrazione euristica dal testo, può sbagliare qualche riga — il risultato va sempre controllato a occhio.
             </div>
             <div style={{display:"flex",flexDirection:"column",gap:12}}>
               <div>
@@ -1246,8 +1246,8 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
                 </select>
               </div>
               <div>
-                <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:4}}>Estratto conto (PDF)</div>
-                <input type="file" accept="application/pdf" onChange={e=>setReconcileForm(p=>({...p,file:e.target.files?.[0]||null}))}
+                <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:4}}>Estratto conto (PDF o CSV)</div>
+                <input type="file" accept="application/pdf,.pdf,.csv,text/csv" onChange={e=>setReconcileForm(p=>({...p,file:e.target.files?.[0]||null}))}
                   style={{width:"100%",fontSize:12,color:"var(--c-text-dim)"}}/>
               </div>
             </div>
@@ -1260,7 +1260,12 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
             {reconcileResult && !reconcileResult.error && (
               <div style={{marginTop:16,display:"flex",flexDirection:"column",gap:8}}>
                 <div style={{fontSize:12,color:"var(--c-text)"}}>
-                  Trovati <b>{reconcileResult.totaleEstratto}</b> movimenti sul PDF ({reconcileResult.righeRiconosciute}/{reconcileResult.righeTotali} righe riconosciute) · <b style={{color:"#10B981"}}>{reconcileResult.abbinati} abbinati</b>
+                  Trovati <b>{reconcileResult.totaleEstratto}</b> movimenti ({reconcileResult.righeRiconosciute}/{reconcileResult.righeTotali} righe riconosciute) · <b style={{color:"#10B981"}}>{reconcileResult.abbinati} abbinati</b>
+                  {reconcileResult.modalita && (
+                    <span style={{marginLeft:6,fontSize:10,color: reconcileResult.modalita==="csv-strutturato" ? "#10B981" : "#F59E0B"}}>
+                      {reconcileResult.modalita==="csv-strutturato" ? "· CSV con intestazione riconosciuta (preciso)" : reconcileResult.modalita==="csv-euristico" ? "· CSV senza intestazione riconosciuta, estrazione euristica" : "· PDF, estrazione euristica"}
+                    </span>
+                  )}
                 </div>
                 {reconcileResult.mancantiInApp.length > 0 && (
                   <div style={{background:"#EF444415",border:"1px solid #EF444440",borderRadius:8,padding:"8px 10px"}}>
