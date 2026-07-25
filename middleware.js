@@ -22,17 +22,6 @@ const USERNAME = process.env.APP_USERNAME || "dario";
 export function middleware(request) {
   const password = process.env.APP_PASSWORD;
 
-  // Endpoint di diagnostica: dice SOLO se la variabile è visibile al
-  // middleware (runtime Edge), mai il suo valore. Serve a distinguere
-  // "middleware non eseguito" da "variabile non arrivata all'Edge", che dal
-  // fuori sono indistinguibili perché entrambi lasciano passare la richiesta.
-  if (request.nextUrl.pathname === "/__authcheck") {
-    return new NextResponse(password ? "var-visibile" : "var-mancante", {
-      status: 200,
-      headers: { "content-type": "text/plain" },
-    });
-  }
-
   if (!password) return NextResponse.next(); // non configurata: fail-open + banner in app
 
   // Il cron di Vercel non può inviare credenziali Basic: /api/cron/reset ha
