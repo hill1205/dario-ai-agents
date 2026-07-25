@@ -335,7 +335,6 @@ export default function App() {
   const [clockRome, setClockRome]           = useState("--:--");
   const [weather, setWeather]               = useState(null);
   const [homeData, setHomeData]             = useState({todo:[],routine:[],sospeso:[],claudia:[],annarita:[]});
-  const [revenue, setRevenue]               = useState(null);
   const [weightData, setWeightData]         = useState(null);
   const [homeLoading, setHomeLoading]       = useState(false);
   const [homeErrors, setHomeErrors]         = useState({});
@@ -533,16 +532,24 @@ export default function App() {
       // fetchWithRetry assorbe un singolo blip di rete (timeout momentaneo)
       // ritentando una volta prima di arrendersi, cosi' il banner di errore
       // compare solo quando il problema e' persistente e reale.
-      const [tRes,rRes,wgRes,pRes,skRes] = await Promise.all([
+      // /api/revenue non viene più chiamato qui: la card Revenue era stata
+      // rimossa dalla home il 10/07 su richiesta di Dario, ma la fetch era
+      // rimasta — una chiamata a ClickUp a ogni caricamento per un dato che
+      // non veniva mostrato da nessuna parte. L'endpoint resta e viene usato
+      // dal Simulatore 1M€, dove il numero è azionabile.
+      const [tRes,wgRes,pRes,skRes] = await Promise.all([
         fetchWithRetry("/api/tasks",{cache:"no-store"}),
-        fetchWithRetry("/api/revenue",{cache:"no-store"}),
         fetchWithRetry("/api/weight",{cache:"no-store"}),
         fetchWithRetry("/api/pipeline-data",{cache:"no-store"}),
         fetchWithRetry("/api/streak",{cache:"no-store"}),
       ]);
-      if (tRes)               setHomeData(tRes);
-      else                    setHomeData({todo:[],routine:[],sospeso:[],claudia:[],annarita:[]});
-      if (rRes&&!rRes.error)  setRevenue(rRes);
+      // tRes.error copre il caso "nessuna lista caricata" (ora la route
+      // risponde 500 invece di liste vuote silenziose); tRes.listeNonCaricate
+      // copre il caso parziale: mostriamo le liste arrivate e avvisiamo sulle
+      // altre, perché una card vuota per errore è indistinguibile da
+      // "niente da fare" ed è il modo più facile per perdersi delle task.
+      if (tRes && !tRes.error)  setHomeData(tRes);
+      else                      setHomeData({todo:[],routine:[],sospeso:[],claudia:[],annarita:[]});
       if (wgRes&&!wgRes.error) setWeightData(wgRes);
       // Lo streak vive ora sul Doc ClickUp (persiste cross-dispositivo):
       // il valore server e' la fonte di verita', localStorage resta solo
@@ -570,8 +577,9 @@ export default function App() {
       // "weather" viene aggiornato a parte (vedi sopra), non qui.
       setHomeErrors(prev=>({
         ...prev,
-        revenue: !rRes || !!rRes.error,
         weight:  !wgRes || !!wgRes.error,
+        tasks:   !tRes || !!tRes.error,
+        tasksParziale: tRes?.listeNonCaricate || null,
       }));
       setLastUpdated(new Date());
     } catch(e){ console.error("Dashboard error:",e); }
@@ -1073,6 +1081,17 @@ export default function App() {
                     )}
                   </DCard></div>
                 </div>
+
+                {/* Avviso task non caricate: una card vuota per errore è
+                    identica a "niente da fare", ed è il modo più facile per
+                    perdere delle task senza accorgersene. */}
+                {!homeLoading && (homeErrors.tasks || homeErrors.tasksParziale) && (
+                  <div style={{background:"#DC262625",border:"1px solid #DC262660",borderRadius:8,padding:"8px 12px",marginBottom:12,fontSize:fontSize-2,color:"#FCA5A5"}}>
+                    {homeErrors.tasks
+                      ? "⚠️ Task non caricate: ClickUp non è raggiungibile. Le card qui sotto sono vuote per errore, non perché non hai niente da fare."
+                      : `⚠️ Alcune liste non si sono caricate (${homeErrors.tasksParziale.join(", ")}): quelle card sono vuote per errore, non perché siano vuote davvero.`}
+                  </div>
+                )}
 
                 {/* Riga task: To Do, Routine, In sospeso fianco a fianco,
                     3 colonne uguali con alignItems:start — ognuna cresce
