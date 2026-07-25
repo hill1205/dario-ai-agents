@@ -1,5 +1,13 @@
 "use client";
 import { useState, useEffect, useCallback, useRef } from "react";
+import {
+  MESI_BREVI, MESI_LUNGHI, GIORNI_SETT, THEME_VARS,
+  genId, sortByDataDesc, groupByDayDesc, formatDayLabel,
+  pad2, ymdStr, fmtShortDate, daysGrid,
+  DateRangePicker, VistaToggle, fmt, round2,
+  getMonthLabel, getCurrentMonth, lastMonths,
+  CashFlowMiniChart, CategoryBars,
+} from "../lib/finance-ui";
 
 // Revolut è diviso in due saldi (EUR/RON) perché Dario spende in RON da
 // quel conto: stessa idea di UniCredit Romania su IAGREXPage, con
@@ -54,285 +62,6 @@ function migrateMonth(md) {
   };
 }
 
-function genId() { return Math.random().toString(36).slice(2,10); }
-
-// Ordina per data decrescente (più recente prima); voci senza data restano
-// in fondo invece di rompere l'ordinamento.
-function sortByDataDesc(items) {
-  return [...items].sort((a,b) => (b.data||"").localeCompare(a.data||""));
-}
-
-// Raggruppa per giorno (vista "più recenti"): un blocco per data, ordinati
-// dal più recente, con il totale del giorno in testa. Le voci senza data
-// finiscono tutte insieme in fondo sotto "Senza data".
-function groupByDayDesc(items) {
-  const sorted = sortByDataDesc(items);
-  const groups = [];
-  let current = null;
-  for (const it of sorted) {
-    const key = it.data || "__nodate__";
-    if (!current || current.key !== key) {
-      current = { key, data: it.data || null, items: [] };
-      groups.push(current);
-    }
-    current.items.push(it);
-  }
-  return groups;
-}
-
-// "2026-07-24" -> "Gio 24 Luglio 2026" (giorno della settimana incluso,
-// utile per riconoscere weekend/pattern di spesa a colpo d'occhio).
-function formatDayLabel(ymd) {
-  if (!ymd) return "Senza data";
-  const d = new Date(ymd + "T00:00:00");
-  if (isNaN(d.getTime())) return ymd;
-  const giorni = ["Dom","Lun","Mar","Mer","Gio","Ven","Sab"];
-  const mesi = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
-  return `${giorni[d.getDay()]} ${d.getDate()} ${mesi[d.getMonth()]} ${d.getFullYear()}`;
-}
-
-// Selettore periodo "da...a" in un unico tasto con calendario a comparsa
-// (stile Booking.com): un clic apre il popup, primo giorno cliccato = inizio,
-// secondo = fine (le date intermedie si illuminano). Sostituisce i due
-// vecchi input <input type="date"> separati.
-const MESI_BREVI = ["gen","feb","mar","apr","mag","giu","lug","ago","set","ott","nov","dic"];
-const MESI_LUNGHI = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
-const GIORNI_SETT = ["Lu","Ma","Me","Gi","Ve","Sa","Do"];
-
-function pad2(n) { return String(n).padStart(2,"0"); }
-function ymdStr(y,m,d) { return `${y}-${pad2(m)}-${pad2(d)}`; }
-function fmtShortDate(ymd) {
-  if (!ymd) return "";
-  const [y,m,d] = ymd.split("-").map(Number);
-  return `${d} ${MESI_BREVI[m-1]}`;
-}
-function daysGrid(y,m) {
-  const first = new Date(y, m-1, 1);
-  const startWeekday = (first.getDay()+6)%7; // Lunedì=0
-  const numDays = new Date(y, m, 0).getDate();
-  const cells = [];
-  for (let i=0;i<startWeekday;i++) cells.push(null);
-  for (let d=1; d<=numDays; d++) cells.push(d);
-  return cells;
-}
-
-function DateRangePicker({ da, a, onChange, accent="#3B82F6" }) {
-  const [open, setOpen] = useState(false);
-  const today = new Date();
-  const [viewY, setViewY] = useState(today.getFullYear());
-  const [viewM, setViewM] = useState(today.getMonth()+1); // 1-12
-  const wrapRef = useRef(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const base = a || da;
-    if (base) { const [y,m] = base.split("-").map(Number); setViewY(y); setViewM(m); }
-    const onDocClick = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
-    document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
-  }, [open]);
-
-  const label = da && a ? `${fmtShortDate(da)} – ${fmtShortDate(a)}` : da ? `Da ${fmtShortDate(da)}` : "Tutto il periodo";
-
-  const prevMonth = () => { let y=viewY, m=viewM-1; if (m<1){m=12;y--;} setViewY(y); setViewM(m); };
-  const nextMonth = () => { let y=viewY, m=viewM+1; if (m>12){m=1;y++;} setViewY(y); setViewM(m); };
-
-  const handleDayClick = (d) => {
-    const dstr = ymdStr(viewY, viewM, d);
-    if (!da || (da && a)) {
-      onChange(dstr, "");
-    } else {
-      if (dstr < da) onChange(dstr, da); else onChange(da, dstr);
-      setOpen(false);
-    }
-  };
-
-  const cells = daysGrid(viewY, viewM);
-
-  return (
-    <div ref={wrapRef} style={{ position:"relative", display:"flex", alignItems:"center", gap:4, flexShrink:0 }}>
-      <button onClick={()=>setOpen(o=>!o)} title="Filtra per periodo"
-        style={{ display:"flex", alignItems:"center", gap:6, padding:"6px 10px", borderRadius:7, border:`1px solid ${(da||a)?accent:"var(--c-border)"}`, background:(da||a)?`${accent}15`:"var(--c-bg)", color:(da||a)?accent:"var(--c-text-dim)", cursor:"pointer", fontSize:12, fontWeight:(da||a)?600:400, whiteSpace:"nowrap", flexShrink:0 }}>
-        📅 {label}
-      </button>
-      {(da||a) && (
-        <button onClick={()=>{ onChange("",""); setOpen(false); }} title="Rimuovi filtro periodo"
-          style={{ flexShrink:0, padding:"6px 8px", borderRadius:7, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-faint)", cursor:"pointer", fontSize:11 }}>✕</button>
-      )}
-      {open && (
-        <div style={{ position:"absolute", top:"calc(100% + 6px)", left:0, zIndex:100, background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10, padding:12, width:240, boxShadow:"0 12px 28px -8px #00000060" }}>
-          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
-            <button onClick={prevMonth} style={{ width:24, height:24, borderRadius:6, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-dim)", cursor:"pointer", fontSize:12 }}>‹</button>
-            <span style={{ fontSize:12, fontWeight:700, color:"var(--c-text-strong)" }}>{MESI_LUNGHI[viewM-1]} {viewY}</span>
-            <button onClick={nextMonth} style={{ width:24, height:24, borderRadius:6, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-dim)", cursor:"pointer", fontSize:12 }}>›</button>
-          </div>
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:2, marginBottom:2 }}>
-            {GIORNI_SETT.map(g=>(
-              <div key={g} style={{ textAlign:"center", fontSize:10, color:"var(--c-text-faint)", padding:"2px 0" }}>{g}</div>
-            ))}
-          </div>
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:2 }}>
-            {cells.map((d,i) => {
-              if (!d) return <div key={i}/>;
-              const dstr = ymdStr(viewY, viewM, d);
-              const isStart = dstr===da, isEnd = dstr===a;
-              const inRange = da && a && dstr>da && dstr<a;
-              const isEdge = isStart || isEnd;
-              return (
-                <button key={i} onClick={()=>handleDayClick(d)}
-                  style={{
-                    height:26, borderRadius:6, border:"none", cursor:"pointer", fontSize:11,
-                    background: isEdge ? accent : inRange ? `${accent}30` : "transparent",
-                    color: isEdge ? "#fff" : "var(--c-text)",
-                    fontWeight: isEdge ? 700 : 400,
-                  }}>{d}</button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// Piccolo toggle "Per categoria / Più recenti" riusato da entrate e uscite.
-function VistaToggle({ vista, onChange, accent }) {
-  const opts = [["categoria","📁 Per categoria"],["recenti","🕒 Più recenti"]];
-  return (
-    <div style={{ display:"flex", gap:4 }}>
-      {opts.map(([v,label])=>(
-        <button key={v} onClick={()=>onChange(v)}
-          style={{ padding:"5px 10px", borderRadius:6, border:`1px solid ${vista===v?accent:"var(--c-border)"}`, background:vista===v?`${accent}20`:"transparent", color:vista===v?accent:"var(--c-text-faint)", cursor:"pointer", fontSize:11, fontWeight:vista===v?700:400, whiteSpace:"nowrap" }}>
-          {label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function fmt(n) {
-  const num = parseFloat(n) || 0;
-  return num.toLocaleString("it-IT", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
-}
-// Arrotonda a 2 decimali PRIMA di salvare il saldo (non solo in fase di
-// visualizzazione): sottrazioni/addizioni ripetute in floating point
-// accumulano rumore tipo 2347.7399999999998, che poi comparirebbe intero
-// nell'input numerico del saldo (che mostra il valore grezzo, non fmt()).
-function round2(n) { return Math.round((parseFloat(n)||0) * 100) / 100; }
-
-function getMonthLabel(ym) {
-  const [y, m] = ym.split("-");
-  const months = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
-  return `${months[parseInt(m)-1]} ${y}`;
-}
-
-function getCurrentMonth() {
-  return new Date().toISOString().slice(0,7);
-}
-
-const THEME_VARS = {
-  dark:  { "--c-bg":"#09090F", "--c-panel":"#0F0F1A", "--c-panel2":"#0B0B16", "--c-border":"#1A1A2E", "--c-text-strong":"#F8FAFC", "--c-text":"#E2E8F0", "--c-text-dim":"#64748B", "--c-text-faint":"#475569", "--c-text-faintest":"#334155", "--c-text-muted":"#94A3B8" },
-  light: { "--c-bg":"#F4F5F7", "--c-panel":"#FFFFFF", "--c-panel2":"#F1F2F5", "--c-border":"#E2E4E9", "--c-text-strong":"#0F172A", "--c-text":"#1A1A2E", "--c-text-dim":"#475569", "--c-text-faint":"#94A3B8", "--c-text-faintest":"#CBD5E1", "--c-text-muted":"#64748B" },
-};
-
-// Stessa idea del mini cash-flow di IAGREXPage: ultimi 6 mesi, entrate
-// verdi e uscite rosse affiancate, per vedere il trend personale invece
-// del solo totale del mese corrente.
-function lastMonths(allData, n) {
-  const out = [];
-  const now = new Date();
-  for (let i = n-1; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
-    const ym = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
-    const md = allData[ym] || { entrate:[], uscite:[] };
-    // I movimenti di conversione tra conti (isConversione) non sono
-    // entrata/uscita vera: escluderli evita di gonfiare il cash flow.
-    out.push({
-      mese: ym,
-      label: getMonthLabel(ym).slice(0,3),
-      entrate: (md.entrate||[]).filter(e=>!e.isConversione).reduce((s,e)=>s+(parseFloat(e.importo)||0),0),
-      uscite:  (md.uscite||[]).filter(e=>!e.isConversione).reduce((s,e)=>s+(parseFloat(e.importo)||0),0),
-    });
-  }
-  return out;
-}
-
-// Tooltip fatto a mano invece del <title> nativo SVG: il <title> del
-// browser ha un ritardo di ~1s prima di comparire ed è facilmente
-// scambiato per "non funziona" — con lo stato React il numero appare
-// subito appena il mouse tocca la barra, spostandosi col cursore.
-function CashFlowMiniChart({ allData }) {
-  const data = lastMonths(allData, 6);
-  const W = 260, H = 56, gap = 10;
-  const groupW = (W - gap*(data.length-1)) / data.length;
-  const barW = groupW/2 - 1;
-  const max = Math.max(...data.map(d=>Math.max(d.entrate,d.uscite)), 1);
-  const [hover, setHover] = useState(null); // {x,y,label}
-  return (
-    <div style={{marginTop:10,background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,padding:"12px 14px",position:"relative"}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-        <div style={{fontSize:11,color:"var(--c-text-dim)",textTransform:"uppercase",letterSpacing:"0.06em"}}>Cash flow ultimi 6 mesi</div>
-        <div style={{fontSize:10,color:"var(--c-text-faint)"}}><span style={{color:"#10B981"}}>■</span> entrate <span style={{color:"#EF4444",marginLeft:6}}>■</span> uscite</div>
-      </div>
-      {hover && (
-        <div style={{position:"absolute",left:hover.x,top:hover.y,transform:"translate(-50%,-100%)",background:"#000000E0",color:"#fff",fontSize:11,fontWeight:600,padding:"4px 8px",borderRadius:6,whiteSpace:"nowrap",pointerEvents:"none",zIndex:10,marginTop:-6}}>
-          {hover.label}
-        </div>
-      )}
-      <svg width="100%" height={H-14} viewBox={`0 0 ${W} ${H-14}`} preserveAspectRatio="none" style={{display:"block"}}>
-        {data.map((d,i)=>{
-          const gx = i*(groupW+gap);
-          const he = Math.max((d.entrate/max)*(H-24), d.entrate>0?2:0);
-          const hu = Math.max((d.uscite/max)*(H-24), d.uscite>0?2:0);
-          const onMove = (label) => (e) => {
-            const rect = e.currentTarget.closest("svg").parentElement.getBoundingClientRect();
-            setHover({ x: e.clientX - rect.left, y: e.clientY - rect.top, label });
-          };
-          return (
-            <g key={d.mese}>
-              <rect x={gx} y={H-24-he} width={barW} height={he} rx={1.5} fill="#10B981" style={{cursor:"pointer"}}
-                onMouseMove={onMove(`${getMonthLabel(d.mese)} — Entrate: ${fmt(d.entrate)}€`)}
-                onMouseLeave={()=>setHover(null)}/>
-              <rect x={gx+barW+2} y={H-24-hu} width={barW} height={hu} rx={1.5} fill="#EF4444" style={{cursor:"pointer"}}
-                onMouseMove={onMove(`${getMonthLabel(d.mese)} — Uscite: ${fmt(d.uscite)}€`)}
-                onMouseLeave={()=>setHover(null)}/>
-            </g>
-          );
-        })}
-      </svg>
-      <div style={{display:"flex",marginTop:4}}>
-        {data.map(d=>(
-          <div key={d.mese} style={{flex:1,textAlign:"center",fontSize:12,fontWeight:500,color:"var(--c-text-faint)",letterSpacing:"0.01em"}}>{d.label}</div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// Barre orizzontali per il recap "dove vanno i soldi": una riga per
-// categoria, ordinate dalla piu' alta alla piu' bassa, con importo e
-// percentuale sul totale. Componente a livello di modulo (non ridefinito
-// ad ogni render) per evitare lo stesso bug di remount gia' risolto altrove.
-function CategoryBars({ data, total, color, fs, fmt }) {
-  const entries = Object.entries(data).sort((a,b)=>b[1]-a[1]);
-  if (entries.length===0) {
-    return <div style={{fontSize:fs-2,color:"var(--c-text-faintest)",padding:"8px 0"}}>Nessun dato per questo mese</div>;
-  }
-  return entries.map(([cat,val])=>{
-    const pct = total>0 ? (val/total*100) : 0;
-    return (
-      <div key={cat} style={{marginBottom:10}}>
-        <div style={{display:"flex",justifyContent:"space-between",fontSize:fs-2,marginBottom:4}}>
-          <span style={{color:"var(--c-text)"}}>{cat}</span>
-          <span style={{color:"var(--c-text-dim)",fontWeight:600}}>{fmt(val)}€ · {pct.toFixed(1)}%</span>
-        </div>
-        <div style={{height:8,background:"var(--c-border)",borderRadius:4,overflow:"hidden"}}>
-          <div style={{height:"100%",width:`${Math.min(pct,100)}%`,background:color,borderRadius:4}}/>
-        </div>
-      </div>
-    );
-  });
-}
 
 export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobileProp }) {
   // isMobile può arrivare da page.jsx (già calcolato lì con window.innerWidth<640);
@@ -627,7 +356,15 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
   const [reconcileForm, setReconcileForm] = useState({});
   const [reconcileResult, setReconcileResult] = useState(null);
   const [reconcileLoading, setReconcileLoading] = useState(false);
-  const [flaggedIds, setFlaggedIds] = useState(() => new Set());
+
+  // Le evidenziazioni sono salvate su ClickUp insieme al resto (chiave
+  // "flaggedMovimenti"), non solo in memoria: prima un reload o il passaggio
+  // da telefono a computer le cancellava, quindi il lavoro di riconciliazione
+  // andava perso a metà.
+  const flaggedIds = new Set(allData.flaggedMovimenti || []);
+  const setFlaggedPersistente = (ids) => {
+    saveData({ ...allData, flaggedMovimenti: [...ids] });
+  };
 
   const openReconcile = () => {
     setReconcileForm({ mese: prevMonthYm(), conto: CONTI[0].id, file: null });
@@ -670,7 +407,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
         else mancantiInApp.push(mov);
       }
       const mancantiInEstratto = appMovs.filter(a => !usedIds.has(a.id));
-      setFlaggedIds(new Set(mancantiInEstratto.map(a=>a.id)));
+      setFlaggedPersistente(new Set(mancantiInEstratto.map(a=>a.id)));
       setReconcileResult({
         totaleEstratto: (json.movimenti||[]).length,
         abbinati: usedIds.size,
@@ -1039,7 +776,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                 </div>
                 {flaggedIds.size > 0 && (
                   <div style={{ fontSize:fs-4, color:"#F59E0B", marginBottom:8, background:"#F59E0B15", border:"1px solid #F59E0B40", borderRadius:8, padding:"6px 10px" }}>
-                    ⚠️ {flaggedIds.size} movimento{flaggedIds.size>1?"i":""} senza riscontro sull'estratto, evidenziat{flaggedIds.size>1?"i":"o"} in arancione in Entrate/Uscite — <button onClick={()=>setFlaggedIds(new Set())} style={{ background:"none", border:"none", color:"#F59E0B", textDecoration:"underline", cursor:"pointer", fontSize:fs-4, padding:0 }}>pulisci evidenziazione</button>
+                    ⚠️ {flaggedIds.size} movimento{flaggedIds.size>1?"i":""} senza riscontro sull'estratto, evidenziat{flaggedIds.size>1?"i":"o"} in arancione in Entrate/Uscite — <button onClick={()=>setFlaggedPersistente(new Set())} style={{ background:"none", border:"none", color:"#F59E0B", textDecoration:"underline", cursor:"pointer", fontSize:fs-4, padding:0 }}>pulisci evidenziazione</button>
                   </div>
                 )}
                 <div style={{ background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10, overflow:"hidden" }}>

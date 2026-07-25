@@ -14,6 +14,21 @@ const CLIENT_STAGES = [
   { id:"in_pausa", label:"In Pausa",  color:"#F59E0B" },
   { id:"concluso", label:"Concluso",  color:"var(--c-text-faint)" },
 ];
+
+// Probabilità di chiusura per stage, usata per il valore "pipeline
+// ponderata". Il valore lordo somma tutti i budget con lo stesso peso,
+// quindi un lead "da contattare" pesa come uno "in trattativa": utile per
+// vedere la dimensione della pipeline, inutile per stimare quanto incasserai
+// davvero. Sono percentuali di partenza ragionevoli, da tarare quando lo
+// storico dei lead chiusi sarà abbastanza ampio da calcolarle sui dati reali.
+const STAGE_PROBABILITY = {
+  da_contattare: 0.05,
+  contattato: 0.15,
+  proposta_inviata: 0.35,
+  in_trattativa: 0.55,
+  chiuso: 1,
+  rifiutato: 0,
+};
 const EMPTY_FORM = {
   id:null, tipo:"lead", nome:"", settore:"", contatto:"",
   email:"", telefono:"", sito:"", facebook:"", instagram:"", linkedin:"", linkedin_referente:"",
@@ -369,7 +384,14 @@ function KanbanView({ entries, filter, fs, onEdit, onDelete, openAdd, onGenMsg, 
             {/* Header colonna */}
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"6px 10px",borderRadius:8,background:`${col.color}12`,border:`1px solid ${col.color}30`,flexShrink:0,marginBottom:7}}>
               <div>
-                <div style={{fontSize:9,color:col.color,opacity:0.6,textTransform:"uppercase",letterSpacing:"0.08em"}}>{col.tipo==="lead"?"Lead":"Cliente"}</div>
+                <div style={{fontSize:9,color:col.color,opacity:0.6,textTransform:"uppercase",letterSpacing:"0.08em"}}>
+                  {col.tipo==="lead"?"Lead":"Cliente"}
+                  {/* Probabilità dello stage: rende visibile il peso usato
+                      per la pipeline ponderata, così il numero in header non
+                      è una scatola nera. */}
+                  {col.tipo==="lead" && STAGE_PROBABILITY[col.id] != null && !["chiuso","rifiutato"].includes(col.id) &&
+                    <span title="Probabilità di chiusura usata per la pipeline ponderata"> · {Math.round(STAGE_PROBABILITY[col.id]*100)}%</span>}
+                </div>
                 <div style={{fontSize:fs-2,fontWeight:700,color:col.color}}>{col.label}</div>
               </div>
               <div style={{fontSize:fs-3,color:col.color,background:`${col.color}20`,borderRadius:10,padding:"1px 7px",fontWeight:700}}>{colEntries.length}</div>
@@ -694,7 +716,12 @@ export default function PipelinePage({ fontSize=14, theme="dark", onGoToIagrex }
   const filtered      = entries.filter(e=>filter==="tutti"||e.tipo===filter);
   const activeClients = entries.filter(e=>e.tipo==="cliente"&&e.stage==="attivo");
   const mrr           = activeClients.reduce((s,e)=>s+(parseFloat(e.budget)||0),0);
-  const pipelineValue = entries.filter(e=>e.tipo==="lead"&&!["chiuso","rifiutato"].includes(e.stage)).reduce((s,e)=>s+(parseFloat(e.budget)||0),0);
+  const leadAperti    = entries.filter(e=>e.tipo==="lead"&&!["chiuso","rifiutato"].includes(e.stage));
+  const pipelineValue = leadAperti.reduce((s,e)=>s+(parseFloat(e.budget)||0),0);
+  // Valore atteso: ogni budget pesato per la probabilità del suo stage
+  // (vedi STAGE_PROBABILITY). Molto più vicino a "quanto incasserò
+  // realisticamente" del totale lordo.
+  const pipelinePonderata = leadAperti.reduce((s,e)=>s+(parseFloat(e.budget)||0)*(STAGE_PROBABILITY[e.stage] ?? 0),0);
   const f = (key)=>(val)=>setForm(p=>({...p,[key]:val}));
 
   // Giorni dall'ultimo nuovo lead entrato in pipeline: usa la data di
@@ -702,6 +729,45 @@ export default function PipelinePage({ fontSize=14, theme="dark", onGoToIagrex }
   // si aggiorna anche su lead vecchi ricontattati). Se la pipeline e' vuota
   // da giorni questo contatore lo rende impossibile da ignorare, invece di
   // doverlo dedurre a occhio scorrendo le colonne.
+  // --- Metriche funnel: dal "quanto mi manca" al "quanti lead devo fare" ---
+  // Il tasso di conversione è calcolato sui soli lead DECISI (chiusi +
+  // rifiutati): includere quelli ancora aperti lo schiaccerebbe verso il
+  // basso solo perché la trattativa non è finita. Mostriamo anche la
+  // numerosità del campione, perché con pochi lead decisi la percentuale è
+  // un'indicazione, non una legge.
+  const leadTotali    = entries.filter(e=>e.tipo==="lead");
+  const leadChiusi    = leadTotali.filter(e=>e.stage==="chiuso");
+  const leadRifiutati = leadTotali.filter(e=>e.stage==="rifiutato");
+  const leadDecisi    = leadChiusi.length + leadRifiutati.length;
+  const tassoConversione = leadDecisi > 0 ? (leadChiusi.length / leadDecisi) * 100 : null;
+
+  // Valore medio cliente: media dei budget dei clienti attivi; se non ce ne
+  // sono ancora, ricade sulla media dei lead chiusi.
+  const budgetsAttivi = activeClients.map(e=>parseFloat(e.budget)||0).filter(v=>v>0);
+  const budgetsChiusi = leadChiusi.map(e=>parseFloat(e.budget)||0).filter(v=>v>0);
+  const baseValori = budgetsAttivi.length ? budgetsAttivi : budgetsChiusi;
+  const valoreMedioCliente = baseValori.length ? baseValori.reduce((s,v)=>s+v,0)/baseValori.length : null;
+
+  // Tempo medio di chiusura: approssimato con i giorni tra la data di
+  // ingresso del lead e l'ultimo contatto registrato sui lead chiusi (non
+  // salviamo una data di chiusura dedicata, quindi è una stima).
+  const giorniChiusura = leadChiusi
+    .map(e=>{ const g = e.ultimo_contatto && e.data ? Math.floor((new Date(e.ultimo_contatto)-new Date(e.data))/86400000) : null; return g!=null && g>=0 ? g : null; })
+    .filter(g=>g!=null);
+  const tempoMedioChiusura = giorniChiusura.length ? Math.round(giorniChiusura.reduce((s,g)=>s+g,0)/giorniChiusura.length) : null;
+
+  // Traduzione dell'obiettivo in attività: per arrivare a 1M€ di fatturato
+  // annuo serve un MRR di ~83.333€/mese sostenuto. Da lì ricaviamo quanti
+  // clienti mancano e, applicando il tasso di conversione, quanti lead
+  // servono per ottenerli. È la domanda operativa che il solo "sei sotto
+  // ritmo" non risponde.
+  const MRR_TARGET_1M = 1000000 / 12;
+  const mrrMancante = Math.max(MRR_TARGET_1M - mrr, 0);
+  const clientiNecessari = valoreMedioCliente ? Math.ceil(mrrMancante / valoreMedioCliente) : null;
+  const leadNecessari = (clientiNecessari != null && tassoConversione)
+    ? Math.ceil(clientiNecessari / (tassoConversione/100))
+    : null;
+
   const leadDates = entries.filter(e=>e.tipo==="lead").map(e=>e.data).filter(Boolean);
   const ultimoLeadData = leadDates.length ? leadDates.reduce((a,b)=>a>b?a:b) : null;
   const giorniSenzaLead = ultimoLeadData
@@ -747,10 +813,32 @@ export default function PipelinePage({ fontSize=14, theme="dark", onGoToIagrex }
             <button onClick={syncNow} style={{padding:"4px 9px",borderRadius:7,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-faint)",cursor:"pointer",fontSize:11}}>{syncing?"⏳":"↻"}</button>
           </div>
         </div>
-        <div style={{display:"flex",gap:20,marginTop:6}}>
-          <div style={{fontSize:fs-3,color:"var(--c-text-dim)"}}><span style={{color:"#3B82F6",fontWeight:700}}>{entries.filter(e=>e.tipo==="lead").length}</span> lead · pipeline <span style={{color:"#F59E0B",fontWeight:700}}>{pipelineValue.toLocaleString("it-IT")}€/mese</span></div>
+        <div style={{display:"flex",gap:20,marginTop:6,flexWrap:"wrap"}}>
+          <div style={{fontSize:fs-3,color:"var(--c-text-dim)"}}><span style={{color:"#3B82F6",fontWeight:700}}>{leadTotali.length}</span> lead · pipeline <span style={{color:"#F59E0B",fontWeight:700}}>{pipelineValue.toLocaleString("it-IT")}€/mese</span>{pipelinePonderata>0 && <> · ponderata <span title="Somma dei budget pesata per la probabilità di chiusura di ogni stage" style={{color:"#F97316",fontWeight:700}}>{Math.round(pipelinePonderata).toLocaleString("it-IT")}€</span></>}</div>
           <div style={{fontSize:fs-3,color:"var(--c-text-dim)"}}><span style={{color:"#10B981",fontWeight:700}}>{activeClients.length}</span> clienti · MRR <span style={{color:"#10B981",fontWeight:700}}>{mrr.toLocaleString("it-IT")}€</span></div>
+          <div style={{fontSize:fs-3,color:"var(--c-text-dim)"}}>
+            conversione {tassoConversione != null
+              ? <span title={`${leadChiusi.length} chiusi su ${leadDecisi} lead decisi (chiusi + rifiutati)`} style={{color:"#8B5CF6",fontWeight:700}}>{tassoConversione.toFixed(0)}%</span>
+              : <span style={{color:"var(--c-text-faintest)"}}>—</span>}
+            {valoreMedioCliente != null && <> · cliente medio <span style={{color:"#10B981",fontWeight:700}}>{Math.round(valoreMedioCliente).toLocaleString("it-IT")}€/mese</span></>}
+            {tempoMedioChiusura != null && <> · chiusura ~<span style={{color:"var(--c-text)",fontWeight:700}}>{tempoMedioChiusura}g</span></>}
+          </div>
         </div>
+
+        {/* Dall'obiettivo all'attività: quanti lead servono davvero.
+            Compare solo quando abbiamo i due ingredienti (tasso di
+            conversione e valore medio cliente), altrimenti sarebbe un numero
+            inventato. */}
+        {leadNecessari != null && (
+          <div style={{marginTop:8,padding:"8px 12px",borderRadius:8,background:"#8B5CF612",border:"1px solid #8B5CF635",fontSize:fs-3,color:"var(--c-text)",lineHeight:1.5}}>
+            🎯 Per 1M€/anno serve un MRR di <b>{Math.round(MRR_TARGET_1M).toLocaleString("it-IT")}€/mese</b>: ti mancano <b style={{color:"#F59E0B"}}>{Math.round(mrrMancante).toLocaleString("it-IT")}€/mese</b> → circa <b style={{color:"#10B981"}}>{clientiNecessari.toLocaleString("it-IT")} clienti</b> da <b>{Math.round(valoreMedioCliente).toLocaleString("it-IT")}€</b>, cioè <b style={{color:"#8B5CF6"}}>~{leadNecessari.toLocaleString("it-IT")} lead</b> al tuo tasso di conversione attuale ({tassoConversione.toFixed(0)}%).
+            {leadDecisi < 5 && (
+              <div style={{marginTop:4,fontSize:fs-4,color:"#F59E0B"}}>
+                ⚠️ Stima basata su soli {leadDecisi} lead decisi: indicativa, si affina con più storico.
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {loading && <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",color:"var(--c-text-faintest)",fontSize:fs-2}}>⏳ Caricamento...</div>}

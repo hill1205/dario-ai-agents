@@ -1,5 +1,5 @@
 "use client";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 
 // Simulatore "cosa succede se" per l'obiettivo di 1.000.000€ di fatturato
 // annuo (IAGREX + Imperivm). Modello SaaS-style con churn: ogni mese si
@@ -73,6 +73,46 @@ export default function SimulatorPage({ fontSize=14, onBack, theme="dark" }) {
   const [prezzo, setPrezzo]                 = useState(800);
   const [churn, setChurn]                   = useState(5);
 
+  // Dati reali dalla pipeline: prima il simulatore partiva sempre da numeri
+  // inventati (15% conversione, 800€), quindi diceva "cosa succede se" su
+  // ipotesi scollegate dalla realtà. Ora carichiamo tasso di conversione e
+  // prezzo medio effettivi e li proponiamo come punto di partenza, restando
+  // però modificabili (è un simulatore, non un report).
+  const [reali, setReali] = useState(null);
+  const [realiApplicati, setRealiApplicati] = useState(false);
+
+  useEffect(() => {
+    let annullato = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/pipeline-data", { cache:"no-store" });
+        const j = await res.json();
+        if (annullato || !res.ok || j.error || !Array.isArray(j.entries)) return;
+        const lead = j.entries.filter(e=>e.tipo==="lead");
+        const chiusi = lead.filter(e=>e.stage==="chiuso");
+        const decisi = chiusi.length + lead.filter(e=>e.stage==="rifiutato").length;
+        const attivi = j.entries.filter(e=>e.tipo==="cliente"&&e.stage==="attivo");
+        const budgets = attivi.map(e=>parseFloat(e.budget)||0).filter(v=>v>0);
+        const budgetsChiusi = chiusi.map(e=>parseFloat(e.budget)||0).filter(v=>v>0);
+        const base = budgets.length ? budgets : budgetsChiusi;
+        setReali({
+          tassoConversione: decisi > 0 ? Math.round((chiusi.length/decisi)*100) : null,
+          prezzo: base.length ? Math.round(base.reduce((s,v)=>s+v,0)/base.length) : null,
+          mrrAttuale: budgets.reduce((s,v)=>s+v,0),
+          clientiAttivi: attivi.length,
+          leadDecisi: decisi,
+        });
+      } catch { /* il simulatore resta usabile con i valori di default */ }
+    })();
+    return () => { annullato = true; };
+  }, []);
+
+  const applicaReali = () => {
+    if (reali?.tassoConversione != null) setTassoConversione(reali.tassoConversione);
+    if (reali?.prezzo != null) setPrezzo(reali.prezzo);
+    setRealiApplicati(true);
+  };
+
   const params = { leadSettimana, tassoRisposta, tassoConversione, prezzo, churn };
   const risultato = useMemo(()=>simula(params), [leadSettimana, tassoRisposta, tassoConversione, prezzo, churn]);
 
@@ -113,6 +153,30 @@ export default function SimulatorPage({ fontSize=14, onBack, theme="dark" }) {
           {onBack && <button onClick={onBack} style={{padding:"5px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-dim)",cursor:"pointer",fontSize:12}}>← Home</button>}
           <div style={{fontWeight:700,fontSize:15,color:"var(--c-text-strong)"}}>🚀 Simulatore "cosa succede se" — Obiettivo 1M€</div>
         </div>
+
+        {/* Ponte con i dati reali: il simulatore parte da valori di default,
+            qui mostriamo quelli effettivi della pipeline e permettiamo di
+            applicarli in un clic, così la simulazione parte dalla realtà
+            invece che da ipotesi. */}
+        {reali && (reali.tassoConversione != null || reali.prezzo != null) && (
+          <div style={{background:"#10B98112",border:"1px solid #10B98135",borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:12,color:"var(--c-text)",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
+            <div style={{lineHeight:1.5}}>
+              📊 Dalla tua pipeline reale:
+              {reali.tassoConversione != null && <> conversione <b style={{color:"#10B981"}}>{reali.tassoConversione}%</b></>}
+              {reali.prezzo != null && <> · cliente medio <b style={{color:"#10B981"}}>{reali.prezzo.toLocaleString("it-IT")}€/mese</b></>}
+              {reali.clientiAttivi > 0 && <> · MRR attuale <b style={{color:"#10B981"}}>{reali.mrrAttuale.toLocaleString("it-IT")}€</b> ({reali.clientiAttivi} clienti)</>}
+              {reali.leadDecisi < 5 && (
+                <div style={{fontSize:11,color:"#F59E0B",marginTop:3}}>
+                  ⚠️ Solo {reali.leadDecisi} lead decisi finora: il tasso reale è ancora poco affidabile.
+                </div>
+              )}
+            </div>
+            <button onClick={applicaReali} disabled={realiApplicati}
+              style={{flexShrink:0,padding:"6px 14px",borderRadius:7,border:"none",background:realiApplicati?"var(--c-border)":"#10B981",color:realiApplicati?"var(--c-text-faint)":"#fff",cursor:realiApplicati?"default":"pointer",fontSize:12,fontWeight:700}}>
+              {realiApplicati ? "✓ Applicati" : "Usa i miei dati"}
+            </button>
+          </div>
+        )}
 
         {/* Risultato principale */}
         <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:14,padding:"18px 20px",marginBottom:18}}>
