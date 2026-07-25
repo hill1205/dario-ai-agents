@@ -319,6 +319,11 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
   const [modal, setModal]         = useState(null);
   const [form, setForm]           = useState({});
   const [convModal, setConvModal] = useState(false);
+
+  // Check estratto conto IAGREX: confronto manuale a fine mese tra saldo
+  // salvato in app e saldo reale sull'estratto conto (stessa idea di BrunoPage).
+  const [checkModal, setCheckModal] = useState(null);
+  const [checkForm, setCheckForm]   = useState({});
   const [convForm, setConvForm]   = useState({});
   // true finché non abbiamo la certezza di aver letto lo storico vero da
   // ClickUp. Finché resta true, blocchiamo il salvataggio: altrimenti un
@@ -557,6 +562,32 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
 
   const updateSaldo = (contoId,val) => {
     updateMonth({...monthData,saldi:{...monthData.saldi,[contoId]:parseFloat(val)||0}});
+  };
+
+  // --- Check estratto conto: log storico dei confronti saldo app vs saldo reale ---
+  const checkSaldi = allData.checkSaldi || [];
+  function prevMonthYm() {
+    const d = new Date();
+    d.setMonth(d.getMonth()-1);
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+  }
+  const openCheckAdd = () => {
+    setCheckForm({ mese: prevMonthYm(), conto: CONTI_IAGREX[0].id, saldoEstratto: "" });
+    setCheckModal({ mode:"add" });
+  };
+  const closeCheckModal = () => { setCheckModal(null); setCheckForm({}); };
+  const saveCheck = () => {
+    const { mese, conto, saldoEstratto } = checkForm;
+    if (!mese || !conto || saldoEstratto==="" || saldoEstratto===undefined) return;
+    const saldoApp = parseFloat((allData[mese]||{}).saldi?.[conto]) || 0;
+    const saldoReale = parseFloat(saldoEstratto) || 0;
+    const differenza = round2(saldoReale - saldoApp);
+    const entry = { id: genId(), mese, conto, saldoApp: round2(saldoApp), saldoEstratto: round2(saldoReale), differenza, creato: new Date().toISOString() };
+    saveData({ ...allData, checkSaldi: [entry, ...checkSaldi] });
+    closeCheckModal();
+  };
+  const deleteCheck = (id) => {
+    saveData({ ...allData, checkSaldi: checkSaldi.filter(c=>c.id!==id) });
   };
 
   // Filtro data (entrate/uscite): confronto su stringhe "YYYY-MM-DD",
@@ -903,6 +934,39 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
                   </span>
                 </div>
               </div>
+
+              {/* Check estratto conto: confronto a fine mese saldo app vs saldo reale */}
+              <div style={{marginTop:16}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                  <div style={{fontSize:fs-3,fontWeight:700,color:"#06B6D4",textTransform:"uppercase",letterSpacing:"0.08em"}}>📄 Check Estratto Conto</div>
+                  <button onClick={openCheckAdd} style={{padding:"5px 12px",borderRadius:7,border:"none",background:"#06B6D4",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:600}}>+ Nuovo check</button>
+                </div>
+                <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,overflow:"hidden"}}>
+                  {checkSaldi.length===0 ? (
+                    <div style={{padding:16,textAlign:"center",color:"var(--c-text-faintest)",fontSize:fs-3}}>
+                      Nessun check registrato. A inizio mese, manda gli estratti conto IAGREX del mese appena chiuso e confronta i saldi qui.
+                    </div>
+                  ) : checkSaldi.map((c,i) => {
+                    const ok = Math.abs(c.differenza) < 0.01;
+                    return (
+                      <div key={c.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",borderTop:i===0?"none":"1px solid var(--c-border)",background:i%2===0?"var(--c-panel)":"var(--c-panel2)"}}>
+                        <div>
+                          <div style={{fontSize:fs-2,color:"var(--c-text)",fontWeight:600}}>{CONTI_IAGREX_BY_ID[c.conto]?.label||c.conto} · {getMonthLabel(c.mese)}</div>
+                          <div style={{fontSize:fs-4,color:"var(--c-text-faint)",marginTop:2}}>
+                            App: {fmt(c.saldoApp)} · Estratto: {fmt(c.saldoEstratto)} {CONTI_IAGREX_BY_ID[c.conto]?.currency||"€"}
+                          </div>
+                        </div>
+                        <div style={{display:"flex",alignItems:"center",gap:8}}>
+                          <span style={{fontSize:fs-2,fontWeight:700,color:ok?"#10B981":"#EF4444"}}>
+                            {ok ? "✅ combacia" : `⚠️ ${c.differenza>0?"+":""}${fmt(c.differenza)}`}
+                          </span>
+                          <button onClick={()=>deleteCheck(c.id)} style={{width:22,height:22,borderRadius:5,border:"1px solid #2A1A1A",background:"transparent",color:"#EF4444",cursor:"pointer",fontSize:12,fontWeight:700}}>×</button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
           )}
 
@@ -1044,6 +1108,44 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
             <div style={{display:"flex",gap:8,marginTop:20}}>
               <button onClick={closeConv} style={{flex:1,padding:10,borderRadius:8,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-faint)",cursor:"pointer",fontSize:13}}>Annulla</button>
               <button onClick={saveConversione} style={{flex:2,padding:10,borderRadius:8,border:"none",background:"#8B5CF6",color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700}}>Registra conversione</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Check estratto conto */}
+      {checkModal && (
+        <div style={{position:"fixed",inset:0,background:"#00000090",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={closeCheckModal}>
+          <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:16,padding:24,width:"100%",maxWidth:400,maxHeight:"90vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:15,fontWeight:700,color:"var(--c-text-strong)",marginBottom:6}}>📄 Check estratto conto IAGREX</div>
+            <div style={{fontSize:11,color:"var(--c-text-faint)",marginBottom:20}}>
+              Confronta il saldo salvato in app a fine mese con quello reale letto sull'estratto conto.
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:12}}>
+              <div>
+                <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:4}}>Mese estratto conto</div>
+                <input type="month" value={checkForm.mese||""} onChange={e=>setCheckForm(p=>({...p,mese:e.target.value}))}
+                  style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:13,outline:"none"}}/>
+              </div>
+              <div>
+                <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:4}}>Conto 🏦</div>
+                <select value={checkForm.conto||""} onChange={e=>setCheckForm(p=>({...p,conto:e.target.value}))}
+                  style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:13,outline:"none"}}>
+                  {CONTI_IAGREX.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
+                </select>
+              </div>
+              <div style={{background:"var(--c-bg)",border:"1px solid var(--c-border)",borderRadius:8,padding:"8px 10px",fontSize:12,color:"var(--c-text-dim)"}}>
+                Saldo salvato in app per {checkForm.mese?getMonthLabel(checkForm.mese):"—"}: <b style={{color:"var(--c-text)"}}>{fmt((allData[checkForm.mese]||{}).saldi?.[checkForm.conto]||0)} {contoCurrency(checkForm.conto)}</b>
+              </div>
+              <div>
+                <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:4}}>Saldo reale sull'estratto conto {contoCurrency(checkForm.conto)} *</div>
+                <input type="number" value={checkForm.saldoEstratto||""} onChange={e=>setCheckForm(p=>({...p,saldoEstratto:e.target.value}))}
+                  style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:13,outline:"none"}}/>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:8,marginTop:20}}>
+              <button onClick={closeCheckModal} style={{flex:1,padding:10,borderRadius:8,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-faint)",cursor:"pointer",fontSize:13}}>Annulla</button>
+              <button onClick={saveCheck} style={{flex:2,padding:10,borderRadius:8,border:"none",background:"#06B6D4",color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700}}>Salva check</button>
             </div>
           </div>
         </div>
