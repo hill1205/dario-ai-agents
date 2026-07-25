@@ -11,6 +11,42 @@ const DOC_ID = "2kxuu4g1-752";
 const PAGE_ID = "2kxuu4g1-972";
 const OBIETTIVO_ANNUALE = 1000000;
 
+// Stessi conti/valute di IAGREXPage.jsx: gli importi sono registrati nella
+// valuta del conto, quindi vanno convertiti prima di sommarli.
+const CONTI_CURRENCY = { unicredit_eur: "€", unicredit_ron: "RON" };
+const EUR_RON_FALLBACK = 5;
+
+// Cambio live BCE, come fa IAGREXPage lato client. Se il fetch fallisce si
+// usa il cambio fisso di riserva: meglio una conversione approssimata che
+// sommare RON ed EUR come se fossero la stessa valuta.
+async function getEurRonRate() {
+  try {
+    const res = await fetch("https://api.frankfurter.dev/v1/latest?from=EUR&to=RON", { cache: "no-store" });
+    if (!res.ok) return { rate: EUR_RON_FALLBACK, live: false };
+    const j = await res.json();
+    return j?.rates?.RON ? { rate: j.rates.RON, live: true } : { rate: EUR_RON_FALLBACK, live: false };
+  } catch {
+    return { rate: EUR_RON_FALLBACK, live: false };
+  }
+}
+
+// Le due regole che il tab IAGREX applica da sempre e che qui mancavano
+// (vedi isReal/toEur in IAGREXPage.jsx):
+// 1. i movimenti di conversione valuta tra conti non sono fatturato vero —
+//    sono lo stesso denaro spostato, contarli gonfiava il progresso 1M€;
+// 2. gli importi sui conti RON vanno convertiti in EUR, altrimenti 300 RON
+//    venivano sommati come 300 €.
+// Senza queste due, la card Finanze in home e il tab IAGREX mostravano
+// numeri diversi sugli stessi dati.
+const isReal = (e) => !e?.isConversione;
+function sumEur(items, rate) {
+  return (items || []).filter(isReal).reduce((s, e) => {
+    const val = parseFloat(e.importo) || 0;
+    return s + (CONTI_CURRENCY[e.conto] === "RON" ? val / rate : val);
+  }, 0);
+}
+function round2(n) { return Math.round((parseFloat(n) || 0) * 100) / 100; }
+
 function getCurrentMonth() { return new Date().toISOString().slice(0, 7); } // YYYY-MM
 function getMonthLabel(ym) {
   const [y, m] = ym.split("-");
@@ -41,19 +77,21 @@ async function fetchFinanceData() {
 
 export async function GET() {
   try {
-    const allData = await fetchFinanceData();
+    const [allData, { rate, live: rateIsLive }] = await Promise.all([fetchFinanceData(), getEurRonRate()]);
     const month = getCurrentMonth();
     const monthData = allData[month] || { entrate: [], uscite: [] };
 
-    const entrate_totali = monthData.entrate.reduce((s, e) => s + (parseFloat(e.importo) || 0), 0);
-    const uscite_totali  = monthData.uscite.reduce((s, e) => s + (parseFloat(e.importo) || 0), 0);
+    const entrate_totali = round2(sumEur(monthData.entrate, rate));
+    const uscite_totali  = round2(sumEur(monthData.uscite, rate));
 
     // Progresso verso l'obiettivo annuale: somma delle entrate di tutti i mesi
     // dell'anno in corso (stesso calcolo YTD già usato nel tab IAGREX).
     const year = month.slice(0, 4);
-    const ytdRevenue = Object.entries(allData)
-      .filter(([k]) => k.startsWith(year))
-      .reduce((s, [, v]) => s + (v.entrate || []).reduce((ss, e) => ss + (parseFloat(e.importo) || 0), 0), 0);
+    const ytdRevenue = round2(
+      Object.entries(allData)
+        .filter(([k]) => /^\d{4}-\d{2}$/.test(k) && k.startsWith(year))
+        .reduce((s, [, v]) => s + sumEur(v.entrate, rate), 0)
+    );
     const percentuale = Math.min(Math.round((ytdRevenue / OBIETTIVO_ANNUALE) * 100 * 10) / 10, 100);
 
     // Ritmo mensile necessario per restare in pista verso l'obiettivo annuale:
@@ -73,13 +111,11 @@ export async function GET() {
     for (let m = 1; m <= currentMonthNum; m++) {
       const ym = `${year}-${String(m).padStart(2, "0")}`;
       const d = allData[ym] || { entrate: [], uscite: [] };
-      const entrate = d.entrate.reduce((s, e) => s + (parseFloat(e.importo) || 0), 0);
-      const uscite = d.uscite.reduce((s, e) => s + (parseFloat(e.importo) || 0), 0);
       storico_mensile.push({
         mese: ym,
         label: getMonthLabel(ym).slice(0, 3),
-        entrate,
-        uscite,
+        entrate: round2(sumEur(d.entrate, rate)),
+        uscite: round2(sumEur(d.uscite, rate)),
       });
     }
 
@@ -87,9 +123,13 @@ export async function GET() {
       mese: getMonthLabel(month),
       entrate_totali,
       uscite_totali,
-      saldo: entrate_totali - uscite_totali,
-      fatture: monthData.entrate.map(e => ({ descrizione: e.descrizione, importo: e.importo })),
-      uscite_dettaglio: monthData.uscite.map(e => ({ descrizione: e.descrizione, importo: e.importo })),
+      saldo: round2(entrate_totali - uscite_totali),
+      // Anche i dettagli escludono le conversioni: comparivano in home come
+      // se fossero fatture/costi reali.
+      fatture: (monthData.entrate || []).filter(isReal).map(e => ({ descrizione: e.descrizione, importo: e.importo, valuta: CONTI_CURRENCY[e.conto] === "RON" ? "RON" : "€" })),
+      uscite_dettaglio: (monthData.uscite || []).filter(isReal).map(e => ({ descrizione: e.descrizione, importo: e.importo, valuta: CONTI_CURRENCY[e.conto] === "RON" ? "RON" : "€" })),
+      cambio_eur_ron: rate,
+      cambio_live: rateIsLive,
       obiettivo_annuale: OBIETTIVO_ANNUALE,
       percentuale,
       ytd_revenue: ytdRevenue,
