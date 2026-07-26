@@ -110,6 +110,10 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
   const [viaggioModal, setViaggioModal] = useState(null); // {mode:"add"|"edit"}
   const [viaggioForm, setViaggioForm]   = useState({});
   const [viaggioSel, setViaggioSel]     = useState(null); // id del viaggio aperto in dettaglio
+  // Bozza note del viaggio aperto: null = nessuna modifica in corso (si
+  // mostra il valore salvato). Si salva su blur, non a ogni tasto, per non
+  // martellare ClickUp con una POST per carattere digitato.
+  const [noteDraft, setNoteDraft]       = useState(null);
 
   // Check estratto conto: confronto manuale a fine mese tra il saldo
   // salvato in app e quello reale letto sull'estratto conto, con storico
@@ -318,9 +322,15 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
       dataInizio: viaggioForm.dataInizio,
       dataFine: viaggioForm.dataFine || "",
       creato: viaggioForm.creato || new Date().toISOString(),
+      // Le note vanno preservate quando si modifica nome/date dal modal
+      // (openViaggioEdit copia tutto il viaggio nel form, note incluse).
+      note: viaggioForm.note || "",
     };
     saveData({ ...allData, viaggi: viaggioModal.mode==="add" ? [v, ...viaggi] : viaggi.map(x=>x.id===v.id?v:x) });
     closeViaggioModal();
+  };
+  const saveNoteViaggio = (vid, testo) => {
+    saveData({ ...allData, viaggi: viaggi.map(v=>v.id===vid ? { ...v, note: testo } : v) });
   };
   const deleteViaggio = (vid) => {
     if (!confirm("Eliminare il viaggio? Le spese restano nei movimenti, perdono solo il tag viaggio.")) return;
@@ -988,7 +998,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
               return (
                 <div>
                   <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14, gap:8, flexWrap:"wrap" }}>
-                    <button onClick={()=>setViaggioSel(null)} style={{ padding:"6px 12px", borderRadius:7, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-dim)", cursor:"pointer", fontSize:12 }}>‹ Tutti i viaggi</button>
+                    <button onClick={()=>{setViaggioSel(null);setNoteDraft(null);}} style={{ padding:"6px 12px", borderRadius:7, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-dim)", cursor:"pointer", fontSize:12 }}>‹ Tutti i viaggi</button>
                     <div style={{ display:"flex", gap:6 }}>
                       <button onClick={()=>openViaggioEdit(vSel)} style={{ padding:"6px 12px", borderRadius:7, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-dim)", cursor:"pointer", fontSize:12 }}>✏️ Modifica</button>
                       <button onClick={()=>deleteViaggio(vSel.id)} style={{ padding:"6px 12px", borderRadius:7, border:"1px solid #2A1A1A", background:"transparent", color:"#EF4444", cursor:"pointer", fontSize:12 }}>× Elimina</button>
@@ -1016,6 +1026,26 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                       📊 Spese per categoria
                     </div>
                     <CategoryBars data={byCat} total={s.tot} color="#F59E0B" fs={fs} fmt={fmt}/>
+                  </div>
+                  {/* Note del viaggio: consigli per la prossima volta in
+                      quella location (hotel, cambio valuta, zone, ecc.). */}
+                  <div style={{ marginBottom:24 }}>
+                    <div style={{ fontSize:fs-3, fontWeight:700, color:"#8B5CF6", textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:10 }}>
+                      📝 Note e consigli per la prossima volta
+                    </div>
+                    <textarea
+                      value={noteDraft ?? (vSel.note || "")}
+                      onChange={e=>setNoteDraft(e.target.value)}
+                      onBlur={()=>{
+                        if (noteDraft!=null && noteDraft !== (vSel.note||"")) saveNoteViaggio(vSel.id, noteDraft);
+                        setNoteDraft(null);
+                      }}
+                      placeholder="es. Hotel Karoly ottimo e centrale · cambiare valuta in città, MAI in aeroporto · quartiere X da evitare la sera · ristorante Y da riprovare..."
+                      style={{ width:"100%", minHeight:100, padding:"10px 12px", borderRadius:10, border:"1px solid var(--c-border)", background:"var(--c-panel)", color:"var(--c-text)", fontSize:fs-2, lineHeight:1.5, outline:"none", resize:"vertical", fontFamily:"inherit", boxSizing:"border-box" }}
+                    />
+                    <div style={{ fontSize:fs-5, color:"var(--c-text-faintest)", marginTop:4 }}>
+                      Le note si salvano da sole appena tocchi fuori dal campo.
+                    </div>
                   </div>
                   <div style={{ fontSize:fs-3, fontWeight:700, color:"var(--c-text-dim)", textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:10 }}>
                     🧾 Movimenti del viaggio
@@ -1066,10 +1096,10 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                       const s = statsViaggio(v);
                       const inCorso = !v.dataFine || (new Date().toISOString().slice(0,10) >= v.dataInizio && new Date().toISOString().slice(0,10) <= v.dataFine);
                       return (
-                        <div key={v.id} onClick={()=>setViaggioSel(v.id)} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, padding:"12px 14px", borderTop:i===0?"none":"1px solid var(--c-border)", background:i%2===0?"var(--c-panel)":"var(--c-panel2)", cursor:"pointer" }}>
+                        <div key={v.id} onClick={()=>{setViaggioSel(v.id);setNoteDraft(null);}} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, padding:"12px 14px", borderTop:i===0?"none":"1px solid var(--c-border)", background:i%2===0?"var(--c-panel)":"var(--c-panel2)", cursor:"pointer" }}>
                           <div style={{ minWidth:0 }}>
                             <div style={{ fontSize:fs-1, fontWeight:700, color:"var(--c-text)", display:"flex", alignItems:"center", gap:6 }}>
-                              ✈️ {v.nome}
+                              ✈️ {v.nome}{v.note?<span title="Ci sono note su questo viaggio" style={{fontSize:fs-4}}>📝</span>:null}
                               {inCorso && <span style={{ fontSize:9, fontWeight:700, color:"#10B981", border:"1px solid #10B98150", background:"#10B98115", borderRadius:5, padding:"1px 6px", textTransform:"uppercase", letterSpacing:"0.05em" }}>in corso</span>}
                             </div>
                             <div style={{ fontSize:fs-4, color:"var(--c-text-faint)", marginTop:2 }}>
