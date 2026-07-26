@@ -443,6 +443,27 @@ export default function App() {
     return ()=>window.removeEventListener("resize",check);
   },[]);
 
+  // FIX Android: la bottom nav era invisibile su alcuni browser Android.
+  // Il root usava height:100dvh, ma dove dvh non è supportato (WebView,
+  // Samsung Internet datati) o si comporta male con la barra URL, il
+  // contenitore risulta più alto dello schermo visibile e la nav — ultima
+  // in colonna, con overflow:hidden — finisce tagliata sotto. Misuriamo
+  // l'altezza reale con window.innerHeight (sempre = viewport visibile,
+  // su qualunque browser) e la usiamo in px; 100dvh resta solo come
+  // valore iniziale prima del mount. visualViewport, dove esiste, segnala
+  // anche i resize dovuti a barra URL/tastiera che "resize" non sempre emette.
+  const [appHeight, setAppHeight] = useState(null);
+  useEffect(()=>{
+    const measure = ()=>setAppHeight(window.innerHeight);
+    measure();
+    window.addEventListener("resize", measure);
+    window.visualViewport?.addEventListener("resize", measure);
+    return ()=>{
+      window.removeEventListener("resize", measure);
+      window.visualViewport?.removeEventListener("resize", measure);
+    };
+  },[]);
+
   // Clock
   useEffect(()=>{
     const tick=()=>{
@@ -901,7 +922,7 @@ export default function App() {
   );
 
   return (
-    <div style={{display:"flex",flexDirection:"column",height:"100dvh",background:T.bg,color:T.text,fontFamily:"system-ui,-apple-system,sans-serif",overflow:"hidden"}}>
+    <div style={{display:"flex",flexDirection:"column",height:appHeight?`${appHeight}px`:"100dvh",background:T.bg,color:T.text,fontFamily:"system-ui,-apple-system,sans-serif",overflow:"hidden"}}>
       <div style={{display:"flex",flex:1,overflow:"hidden"}}>
 
         {/* SIDEBAR DESKTOP */}
@@ -1193,7 +1214,7 @@ export default function App() {
 
       {/* MOBILE BOTTOM NAV */}
       {isMobile && (
-        <div style={{display:"flex",background:T.panel,borderTop:`1px solid ${T.border}`,padding:"4px 2px",flexShrink:0,zIndex:100}}>
+        <div style={{display:"flex",background:T.panel,borderTop:`1px solid ${T.border}`,padding:"4px 2px",paddingBottom:"max(4px, env(safe-area-inset-bottom))",flexShrink:0,zIndex:100}}>
           {NAV_ITEMS.map(item=>{
             const c = item.color || T.cardText;
             return (
