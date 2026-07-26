@@ -193,6 +193,22 @@ export function fmt(n) {
 // nell'input numerico del saldo (che mostra il valore grezzo, non fmt()).
 export function round2(n) { return Math.round((parseFloat(n)||0) * 100) / 100; }
 
+// Costo implicito di un cambio valuta: quanto la banca "prende" applicando
+// un tasso peggiore di quello ufficiale BCE dello stesso giorno. Entrambi i
+// tassi sono sempre "1 EUR = tasso RON" (convenzione di tutta l'app).
+// Ritorna il costo NELLA VALUTA DEL CONTO DI PARTENZA (coerente col campo
+// `commissioni` dei movimenti, che vive nella valuta del conto pagante) e la
+// percentuale sul cambiato. Positivo = la banca ha applicato un tasso
+// sfavorevole; negativo = meglio del BCE (raro ma possibile).
+export function costoCambio(importoDa, tassoBanca, tassoBce, daCcy) {
+  const imp = parseFloat(importoDa)||0, tb = parseFloat(tassoBanca)||0, tr = parseFloat(tassoBce)||0;
+  if (!imp || !tb || !tr) return null;
+  // EUR->RON: ricevi imp*tb invece di imp*tr; ammanco in EUR = imp*(tr-tb)/tr.
+  // RON->EUR: ricevi imp/tb invece di imp/tr; ammanco in RON = imp*(1 - tr/tb).
+  const pct = daCcy==="€" ? (tr-tb)/tr : (1 - tr/tb);
+  return { costo: imp*pct, pct: pct*100 };
+}
+
 export function getMonthLabel(ym) {
   const [y, m] = ym.split("-");
   const months = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
