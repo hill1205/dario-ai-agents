@@ -6,7 +6,7 @@ import {
   pad2, ymdStr, fmtShortDate, daysGrid,
   DateRangePicker, VistaToggle, fmt, round2,
   getMonthLabel, getCurrentMonth, lastMonths,
-  CashFlowMiniChart, CategoryBars,
+  CashFlowMiniChart, CategoryBars, costoCambio,
 } from "../lib/finance-ui";
 
 const CAT_ENTRATE = ["Retainer","One-time","Consulenza","Bonus","Conversione","Altro"];
@@ -237,6 +237,12 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
   // Recap "dove vanno i soldi": aggregato per categoria del mese selezionato.
   const usciteByCat  = monthData.uscite.filter(isReal).reduce((acc,e)=>{ acc[e.categoria]=(acc[e.categoria]||0)+toEur(e); return acc; },{});
   const entrateByCat = monthData.entrate.filter(isReal).reduce((acc,e)=>{ acc[e.categoria]=(acc[e.categoria]||0)+toEur(e); return acc; },{});
+  // Totale commissioni bancarie del mese: per IAGREX arrivano dalle
+  // conversioni UniCredit (tasso banca vs tasso BCE, vedi saveConversione).
+  // Le conversioni sono escluse dalle uscite vere (isReal), ma la loro
+  // commissione implicita è un costo reale: qui si somma su TUTTE le uscite.
+  const toEurVal = (val, contoId) => { const v = parseFloat(val)||0; return contoCurrency(contoId)==="RON" ? v/rate : v; };
+  const totCommissioniMese = monthData.uscite.reduce((s,e)=>s+toEurVal(e.commissioni,e.conto),0);
 
   const openAdd = (tipo) => { setForm({descrizione:"",importo:"",categoria:tipo==="entrata"?CAT_ENTRATE[0]:CAT_USCITE[0],cliente:"",conto:CONTI_IAGREX[0].id,data:new Date().toISOString().slice(0,10)}); setModal({tipo,mode:"add"}); };
   const openEdit = (tipo,item) => { setForm({...item}); setModal({tipo,mode:"edit",item}); };
@@ -448,6 +454,10 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
       a: CONTI_IAGREX[1].id,
       importoDa: "",
       tasso: (eurRonRate||EUR_RON_FALLBACK).toFixed(4),
+      // Tasso ufficiale BCE del giorno (fetch live già attivo): la
+      // differenza col tasso applicato da UniCredit è la commissione
+      // implicita del cambio, salvata sul movimento per il recap.
+      tassoBce: (eurRonRate||EUR_RON_FALLBACK).toFixed(4),
       data: new Date().toISOString().slice(0,10),
     });
     setConvModal(true);
@@ -473,8 +483,13 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
     if (!importoDa || importoDa<=0 || !tasso || tasso<=0 || !convForm.da || !convForm.a || convForm.da===convForm.a) return;
     const importoA = calcImportoA(convForm);
     const pairId = genId();
-    const descrizione = `Conversione ${CONTI_IAGREX_BY_ID[convForm.da]?.label} → ${CONTI_IAGREX_BY_ID[convForm.a]?.label} (tasso ${tasso})`;
+    const tassoBce = parseFloat(convForm.tassoBce);
+    const descrizione = `Conversione ${CONTI_IAGREX_BY_ID[convForm.da]?.label} → ${CONTI_IAGREX_BY_ID[convForm.a]?.label} (tasso banca ${tasso}${tassoBce?` · BCE ${tassoBce}`:""})`;
     const uscitaItem  = { id:genId(), descrizione, categoria:"Conversione", conto:convForm.da, importo:round2(importoDa), data:convForm.data, isConversione:true, pairId };
+    // Commissione implicita del cambio (tasso banca peggiore del BCE):
+    // salvata sull'uscita della coppia, nella valuta del conto di partenza.
+    const cc = costoCambio(importoDa, tasso, tassoBce, contoCurrency(convForm.da));
+    if (cc && cc.costo > 0) { uscitaItem.commissioni = round2(cc.costo); uscitaItem.tassoBce = tassoBce; }
     const entrataItem = { id:genId(), descrizione, categoria:"Conversione", conto:convForm.a,  importo:round2(importoA),  data:convForm.data, isConversione:true, pairId, cliente:"" };
 
     let updated = {...monthData, saldi:{...monthData.saldi}};
@@ -683,7 +698,7 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
                   <div key={e.id} style={{display:"grid",gridTemplateColumns:"1fr auto auto auto",gap:0,borderTop:i===0?"none":"1px solid var(--c-border)",background:flaggedIds.has(e.id)?"#F59E0B1F":(i%2===0?"var(--c-panel)":"var(--c-panel2)"),boxShadow:flaggedIds.has(e.id)?"inset 3px 0 0 #F59E0B":"none"}}>
                     <Cell style={{flexDirection:"column",alignItems:"flex-start",gap:2}}>
                       <span style={{color:"var(--c-text)",fontWeight:600}}>{flaggedIds.has(e.id)?"⚠️ ":""}{e.descrizione}</span>
-                      <span style={{fontSize:fs-4,color:"var(--c-text-faint)"}}>{e.data?`${e.data} · `:""}{e.categoria}{e.conto?` · ${CONTI_IAGREX_BY_ID[e.conto]?.label||e.conto}`:""}</span>
+                      <span style={{fontSize:fs-4,color:"var(--c-text-faint)"}}>{e.data?`${e.data} · `:""}{e.categoria}{e.conto?` · ${CONTI_IAGREX_BY_ID[e.conto]?.label||e.conto}`:""}{parseFloat(e.commissioni)>0?<span style={{color:"#06B6D4"}}> · di cui {fmt(e.commissioni)}{contoCurrency(e.conto)==="RON"?" RON":"€"} commissioni</span>:""}</span>
                     </Cell>
                     <Cell style={{color:"#EF4444",fontWeight:700}}>-{fmt(e.importo)}{contoCurrency(e.conto)==="RON"?" RON":"€"}</Cell>
                     <Cell><button onClick={()=>openEdit("uscita",e)} style={{width:24,height:24,borderRadius:5,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-dim)",cursor:"pointer",fontSize:10}}>✏️</button></Cell>
@@ -796,9 +811,17 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
               </div>
 
               <div style={{marginBottom:24}}>
-                <div style={{fontSize:fs-3,fontWeight:700,color:"#EF4444",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>
+                <div style={{fontSize:fs-3,fontWeight:700,color:"#EF4444",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4}}>
                   🔴 Uscite per categoria — totale {fmt(totUscite)}€
                 </div>
+                {/* Commissioni implicite dei cambi UniCredit (tasso banca vs
+                    BCE): non sommate alle uscite, ma mostrate come costo
+                    reale del mese in cambi valuta. */}
+                {totCommissioniMese>0 ? (
+                  <div style={{fontSize:fs-3,color:"var(--c-text-dim)",marginBottom:10}}>
+                    ↳ di cui <b style={{color:"#06B6D4"}}>{fmt(totCommissioniMese)}€</b> · 🏦 commissioni bancarie sui cambi
+                  </div>
+                ) : <div style={{marginBottom:10}}/>}
                 <CategoryBars data={usciteByCat} total={totUscite} color="#EF4444" fs={fs} fmt={fmt}/>
               </div>
 
@@ -908,11 +931,19 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
               </div>
               <div>
                 <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:4}}>
-                  Tasso di cambio (1 EUR = ? RON) *
+                  Tasso applicato dalla banca (1 EUR = ? RON) *
                 </div>
                 <input type="number" step="0.0001" value={convForm.tasso||""} onChange={e=>setConvForm(p=>({...p,tasso:e.target.value}))}
                   style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:13,outline:"none"}}/>
-                <div style={{fontSize:10,color:"var(--c-text-faintest)",marginTop:4}}>Precompilato con il cambio {rateIsLive?"live BCE":"fisso di riserva"} — modificalo con il tasso applicato dalla banca, se diverso.</div>
+                <div style={{fontSize:10,color:"var(--c-text-faintest)",marginTop:4}}>Il tasso che vedi scritto sull'home banking UniCredit per questo cambio.</div>
+              </div>
+              <div>
+                <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:4}}>
+                  Tasso reale BCE del giorno (1 EUR = ? RON)
+                </div>
+                <input type="number" step="0.0001" value={convForm.tassoBce||""} onChange={e=>setConvForm(p=>({...p,tassoBce:e.target.value}))}
+                  style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:13,outline:"none"}}/>
+                <div style={{fontSize:10,color:"var(--c-text-faintest)",marginTop:4}}>Precompilato col cambio {rateIsLive?"live BCE di oggi":"fisso di riserva (BCE non raggiungibile)"}. La differenza col tasso banca è la commissione implicita, contata nel recap commissioni.</div>
               </div>
               <div>
                 <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:4}}>Data</div>
@@ -921,6 +952,19 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
               </div>
               <div style={{background:"#8B5CF615",border:"1px solid #8B5CF640",borderRadius:8,padding:"10px 12px",fontSize:12,color:"var(--c-text)"}}>
                 Accrediterai su <b>{CONTI_IAGREX_BY_ID[convForm.a]?.label}</b>: <b style={{color:"#8B5CF6"}}>{fmt(calcImportoA(convForm))} {contoCurrency(convForm.a)}</b>
+                {(()=>{
+                  const cc = costoCambio(convForm.importoDa, convForm.tasso, convForm.tassoBce, contoCurrency(convForm.da));
+                  if (!cc || Math.abs(cc.costo) < 0.005) return null;
+                  return cc.costo > 0 ? (
+                    <div style={{marginTop:6,color:"#06B6D4"}}>
+                      🏦 Commissione implicita vs BCE: <b>{fmt(cc.costo)} {contoCurrency(convForm.da)}</b> ({cc.pct.toFixed(2)}%)
+                    </div>
+                  ) : (
+                    <div style={{marginTop:6,color:"#10B981"}}>
+                      ✅ Tasso banca migliore del BCE ({Math.abs(cc.pct).toFixed(2)}%) — nessuna commissione da contare.
+                    </div>
+                  );
+                })()}
               </div>
             </div>
             <div style={{display:"flex",gap:8,marginTop:20}}>

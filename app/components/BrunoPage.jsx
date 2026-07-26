@@ -6,7 +6,7 @@ import {
   pad2, ymdStr, fmtShortDate, daysGrid,
   DateRangePicker, VistaToggle, fmt, round2,
   getMonthLabel, getCurrentMonth, lastMonths,
-  CashFlowMiniChart, CategoryBars,
+  CashFlowMiniChart, CategoryBars, costoCambio,
 } from "../lib/finance-ui";
 
 // Revolut è diviso in due saldi (EUR/RON) perché Dario spende in RON da
@@ -25,6 +25,11 @@ const CONTI_BY_ID = Object.fromEntries(CONTI.map(c=>[c.id,c]));
 const EUR_RON_FALLBACK = 5; // usato solo se il fetch del cambio live fallisce
 
 const CAT_USCITE_FISSE = ["Affitto","Cibo","Palestra","Trasporti","Abbonamenti","Utenze","Salute","Personale","Extra"];
+// Categorie che NON vengono mai pre-taggate su un viaggio: sono spese di
+// casa che continuano ad arrivare anche mentre Dario è in trasferta
+// (bolletta pagata da Budapest ≠ spesa del viaggio a Budapest). Il tag
+// resta comunque selezionabile a mano anche per queste.
+const CAT_ESCLUSE_VIAGGIO = ["Affitto","Utenze","Abbonamenti"];
 
 const EMPTY_MONTH = {
   entrate: [],
@@ -95,6 +100,16 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
   const [modal, setModal]       = useState(null); // {tipo:"entrata"|"uscita", mode:"add"|"edit", item?}
   const [form, setForm]         = useState({});
   const [customCat, setCustomCat] = useState("");
+
+  // --- Viaggi: budget separato per le trasferte ---
+  // I viaggi vivono in allData.viaggi (chiave non-mese, come checkSaldi);
+  // il legame spesa->viaggio è il campo `viaggio` (id) sulla singola uscita,
+  // così il movimento resta contato normalmente nel mese ma è anche
+  // filtrabile/sommabile per viaggio, anche a cavallo di due mesi.
+  const [filtroViaggio, setFiltroViaggio] = useState("");
+  const [viaggioModal, setViaggioModal] = useState(null); // {mode:"add"|"edit"}
+  const [viaggioForm, setViaggioForm]   = useState({});
+  const [viaggioSel, setViaggioSel]     = useState(null); // id del viaggio aperto in dettaglio
 
   // Check estratto conto: confronto manuale a fine mese tra il saldo
   // salvato in app e quello reale letto sull'estratto conto, con storico
@@ -211,6 +226,12 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
     const val = parseFloat(item.importo)||0;
     return contoCurrency(item.conto)==="RON" ? val/rate : val;
   };
+  // Come toEur ma per un valore parziale del movimento (es. la quota
+  // commissioni): stessa valuta del conto con cui è stato pagato.
+  const toEurVal = (val, contoId) => {
+    const v = parseFloat(val)||0;
+    return contoCurrency(contoId)==="RON" ? v/rate : v;
+  };
   // I movimenti generati dal tasto "Conversione" (spostamento di soldi già
   // esistenti tra Revolut EUR e Revolut RON) non sono entrata/uscita vera:
   // vanno esclusi da entrate/uscite/recap, altrimenti una conversione
@@ -242,14 +263,97 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
     + (parseFloat(monthData.investimenti)||0)
     + (parseFloat(monthData.risparmi)||0);
 
+  // --- Viaggi: helper e CRUD ---
+  const viaggi = allData.viaggi || [];
+  const viaggiOrdinati = [...viaggi].sort((a,b)=>(b.dataInizio||"").localeCompare(a.dataInizio||""));
+  const viaggioById = Object.fromEntries(viaggi.map(v=>[v.id,v]));
+  // Viaggio che copre una certa data (dataFine vuota = viaggio ancora
+  // aperto, si chiude al ritorno modificandolo).
+  const viaggioPerData = (dstr) => {
+    if (!dstr) return null;
+    return viaggi.find(v => v.dataInizio && dstr >= v.dataInizio && (!v.dataFine || dstr <= v.dataFine)) || null;
+  };
+  // Pre-selezione automatica nel form uscite: data dentro un viaggio =>
+  // tag già messo, MA mai per le categorie di casa (CAT_ESCLUSE_VIAGGIO).
+  const autoViaggioFor = (dstr, categoria) =>
+    CAT_ESCLUSE_VIAGGIO.includes(categoria) ? "" : (viaggioPerData(dstr)?.id || "");
+  // Tutte le uscite taggate su un viaggio, pescate da TUTTI i mesi:
+  // così un viaggio 30 lug - 2 ago ha un totale unico, non spezzato.
+  const movimentiViaggio = (vid) => {
+    const out = [];
+    for (const [ym, md] of Object.entries(allData)) {
+      if (!/^\d{4}-\d{2}$/.test(ym)) continue;
+      for (const e of (md.uscite||[])) if (e.viaggio===vid && isReal(e)) out.push(e);
+    }
+    return out;
+  };
+  const statsViaggio = (v) => {
+    const movs = movimentiViaggio(v.id);
+    const tot = movs.reduce((s,e)=>s+toEur(e),0);
+    const giorni = (v.dataInizio && v.dataFine)
+      ? Math.round((new Date(v.dataFine+"T00:00:00") - new Date(v.dataInizio+"T00:00:00"))/86400000) + 1
+      : null;
+    return { movs, tot, giorni, media: giorni ? tot/giorni : null };
+  };
+  // Per il Recap mensile: "di cui X€ viaggio Y" — solo la quota di uscite
+  // del mese selezionato, raggruppata per viaggio.
+  const speseViaggiMese = monthData.uscite.filter(e=>isReal(e)&&e.viaggio).reduce((acc,e)=>{ acc[e.viaggio]=(acc[e.viaggio]||0)+toEur(e); return acc; },{});
+  // Totale commissioni bancarie del mese (quota già inclusa nelle uscite,
+  // vedi campo "commissioni" in saveItem): non si somma alle uscite, dice
+  // solo quanto del totale se n'è andato in cambi valuta e fee.
+  // NIENTE filtro isReal qui: le conversioni Revolut sono escluse dalle
+  // uscite vere, ma la loro commissione implicita (tasso banca vs BCE) è
+  // un costo reale e va contata.
+  const totCommissioniMese = monthData.uscite.reduce((s,e)=>s+toEurVal(e.commissioni,e.conto),0);
+
+  const openViaggioAdd  = () => { setViaggioForm({ nome:"", dataInizio:new Date().toISOString().slice(0,10), dataFine:"" }); setViaggioModal({ mode:"add" }); };
+  const openViaggioEdit = (v) => { setViaggioForm({ ...v }); setViaggioModal({ mode:"edit" }); };
+  const closeViaggioModal = () => { setViaggioModal(null); setViaggioForm({}); };
+  const saveViaggio = () => {
+    if (!viaggioForm.nome?.trim() || !viaggioForm.dataInizio) return;
+    if (viaggioForm.dataFine && viaggioForm.dataFine < viaggioForm.dataInizio) return;
+    const v = {
+      id: viaggioModal.mode==="add" ? genId() : viaggioForm.id,
+      nome: viaggioForm.nome.trim(),
+      dataInizio: viaggioForm.dataInizio,
+      dataFine: viaggioForm.dataFine || "",
+      creato: viaggioForm.creato || new Date().toISOString(),
+    };
+    saveData({ ...allData, viaggi: viaggioModal.mode==="add" ? [v, ...viaggi] : viaggi.map(x=>x.id===v.id?v:x) });
+    closeViaggioModal();
+  };
+  const deleteViaggio = (vid) => {
+    if (!confirm("Eliminare il viaggio? Le spese restano nei movimenti, perdono solo il tag viaggio.")) return;
+    // Oltre a togliere il viaggio, va staccato il tag dalle uscite di ogni
+    // mese, altrimenti resterebbero riferimenti orfani a un id inesistente.
+    const next = { ...allData, viaggi: viaggi.filter(v=>v.id!==vid) };
+    for (const [ym, md] of Object.entries(allData)) {
+      if (!/^\d{4}-\d{2}$/.test(ym)) continue;
+      if ((md.uscite||[]).some(e=>e.viaggio===vid)) {
+        next[ym] = { ...md, uscite: md.uscite.map(e=>e.viaggio===vid ? { ...e, viaggio: undefined } : e) };
+      }
+    }
+    saveData(next);
+    if (viaggioSel===vid) setViaggioSel(null);
+    if (filtroViaggio===vid) setFiltroViaggio("");
+  };
+
   // MODAL HANDLERS
   const openAdd = (tipo) => {
-    setForm({ descrizione:"", importo:"", categoria: tipo==="uscita"?CAT_USCITE_FISSE[0]:"Stipendio", conto: CONTI[0].id, data: new Date().toISOString().slice(0,10) });
+    const oggi = new Date().toISOString().slice(0,10);
+    // Il viaggio viene pre-selezionato se oggi cade nelle date di un
+    // viaggio: mentre sei via non devi fare niente, ogni spesa è taggata
+    // da sola. _viaggioManual traccia se l'utente ha toccato il chip a
+    // mano: da quel momento data/categoria non sovrascrivono più la scelta.
+    setForm({ descrizione:"", importo:"", categoria: tipo==="uscita"?CAT_USCITE_FISSE[0]:"Stipendio", conto: CONTI[0].id, data: oggi,
+      viaggio: tipo==="uscita" ? (viaggioPerData(oggi)?.id || "") : "", _viaggioManual: false });
     setCustomCat("");
     setModal({ tipo, mode:"add" });
   };
   const openEdit = (tipo, item) => {
-    setForm({ ...item });
+    // In edit il tag esistente è una scelta già fatta: mai sovrascriverlo
+    // in automatico cambiando data o categoria.
+    setForm({ ...item, _viaggioManual: true });
     setCustomCat(CAT_USCITE_FISSE.includes(item.categoria) ? "" : item.categoria);
     setModal({ tipo, mode:"edit", item });
   };
@@ -257,8 +361,19 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
 
   const saveItem = () => {
     if (!form.descrizione?.trim() || !form.importo) return;
+    if (parseFloat(form.commissioni) > parseFloat(form.importo)) return;
     const cat = customCat.trim() || form.categoria;
     const item = { ...form, categoria: cat, importo: parseFloat(form.importo), id: modal.mode==="add"?genId():form.id };
+    // _viaggioManual è solo stato del form, non va salvato; viaggio vuoto
+    // si salva come undefined (JSON lo scarta) invece di stringa vuota.
+    delete item._viaggioManual;
+    if (!item.viaggio) delete item.viaggio;
+    // "Di cui commissioni": quota informativa GIÀ inclusa nell'importo
+    // (es. pagamento in HUF con carta €: importo = totale addebitato,
+    // commissioni = la parte presa dalla banca per il cambio). Non tocca
+    // saldi né totali, serve solo a tracciare quanto costano i cambi.
+    const comm = parseFloat(form.commissioni);
+    if (comm > 0) item.commissioni = round2(comm); else delete item.commissioni;
     const tipo = modal.tipo;
     let updated = { ...monthData, saldi: {...monthData.saldi} };
     if (tipo==="uscita") {
@@ -441,6 +556,10 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
       a: "revolut_ron",
       importoDa: "",
       tasso: (eurRonRate||EUR_RON_FALLBACK).toFixed(4),
+      // Tasso ufficiale BCE del giorno (fetch live già attivo): il confronto
+      // banca-vs-BCE è la commissione implicita del cambio, salvata sul
+      // movimento e sommata nel recap "commissioni bancarie".
+      tassoBce: (eurRonRate||EUR_RON_FALLBACK).toFixed(4),
       data: new Date().toISOString().slice(0,10),
     });
     setConvModal(true);
@@ -464,8 +583,14 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
     if (!importoDa || importoDa<=0 || !tasso || tasso<=0 || !convForm.da || !convForm.a || convForm.da===convForm.a) return;
     const importoA = calcImportoA(convForm);
     const pairId = genId();
-    const descrizione = `Conversione ${CONTI_BY_ID[convForm.da]?.label} → ${CONTI_BY_ID[convForm.a]?.label} (tasso ${tasso})`;
+    const tassoBce = parseFloat(convForm.tassoBce);
+    const descrizione = `Conversione ${CONTI_BY_ID[convForm.da]?.label} → ${CONTI_BY_ID[convForm.a]?.label} (tasso banca ${tasso}${tassoBce?` · BCE ${tassoBce}`:""})`;
     const uscitaItem  = { id:genId(), descrizione, categoria:"Conversione", conto:convForm.da, importo:round2(importoDa), data:convForm.data, isConversione:true, pairId };
+    // Commissione implicita del cambio (tasso banca peggiore del BCE):
+    // salvata sull'uscita della coppia, nella valuta del conto di partenza,
+    // così entra nel totale mensile "commissioni bancarie" del Recap.
+    const cc = costoCambio(importoDa, tasso, tassoBce, contoCurrency(convForm.da));
+    if (cc && cc.costo > 0) { uscitaItem.commissioni = round2(cc.costo); uscitaItem.tassoBce = tassoBce; }
     const entrataItem = { id:genId(), descrizione, categoria:"Conversione", conto:convForm.a,  importo:round2(importoA),  data:convForm.data, isConversione:true, pairId };
 
     let updated = { ...monthData, saldi: {...monthData.saldi} };
@@ -496,7 +621,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
   // sempre a quello che l'utente sta guardando. Generato lato client con
   // un Blob, senza passare dal server.
   const exportCSV = (items, tipo) => {
-    const header = ["Data","Descrizione","Categoria","Conto","Importo","Valuta"];
+    const header = ["Data","Descrizione","Categoria","Conto","Importo","Valuta","Viaggio","Di cui commissioni"];
     const rows = items.map(e => [
       e.data || "",
       (e.descrizione||"").replace(/"/g,'""'),
@@ -504,6 +629,8 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
       CONTI_BY_ID[e.conto]?.label || e.conto || "",
       e.importo,
       contoCurrency(e.conto)==="RON"?"RON":"EUR",
+      (viaggioById[e.viaggio]?.nome || "").replace(/"/g,'""'),
+      e.commissioni || "",
     ]);
     const csv = [header, ...rows].map(r => r.map(v => `"${v}"`).join(";")).join("\n");
     const blob = new Blob(["﻿"+csv], { type:"text/csv;charset=utf-8;" });
@@ -582,7 +709,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
       {/* Tabs */}
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", borderBottom:"1px solid var(--c-border)", flexShrink:0, background:"var(--c-bg)" }}>
         <div style={{ display:"flex", flexWrap:"wrap" }}>
-          {[["entrate","💚 Entrate"],["uscite","🔴 Uscite"],["saldi","🏦 Saldi & Obiettivi"],["recap","📊 Recap"]].map(([t,label])=>(
+          {[["entrate","💚 Entrate"],["uscite","🔴 Uscite"],["saldi","🏦 Saldi & Obiettivi"],["viaggi","✈️ Viaggi"],["recap","📊 Recap"]].map(([t,label])=>(
             <button key={t} onClick={()=>setTab(t)} style={{ padding:"10px 16px", border:"none", background:"transparent", cursor:"pointer", fontSize:fs-2, fontWeight:tab===t?700:400, color:tab===t?"var(--c-text-strong)":"var(--c-text-faint)", borderBottom:tab===t?"2px solid #F59E0B":"2px solid transparent" }}>{label}</button>
           ))}
         </div>
@@ -661,7 +788,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
           {tab==="uscite" && (
             <div>
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10, gap:8, flexWrap:"wrap" }}>
-                <div style={{ fontSize:fs-2, color:"var(--c-text-dim)" }}>Totale: <span style={{ color:"#EF4444", fontWeight:700 }}>-{fmt(monthData.uscite.filter(e=>(!filtroConto||e.conto===filtroConto)&&inDateRange(e)).reduce((s,e)=>s+toEur(e),0))}€</span></div>
+                <div style={{ fontSize:fs-2, color:"var(--c-text-dim)" }}>Totale: <span style={{ color:"#EF4444", fontWeight:700 }}>-{fmt(monthData.uscite.filter(e=>(!filtroConto||e.conto===filtroConto)&&(!filtroViaggio||e.viaggio===filtroViaggio)&&inDateRange(e)).reduce((s,e)=>s+toEur(e),0))}€</span></div>
                 <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                   <VistaToggle vista={vistaUscite} onChange={setVistaUscite} accent="#EF4444"/>
                   <button onClick={()=>openAdd("uscita")} style={{ padding:"6px 14px", borderRadius:7, border:"none", background:"#EF4444", color:"#fff", cursor:"pointer", fontSize:12, fontWeight:600, whiteSpace:"nowrap" }}>+ Aggiungi</button>
@@ -675,21 +802,30 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                     {CONTI.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
                   </select>
                 </div>
+                {viaggi.length>0 && (
+                  <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                    <span style={{ fontSize:11, color:"var(--c-text-faint)", whiteSpace:"nowrap" }}>✈️ Viaggio</span>
+                    <select value={filtroViaggio} onChange={e=>setFiltroViaggio(e.target.value)} style={{ flex:isMobile?1:"none", minWidth:0, padding:"6px 8px", borderRadius:7, border:`1px solid ${filtroViaggio?"#F59E0B":"var(--c-border)"}`, background:"var(--c-bg)", color:filtroViaggio?"#F59E0B":"var(--c-text)", fontSize:12 }}>
+                      <option value="">Tutti</option>
+                      {viaggiOrdinati.map(v=><option key={v.id} value={v.id}>{v.nome}</option>)}
+                    </select>
+                  </div>
+                )}
                 <div style={{ display:"flex", alignItems:"center", gap:6, flex:1 }}>
                   <DateRangePicker da={filtroDataDa} a={filtroDataA} onChange={(d,a)=>{setFiltroDataDa(d);setFiltroDataA(a);}} accent="#EF4444"/>
-                  <button onClick={()=>exportCSV(monthData.uscite.filter(e=>(!filtroConto||e.conto===filtroConto)&&inDateRange(e)),"uscite")} title="Esporta le uscite filtrate in CSV"
+                  <button onClick={()=>exportCSV(monthData.uscite.filter(e=>(!filtroConto||e.conto===filtroConto)&&(!filtroViaggio||e.viaggio===filtroViaggio)&&inDateRange(e)),"uscite")} title="Esporta le uscite filtrate in CSV"
                     style={{ flexShrink:0, padding:"6px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-dim)", cursor:"pointer", fontSize:11, whiteSpace:"nowrap" }}>📥 CSV</button>
                 </div>
               </div>
               {(() => {
-                const filtered = monthData.uscite.filter(e=>(!filtroConto||e.conto===filtroConto)&&inDateRange(e));
+                const filtered = monthData.uscite.filter(e=>(!filtroConto||e.conto===filtroConto)&&(!filtroViaggio||e.viaggio===filtroViaggio)&&inDateRange(e));
                 if (monthData.uscite.length===0) return <div style={{ padding:20, textAlign:"center", color:"var(--c-text-faintest)", fontSize:fs-2, background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10 }}>Nessuna uscita — aggiungi la prima</div>;
-                if (filtered.length===0) return <div style={{ padding:20, textAlign:"center", color:"var(--c-text-faintest)", fontSize:fs-2, background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10 }}>Nessuna uscita nel periodo/conto selezionato</div>;
+                if (filtered.length===0) return <div style={{ padding:20, textAlign:"center", color:"var(--c-text-faintest)", fontSize:fs-2, background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10 }}>Nessuna uscita nel periodo/conto/viaggio selezionato</div>;
                 const Row = (e,i) => (
                   <div key={e.id} style={{ display:"grid", gridTemplateColumns:"1fr auto auto auto", gap:0, borderTop:i===0?"none":"1px solid var(--c-border)", background:flaggedIds.has(e.id)?"#F59E0B1F":(i%2===0?"var(--c-panel)":"var(--c-panel2)"), boxShadow:flaggedIds.has(e.id)?"inset 3px 0 0 #F59E0B":"none" }}>
                     <Cell style={{ flexDirection:"column", alignItems:"flex-start", gap:2 }}>
                       <span style={{ color:"var(--c-text)" }}>{flaggedIds.has(e.id)?"⚠️ ":""}{e.descrizione}</span>
-                      <span style={{ fontSize:fs-4, color:"var(--c-text-faint)" }}>{e.data?`${e.data}`:""}{e.data?" · ":""}{e.categoria}{e.conto?` · ${CONTI_BY_ID[e.conto]?.label||e.conto}`:""}</span>
+                      <span style={{ fontSize:fs-4, color:"var(--c-text-faint)" }}>{e.data?`${e.data}`:""}{e.data?" · ":""}{e.categoria}{e.conto?` · ${CONTI_BY_ID[e.conto]?.label||e.conto}`:""}{e.viaggio&&viaggioById[e.viaggio]?<span style={{color:"#F59E0B"}}> · ✈️ {viaggioById[e.viaggio].nome}</span>:""}{parseFloat(e.commissioni)>0?<span style={{color:"#06B6D4"}}> · di cui {fmt(e.commissioni)}{contoCurrency(e.conto)==="RON"?" RON":"€"} commissioni</span>:""}</span>
                     </Cell>
                     <Cell style={{ color:"#EF4444", fontWeight:700 }}>-{fmt(e.importo)}{contoCurrency(e.conto)==="RON"?" RON":"€"}</Cell>
                     <Cell><button onClick={()=>openEdit("uscita",e)} style={{ width:24, height:24, borderRadius:5, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-dim)", cursor:"pointer", fontSize:10 }}>✏️</button></Cell>
@@ -837,6 +973,127 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
             </div>
           )}
 
+          {/* VIAGGI: budget separato per ogni trasferta */}
+          {tab==="viaggi" && (()=>{
+            const vSel = viaggioSel ? viaggioById[viaggioSel] : null;
+
+            // Dettaglio viaggio: stesso stile del Recap ma limitato alle
+            // spese taggate su quel viaggio (tutti i mesi, totale unico).
+            if (vSel) {
+              const s = statsViaggio(vSel);
+              const byCat = s.movs.reduce((acc,e)=>{ acc[e.categoria]=(acc[e.categoria]||0)+toEur(e); return acc; },{});
+              // Quanto del totale viaggio se n'è andato in commissioni di
+              // cambio: in trasferta è il costo nascosto più frequente.
+              const commViaggio = s.movs.reduce((sum,e)=>sum+toEurVal(e.commissioni,e.conto),0);
+              return (
+                <div>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14, gap:8, flexWrap:"wrap" }}>
+                    <button onClick={()=>setViaggioSel(null)} style={{ padding:"6px 12px", borderRadius:7, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-dim)", cursor:"pointer", fontSize:12 }}>‹ Tutti i viaggi</button>
+                    <div style={{ display:"flex", gap:6 }}>
+                      <button onClick={()=>openViaggioEdit(vSel)} style={{ padding:"6px 12px", borderRadius:7, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-dim)", cursor:"pointer", fontSize:12 }}>✏️ Modifica</button>
+                      <button onClick={()=>deleteViaggio(vSel.id)} style={{ padding:"6px 12px", borderRadius:7, border:"1px solid #2A1A1A", background:"transparent", color:"#EF4444", cursor:"pointer", fontSize:12 }}>× Elimina</button>
+                    </div>
+                  </div>
+                  <div style={{ fontSize:fs+1, fontWeight:800, color:"var(--c-text-strong)", marginBottom:2 }}>✈️ {vSel.nome}</div>
+                  <div style={{ fontSize:fs-3, color:"var(--c-text-faint)", marginBottom:14 }}>
+                    {fmtShortDate(vSel.dataInizio)}{vSel.dataFine?` – ${fmtShortDate(vSel.dataFine)}`:" – in corso"}{s.giorni?` · ${s.giorni} giorni`:""}
+                  </div>
+                  <div style={{ display:"grid", gridTemplateColumns:isMobile?"repeat(2,1fr)":`repeat(${commViaggio>0?4:3},1fr)`, gap:8, marginBottom:20 }}>
+                    {[
+                      { label:"Totale speso", val:`${fmt(s.tot)}€`, color:"#F59E0B" },
+                      { label:"Movimenti", val:s.movs.length, color:"var(--c-text-strong)" },
+                      { label:"Media al giorno", val:s.media!=null?`${fmt(s.media)}€`:"—", color:"#8B5CF6" },
+                      ...(commViaggio>0?[{ label:"Di cui commissioni", val:`${fmt(commViaggio)}€`, color:"#06B6D4" }]:[]),
+                    ].map(c=>(
+                      <div key={c.label} style={{ background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10, padding:"10px 12px", minWidth:0 }}>
+                        <div style={{ fontSize:fs-4, color:"var(--c-text-faint)", marginBottom:4 }}>{c.label}</div>
+                        <div style={{ fontSize:fs+1, fontWeight:800, color:c.color, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{c.val}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ marginBottom:24 }}>
+                    <div style={{ fontSize:fs-3, fontWeight:700, color:"#F59E0B", textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:10 }}>
+                      📊 Spese per categoria
+                    </div>
+                    <CategoryBars data={byCat} total={s.tot} color="#F59E0B" fs={fs} fmt={fmt}/>
+                  </div>
+                  <div style={{ fontSize:fs-3, fontWeight:700, color:"var(--c-text-dim)", textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:10 }}>
+                    🧾 Movimenti del viaggio
+                  </div>
+                  {s.movs.length===0 && (
+                    <div style={{ background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10, padding:20, textAlign:"center", color:"var(--c-text-faintest)", fontSize:fs-2 }}>
+                      Nessuna spesa ancora taggata su questo viaggio. Aggiungi un'uscita con data dentro il viaggio: il tag si mette da solo.
+                    </div>
+                  )}
+                  {groupByDayDesc(s.movs).map(({key,data,items})=>(
+                    <div key={key} style={{ marginBottom:12 }}>
+                      <div style={{ fontSize:fs-3, fontWeight:700, color:"var(--c-text-dim)", marginBottom:6, display:"flex", justifyContent:"space-between" }}>
+                        <span>{formatDayLabel(data)}</span>
+                        <span style={{ color:"#F59E0B" }}>-{fmt(items.reduce((s2,e)=>s2+toEur(e),0))}€</span>
+                      </div>
+                      <div style={{ background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10, overflow:"hidden" }}>
+                        {items.map((e,i)=>(
+                          <div key={e.id} style={{ display:"grid", gridTemplateColumns:"1fr auto auto", borderTop:i===0?"none":"1px solid var(--c-border)", background:i%2===0?"var(--c-panel)":"var(--c-panel2)" }}>
+                            <Cell style={{ flexDirection:"column", alignItems:"flex-start", gap:2 }}>
+                              <span style={{ color:"var(--c-text)" }}>{e.descrizione}</span>
+                              <span style={{ fontSize:fs-4, color:"var(--c-text-faint)" }}>{e.categoria}{e.conto?` · ${CONTI_BY_ID[e.conto]?.label||e.conto}`:""}</span>
+                            </Cell>
+                            <Cell style={{ color:"#EF4444", fontWeight:700 }}>-{fmt(e.importo)}{contoCurrency(e.conto)==="RON"?" RON":"€"}</Cell>
+                            <Cell><button onClick={()=>openEdit("uscita",e)} style={{ width:24, height:24, borderRadius:5, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-dim)", cursor:"pointer", fontSize:10 }}>✏️</button></Cell>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            }
+
+            // Lista viaggi
+            return (
+              <div>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+                  <div style={{ fontSize:fs-1, fontWeight:700, color:"var(--c-text-strong)" }}>✈️ I tuoi viaggi</div>
+                  <button onClick={openViaggioAdd} style={{ padding:"6px 14px", borderRadius:7, border:"none", background:"#F59E0B", color:"#fff", cursor:"pointer", fontSize:12, fontWeight:600 }}>+ Nuovo viaggio</button>
+                </div>
+                {viaggi.length===0 ? (
+                  <div style={{ background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10, padding:24, textAlign:"center", color:"var(--c-text-faintest)", fontSize:fs-2 }}>
+                    Nessun viaggio ancora. Creane uno con nome e date: le spese fatte in quei giorni verranno taggate da sole (tranne Affitto, Utenze e Abbonamenti).
+                  </div>
+                ) : (
+                  <div style={{ background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10, overflow:"hidden" }}>
+                    {viaggiOrdinati.map((v,i)=>{
+                      const s = statsViaggio(v);
+                      const inCorso = !v.dataFine || (new Date().toISOString().slice(0,10) >= v.dataInizio && new Date().toISOString().slice(0,10) <= v.dataFine);
+                      return (
+                        <div key={v.id} onClick={()=>setViaggioSel(v.id)} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, padding:"12px 14px", borderTop:i===0?"none":"1px solid var(--c-border)", background:i%2===0?"var(--c-panel)":"var(--c-panel2)", cursor:"pointer" }}>
+                          <div style={{ minWidth:0 }}>
+                            <div style={{ fontSize:fs-1, fontWeight:700, color:"var(--c-text)", display:"flex", alignItems:"center", gap:6 }}>
+                              ✈️ {v.nome}
+                              {inCorso && <span style={{ fontSize:9, fontWeight:700, color:"#10B981", border:"1px solid #10B98150", background:"#10B98115", borderRadius:5, padding:"1px 6px", textTransform:"uppercase", letterSpacing:"0.05em" }}>in corso</span>}
+                            </div>
+                            <div style={{ fontSize:fs-4, color:"var(--c-text-faint)", marginTop:2 }}>
+                              {fmtShortDate(v.dataInizio)}{v.dataFine?` – ${fmtShortDate(v.dataFine)}`:" – aperto"}{s.giorni?` · ${s.giorni}gg`:""} · {s.movs.length} moviment{s.movs.length===1?"o":"i"}{s.media!=null?` · ${fmt(s.media)}€/giorno`:""}
+                            </div>
+                          </div>
+                          <div style={{ display:"flex", alignItems:"center", gap:8, flexShrink:0 }}>
+                            <span style={{ fontSize:fs, fontWeight:800, color:"#F59E0B" }}>{fmt(s.tot)}€</span>
+                            <span style={{ color:"var(--c-text-faintest)", fontSize:14 }}>›</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {viaggi.length>0 && (
+                  <div style={{ marginTop:8, fontSize:fs-4, color:"var(--c-text-faintest)" }}>
+                    Le spese con data dentro un viaggio vengono taggate automaticamente (escluse Affitto, Utenze e Abbonamenti). Puoi sempre togliere o cambiare il tag dal form della spesa.
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
           {/* RECAP: dove vanno i soldi, mese per mese */}
           {tab==="recap" && (
             <div>
@@ -845,9 +1102,26 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
               </div>
 
               <div style={{ marginBottom:24 }}>
-                <div style={{ fontSize:fs-3, fontWeight:700, color:"#EF4444", textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:10 }}>
+                <div style={{ fontSize:fs-3, fontWeight:700, color:"#EF4444", textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:4 }}>
                   🔴 Uscite per categoria — totale {fmt(totUscite)}€
                 </div>
+                {/* "di cui X€ viaggio Y": quota del totale mensile spesa in
+                    trasferta, per distinguere il mese caro dal mese viaggiato. */}
+                {(Object.keys(speseViaggiMese).length>0 || totCommissioniMese>0) && (
+                  <div style={{ marginBottom:10 }}>
+                    {Object.entries(speseViaggiMese).sort((a,b)=>b[1]-a[1]).map(([vid,val])=>(
+                      <div key={vid} style={{ fontSize:fs-3, color:"var(--c-text-dim)" }}>
+                        ↳ di cui <b style={{ color:"#F59E0B" }}>{fmt(val)}€</b> · ✈️ viaggio {viaggioById[vid]?.nome||"eliminato"}
+                      </div>
+                    ))}
+                    {totCommissioniMese>0 && (
+                      <div style={{ fontSize:fs-3, color:"var(--c-text-dim)" }}>
+                        ↳ di cui <b style={{ color:"#06B6D4" }}>{fmt(totCommissioniMese)}€</b> · 🏦 commissioni bancarie
+                      </div>
+                    )}
+                  </div>
+                )}
+                {Object.keys(speseViaggiMese).length===0 && totCommissioniMese===0 && <div style={{ marginBottom:10 }}/>}
                 <CategoryBars data={usciteByCat} total={totUscite} color="#EF4444" fs={fs} fmt={fmt}/>
               </div>
 
@@ -882,13 +1156,13 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                   <>
                     <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:8 }}>
                       {CAT_USCITE_FISSE.map(c=>(
-                        <button key={c} onClick={()=>{setForm(p=>({...p,categoria:c}));setCustomCat("");}}
+                        <button key={c} onClick={()=>{setForm(p=>({...p,categoria:c, viaggio: p._viaggioManual ? p.viaggio : autoViaggioFor(p.data, c)}));setCustomCat("");}}
                           style={{ padding:"4px 10px", borderRadius:6, border:`1px solid ${form.categoria===c&&!customCat?"#EF4444":"var(--c-border)"}`, background:form.categoria===c&&!customCat?"#EF444420":"transparent", color:form.categoria===c&&!customCat?"#EF4444":"var(--c-text-faint)", cursor:"pointer", fontSize:11 }}>
                           {c}
                         </button>
                       ))}
                     </div>
-                    <input type="text" value={customCat} onChange={e=>setCustomCat(e.target.value)} placeholder="Oppure categoria personalizzata..."
+                    <input type="text" value={customCat} onChange={e=>{ const val=e.target.value; setCustomCat(val); setForm(p=>({...p, viaggio: p._viaggioManual ? p.viaggio : autoViaggioFor(p.data, val.trim()||p.categoria) })); }} placeholder="Oppure categoria personalizzata..."
                       style={{ width:"100%", padding:"7px 10px", borderRadius:7, border:`1px solid ${customCat?"#EF4444":"var(--c-border)"}`, background:"var(--c-bg)", color:"var(--c-text)", fontSize:12, outline:"none" }}/>
                   </>
                 ) : (
@@ -915,16 +1189,91 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                 <input type="number" value={form.importo||""} onChange={e=>setForm(p=>({...p,importo:e.target.value}))}
                   style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:13, outline:"none" }}/>
               </div>
+              {modal.tipo==="uscita" && (
+                <div>
+                  <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:4 }}>Di cui commissioni {contoCurrency(form.conto)} (opzionale)</div>
+                  <input type="number" value={form.commissioni||""} onChange={e=>setForm(p=>({...p,commissioni:e.target.value}))} placeholder="0"
+                    style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:`1px solid ${parseFloat(form.commissioni)>parseFloat(form.importo||0)?"#EF4444":"var(--c-border)"}`, background:"var(--c-bg)", color:"var(--c-text)", fontSize:13, outline:"none" }}/>
+                  <div style={{ fontSize:10, color:"var(--c-text-faintest)", marginTop:4 }}>
+                    Per pagamenti con cambio valuta (es. HUF con carta €): l'importo sopra è il TOTALE addebitato, qui indichi solo la parte di commissioni già inclusa.
+                  </div>
+                  {parseFloat(form.commissioni)>parseFloat(form.importo||0) && (
+                    <div style={{ fontSize:10, color:"#EF4444", marginTop:2 }}>Le commissioni non possono superare l'importo totale.</div>
+                  )}
+                </div>
+              )}
               <div>
                 <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:4 }}>Data</div>
-                <input type="date" value={form.data||""} onChange={e=>setForm(p=>({...p,data:e.target.value}))}
+                {/* Cambiare la data ricalcola il viaggio pre-selezionato,
+                    ma solo finché l'utente non ha toccato i chip a mano. */}
+                <input type="date" value={form.data||""} onChange={e=>{ const data=e.target.value; setForm(p=>({...p, data, viaggio: (modal.tipo==="uscita" && !p._viaggioManual) ? autoViaggioFor(data, customCat.trim()||p.categoria) : p.viaggio })); }}
                   style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:13, outline:"none" }}/>
               </div>
+              {modal.tipo==="uscita" && viaggi.length>0 && (
+                <div>
+                  <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:6 }}>✈️ Viaggio (opzionale)</div>
+                  <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                    <button onClick={()=>setForm(p=>({...p, viaggio:"", _viaggioManual:true}))}
+                      style={{ padding:"4px 10px", borderRadius:6, border:`1px solid ${!form.viaggio?"#F59E0B":"var(--c-border)"}`, background:!form.viaggio?"#F59E0B20":"transparent", color:!form.viaggio?"#F59E0B":"var(--c-text-faint)", cursor:"pointer", fontSize:11 }}>
+                      Nessuno
+                    </button>
+                    {viaggiOrdinati.map(v=>(
+                      <button key={v.id} onClick={()=>setForm(p=>({...p, viaggio:v.id, _viaggioManual:true}))}
+                        style={{ padding:"4px 10px", borderRadius:6, border:`1px solid ${form.viaggio===v.id?"#F59E0B":"var(--c-border)"}`, background:form.viaggio===v.id?"#F59E0B20":"transparent", color:form.viaggio===v.id?"#F59E0B":"var(--c-text-faint)", cursor:"pointer", fontSize:11 }}>
+                        ✈️ {v.nome}
+                      </button>
+                    ))}
+                  </div>
+                  {form.viaggio && !form._viaggioManual && (
+                    <div style={{ fontSize:10, color:"var(--c-text-faintest)", marginTop:4 }}>
+                      Pre-selezionato perché la data cade nel viaggio — tocca "Nessuno" se è una spesa di casa.
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div style={{ display:"flex", gap:8, marginTop:20 }}>
               <button onClick={closeModal} style={{ flex:1, padding:10, borderRadius:8, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-faint)", cursor:"pointer", fontSize:13 }}>Annulla</button>
               <button onClick={saveItem} style={{ flex:2, padding:10, borderRadius:8, border:"none", background:modal.tipo==="entrata"?"#10B981":"#EF4444", color:"#fff", cursor:"pointer", fontSize:13, fontWeight:700 }}>Salva</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Nuovo/Modifica viaggio */}
+      {viaggioModal && (
+        <div style={{ position:"fixed", inset:0, background:"#00000090", zIndex:999, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }} onClick={closeViaggioModal}>
+          <div style={{ background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:16, padding:24, width:"100%", maxWidth:400, maxHeight:"90vh", overflowY:"auto" }} onClick={e=>e.stopPropagation()}>
+            <div style={{ fontSize:15, fontWeight:700, color:"var(--c-text-strong)", marginBottom:6 }}>
+              {viaggioModal.mode==="add"?"✈️ Nuovo viaggio":"✏️ Modifica viaggio"}
+            </div>
+            <div style={{ fontSize:11, color:"var(--c-text-faint)", marginBottom:20 }}>
+              Le uscite con data dentro il viaggio verranno taggate automaticamente (escluse Affitto, Utenze e Abbonamenti). Se non sai ancora quando torni, lascia la data fine vuota e chiudila al ritorno.
+            </div>
+            <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+              <div>
+                <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:4 }}>Nome viaggio *</div>
+                <input type="text" value={viaggioForm.nome||""} onChange={e=>setViaggioForm(p=>({...p,nome:e.target.value}))} placeholder="es. Budapest, Croazia, Italia..."
+                  style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:13, outline:"none" }}/>
+              </div>
+              <div>
+                <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:4 }}>Data inizio *</div>
+                <input type="date" value={viaggioForm.dataInizio||""} onChange={e=>setViaggioForm(p=>({...p,dataInizio:e.target.value}))}
+                  style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:13, outline:"none" }}/>
+              </div>
+              <div>
+                <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:4 }}>Data fine (vuota = viaggio ancora in corso)</div>
+                <input type="date" value={viaggioForm.dataFine||""} onChange={e=>setViaggioForm(p=>({...p,dataFine:e.target.value}))}
+                  style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:13, outline:"none" }}/>
+                {viaggioForm.dataFine && viaggioForm.dataInizio && viaggioForm.dataFine < viaggioForm.dataInizio && (
+                  <div style={{ fontSize:10, color:"#EF4444", marginTop:4 }}>La data fine è prima della data inizio.</div>
+                )}
+              </div>
+            </div>
+            <div style={{ display:"flex", gap:8, marginTop:20 }}>
+              <button onClick={closeViaggioModal} style={{ flex:1, padding:10, borderRadius:8, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-faint)", cursor:"pointer", fontSize:13 }}>Annulla</button>
+              <button onClick={saveViaggio} style={{ flex:2, padding:10, borderRadius:8, border:"none", background:"#F59E0B", color:"#fff", cursor:"pointer", fontSize:13, fontWeight:700 }}>Salva viaggio</button>
             </div>
           </div>
         </div>
@@ -962,11 +1311,19 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
               </div>
               <div>
                 <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:4 }}>
-                  Tasso di cambio (1 EUR = ? RON) *
+                  Tasso applicato dalla banca (1 EUR = ? RON) *
                 </div>
                 <input type="number" step="0.0001" value={convForm.tasso||""} onChange={e=>setConvForm(p=>({...p,tasso:e.target.value}))}
                   style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:13, outline:"none" }}/>
-                <div style={{ fontSize:10, color:"var(--c-text-faintest)", marginTop:4 }}>Precompilato con il cambio {rateIsLive?"live BCE":"fisso di riserva"} — modificalo con il tasso applicato da Revolut, se diverso.</div>
+                <div style={{ fontSize:10, color:"var(--c-text-faintest)", marginTop:4 }}>Il tasso che vedi scritto su Revolut per questo cambio.</div>
+              </div>
+              <div>
+                <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:4 }}>
+                  Tasso reale BCE del giorno (1 EUR = ? RON)
+                </div>
+                <input type="number" step="0.0001" value={convForm.tassoBce||""} onChange={e=>setConvForm(p=>({...p,tassoBce:e.target.value}))}
+                  style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:13, outline:"none" }}/>
+                <div style={{ fontSize:10, color:"var(--c-text-faintest)", marginTop:4 }}>Precompilato col cambio {rateIsLive?"live BCE di oggi":"fisso di riserva (BCE non raggiungibile)"}. La differenza col tasso banca è la commissione implicita, contata nel recap commissioni.</div>
               </div>
               <div>
                 <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:4 }}>Data</div>
@@ -975,6 +1332,19 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
               </div>
               <div style={{ background:"#8B5CF615", border:"1px solid #8B5CF640", borderRadius:8, padding:"10px 12px", fontSize:12, color:"var(--c-text)" }}>
                 Accrediterai su <b>{CONTI_BY_ID[convForm.a]?.label}</b>: <b style={{ color:"#8B5CF6" }}>{fmt(calcImportoA(convForm))} {contoCurrency(convForm.a)}</b>
+                {(()=>{
+                  const cc = costoCambio(convForm.importoDa, convForm.tasso, convForm.tassoBce, contoCurrency(convForm.da));
+                  if (!cc || Math.abs(cc.costo) < 0.005) return null;
+                  return cc.costo > 0 ? (
+                    <div style={{ marginTop:6, color:"#06B6D4" }}>
+                      🏦 Commissione implicita vs BCE: <b>{fmt(cc.costo)} {contoCurrency(convForm.da)}</b> ({cc.pct.toFixed(2)}%)
+                    </div>
+                  ) : (
+                    <div style={{ marginTop:6, color:"#10B981" }}>
+                      ✅ Tasso banca migliore del BCE ({Math.abs(cc.pct).toFixed(2)}%) — nessuna commissione da contare.
+                    </div>
+                  );
+                })()}
               </div>
             </div>
             <div style={{ display:"flex", gap:8, marginTop:20 }}>
