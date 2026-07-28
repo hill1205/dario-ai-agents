@@ -222,7 +222,13 @@ export function getCurrentMonth() {
 // Stessa idea del mini cash-flow di IAGREXPage: ultimi 6 mesi, entrate
 // verdi e uscite rosse affiancate, per vedere il trend personale invece
 // del solo totale del mese corrente.
-export function lastMonths(allData, n) {
+// `toEur` è la stessa funzione di conversione usata dalla pagina chiamante
+// per i totali del mese: senza, i movimenti in RON venivano sommati come se
+// fossero EUR e le colonne del grafico risultavano gonfiate (es. luglio 2026
+// mostrava >3000€ contro i 1282€/1492€ reali). Il default somma l'importo
+// grezzo solo come fallback per chiamanti senza conti multivaluta.
+export function lastMonths(allData, n, toEur) {
+  const val = toEur || ((e)=>parseFloat(e.importo)||0);
   const out = [];
   const now = new Date();
   for (let i = n-1; i >= 0; i--) {
@@ -234,8 +240,8 @@ export function lastMonths(allData, n) {
     out.push({
       mese: ym,
       label: getMonthLabel(ym).slice(0,3),
-      entrate: (md.entrate||[]).filter(e=>!e.isConversione).reduce((s,e)=>s+(parseFloat(e.importo)||0),0),
-      uscite:  (md.uscite||[]).filter(e=>!e.isConversione).reduce((s,e)=>s+(parseFloat(e.importo)||0),0),
+      entrate: (md.entrate||[]).filter(e=>!e.isConversione).reduce((s,e)=>s+val(e),0),
+      uscite:  (md.uscite||[]).filter(e=>!e.isConversione).reduce((s,e)=>s+val(e),0),
     });
   }
   return out;
@@ -248,8 +254,8 @@ export function lastMonths(allData, n) {
 // marginTop è un parametro perché le due pagine usavano margini diversi
 // (10px le finanze personali, 12px IAGREX): tenerlo configurabile evita di
 // alterare la resa grafica di una delle due ora che il componente è condiviso.
-export function CashFlowMiniChart({ allData, marginTop = 10 }) {
-  const data = lastMonths(allData, 6);
+export function CashFlowMiniChart({ allData, marginTop = 10, toEur }) {
+  const data = lastMonths(allData, 6, toEur);
   const W = 260, H = 56, gap = 10;
   const groupW = (W - gap*(data.length-1)) / data.length;
   const barW = groupW/2 - 1;
