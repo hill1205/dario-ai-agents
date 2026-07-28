@@ -18,6 +18,13 @@ import { useState, useEffect, useRef } from "react";
 
 export const MESI_BREVI = ["gen","feb","mar","apr","mag","giu","lug","ago","set","ott","nov","dic"];
 
+// Sottocategorie della categoria "Trasporti", condivise tra Finanze personali
+// e IAGREX: servono a distinguere i costi dell'AUTO (pratiche amministrative,
+// carburante e manutenzione) dalle corse Bolt/Uber, che sono trasporti ma non
+// costi dell'auto. Le prime due voci compongono il "totale auto" nel Recap.
+export const SOTTOCAT_TRASPORTI = ["Amministrativo auto","Rifornimento + manutenzione","Bolt/Uber"];
+export const SOTTOCAT_AUTO = ["Amministrativo auto","Rifornimento + manutenzione"];
+
 export const MESI_LUNGHI = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
 
 export const GIORNI_SETT = ["Lu","Ma","Me","Gi","Ve","Sa","Do"];
