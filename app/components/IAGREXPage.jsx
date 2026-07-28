@@ -7,10 +7,11 @@ import {
   DateRangePicker, VistaToggle, fmt, round2,
   getMonthLabel, getCurrentMonth, lastMonths, localISODate,
   CashFlowMiniChart, CategoryBars, costoCambio,
+  SOTTOCAT_TRASPORTI, SOTTOCAT_AUTO,
 } from "../lib/finance-ui";
 
 const CAT_ENTRATE = ["Retainer","One-time","Consulenza","Bonus","Conversione","Altro"];
-const CAT_USCITE  = ["Keez / Commercialista","Software & Tools","Marketing","Hosting","Personale IAGREX","Tasse & Contributi","Conversione","Altro"];
+const CAT_USCITE  = ["Keez / Commercialista","Software & Tools","Marketing","Hosting","Personale IAGREX","Tasse & Contributi","Trasporti","Conversione","Altro"];
 const EUR_RON_FALLBACK = 5; // usato solo se il fetch del cambio live fallisce
 const OBIETTIVO_ANNUO = 1000000;
 
@@ -237,6 +238,14 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
   // Recap "dove vanno i soldi": aggregato per categoria del mese selezionato.
   const usciteByCat  = monthData.uscite.filter(isReal).reduce((acc,e)=>{ acc[e.categoria]=(acc[e.categoria]||0)+toEur(e); return acc; },{});
   const entrateByCat = monthData.entrate.filter(isReal).reduce((acc,e)=>{ acc[e.categoria]=(acc[e.categoria]||0)+toEur(e); return acc; },{});
+  // Dettaglio Trasporti per sottocategoria (in EUR), come su BrunoPage:
+  // le voci auto sommate a parte, Bolt/Uber fuori dal totale auto.
+  const trasportiBySub = monthData.uscite.filter(e=>isReal(e)&&e.categoria==="Trasporti").reduce((acc,e)=>{
+    const k = e.sottocategoria || "Senza sottocategoria";
+    acc[k]=(acc[k]||0)+toEur(e); return acc;
+  },{});
+  const totTrasporti = Object.values(trasportiBySub).reduce((s,v)=>s+v,0);
+  const totAuto = SOTTOCAT_AUTO.reduce((s,k)=>s+(trasportiBySub[k]||0),0);
   // Totale commissioni bancarie del mese: per IAGREX arrivano dalle
   // conversioni UniCredit (tasso banca vs tasso BCE, vedi saveConversione).
   // Le conversioni sono escluse dalle uscite vere (isReal), ma la loro
@@ -251,6 +260,9 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
   const saveItem = () => {
     if (!form.descrizione?.trim()||!form.importo) return;
     const item = {...form,importo:parseFloat(form.importo),id:modal.mode==="add"?genId():form.id};
+    // La sottocategoria ha senso solo dentro Trasporti (stessa regola di
+    // BrunoPage): se la categoria è un'altra o non è stata scelta, via.
+    if (item.categoria!=="Trasporti" || !item.sottocategoria) delete item.sottocategoria;
     let updated = {...monthData, saldi:{...monthData.saldi}};
     if (modal.tipo==="uscita") {
       if (modal.mode==="edit" && modal.item?.conto) {
@@ -419,11 +431,12 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
   // Esporta in CSV esattamente le righe filtrate visibili a schermo
   // (stesso periodo/conto), generato lato client con un Blob.
   const exportCSV = (items, tipo) => {
-    const header = ["Data","Descrizione","Categoria","Cliente","Conto","Importo","Valuta"];
+    const header = ["Data","Descrizione","Categoria","Sottocategoria","Cliente","Conto","Importo","Valuta"];
     const rows = items.map(e => [
       e.data || "",
       (e.descrizione||"").replace(/"/g,'""'),
       (e.categoria||"").replace(/"/g,'""'),
+      (e.sottocategoria||"").replace(/"/g,'""'),
       (e.cliente||"").replace(/"/g,'""'),
       CONTI_IAGREX_BY_ID[e.conto]?.label || e.conto || "",
       e.importo,
@@ -698,7 +711,7 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
                   <div key={e.id} style={{display:"grid",gridTemplateColumns:"1fr auto auto auto",gap:0,borderTop:i===0?"none":"1px solid var(--c-border)",background:flaggedIds.has(e.id)?"#F59E0B1F":(i%2===0?"var(--c-panel)":"var(--c-panel2)"),boxShadow:flaggedIds.has(e.id)?"inset 3px 0 0 #F59E0B":"none"}}>
                     <Cell style={{flexDirection:"column",alignItems:"flex-start",gap:2}}>
                       <span style={{color:"var(--c-text)",fontWeight:600}}>{flaggedIds.has(e.id)?"⚠️ ":""}{e.descrizione}</span>
-                      <span style={{fontSize:fs-4,color:"var(--c-text-faint)"}}>{e.data?`${e.data} · `:""}{e.categoria}{e.conto?` · ${CONTI_IAGREX_BY_ID[e.conto]?.label||e.conto}`:""}{parseFloat(e.commissioni)>0?<span style={{color:"#06B6D4"}}> · di cui {fmt(e.commissioni)}{contoCurrency(e.conto)==="RON"?" RON":"€"} commissioni</span>:""}</span>
+                      <span style={{fontSize:fs-4,color:"var(--c-text-faint)"}}>{e.data?`${e.data} · `:""}{e.categoria}{e.sottocategoria?<span style={{color:"#F97316"}}> › {e.sottocategoria}</span>:""}{e.conto?` · ${CONTI_IAGREX_BY_ID[e.conto]?.label||e.conto}`:""}{parseFloat(e.commissioni)>0?<span style={{color:"#06B6D4"}}> · di cui {fmt(e.commissioni)}{contoCurrency(e.conto)==="RON"?" RON":"€"} commissioni</span>:""}</span>
                     </Cell>
                     <Cell style={{color:"#EF4444",fontWeight:700}}>-{fmt(e.importo)}{contoCurrency(e.conto)==="RON"?" RON":"€"}</Cell>
                     <Cell><button onClick={()=>openEdit("uscita",e)} style={{width:24,height:24,borderRadius:5,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-dim)",cursor:"pointer",fontSize:10}}>✏️</button></Cell>
@@ -823,6 +836,20 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
                   </div>
                 ) : <div style={{marginBottom:10}}/>}
                 <CategoryBars data={usciteByCat} total={totUscite} color="#EF4444" fs={fs} fmt={fmt}/>
+                {/* Dettaglio Trasporti: costi auto vs corse Bolt/Uber. */}
+                {totTrasporti>0 && (
+                  <div style={{marginTop:14,padding:"10px 12px",background:"var(--c-bg)",border:"1px solid var(--c-border)",borderRadius:8}}>
+                    <div style={{fontSize:fs-3,fontWeight:700,color:"var(--c-text-dim)",marginBottom:8}}>
+                      🚗 Dettaglio Trasporti — auto: <span style={{color:"#F97316"}}>{fmt(totAuto)}€</span> · totale: {fmt(totTrasporti)}€
+                    </div>
+                    {Object.entries(trasportiBySub).sort((a,b)=>b[1]-a[1]).map(([sc,val])=>(
+                      <div key={sc} style={{display:"flex",justifyContent:"space-between",fontSize:fs-3,marginBottom:4}}>
+                        <span style={{color:"var(--c-text)"}}>{SOTTOCAT_AUTO.includes(sc)?"🚗 ":sc==="Bolt/Uber"?"🚕 ":"· "}{sc}</span>
+                        <span style={{color:"var(--c-text-dim)",fontWeight:600}}>{fmt(val)}€</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div>
@@ -866,6 +893,21 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
                     </button>
                   ))}
                 </div>
+                {/* Sottocategoria: solo per Trasporti — stessa logica di
+                    BrunoPage, per sapere quanto costa l'auto vs Bolt/Uber. */}
+                {modal.tipo==="uscita" && form.categoria==="Trasporti" && (
+                  <div style={{marginTop:8}}>
+                    <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:6}}>Sottocategoria 🚗</div>
+                    <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                      {SOTTOCAT_TRASPORTI.map(sc=>(
+                        <button key={sc} onClick={()=>setForm(p=>({...p,sottocategoria:p.sottocategoria===sc?"":sc}))}
+                          style={{padding:"4px 10px",borderRadius:6,border:`1px solid ${form.sottocategoria===sc?"#F97316":"var(--c-border)"}`,background:form.sottocategoria===sc?"#F9731620":"transparent",color:form.sottocategoria===sc?"#F97316":"var(--c-text-faint)",cursor:"pointer",fontSize:11}}>
+                          {sc}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
               <div>
                 <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:4}}>{modal.tipo==="uscita"?"Pagato da 🏦":"Accreditato su 🏦"}</div>

@@ -7,6 +7,7 @@ import {
   DateRangePicker, VistaToggle, fmt, round2,
   getMonthLabel, getCurrentMonth, lastMonths, localISODate,
   CashFlowMiniChart, CategoryBars, costoCambio,
+  SOTTOCAT_TRASPORTI, SOTTOCAT_AUTO,
 } from "../lib/finance-ui";
 
 // Revolut è diviso in due saldi (EUR/RON) perché Dario spende in RON da
@@ -275,6 +276,15 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
   // gestisce già i conti in RON) prima di raggrupparle per categoria.
   const usciteByCat  = monthData.uscite.filter(isReal).reduce((acc,e)=>{ acc[e.categoria]=(acc[e.categoria]||0)+toEur(e); return acc; },{});
   const entrateByCat = monthData.entrate.filter(isReal).reduce((acc,e)=>{ acc[e.categoria]=(acc[e.categoria]||0)+toEur(e); return acc; },{});
+  // Dettaglio Trasporti per sottocategoria (in EUR): le voci auto
+  // (SOTTOCAT_AUTO) sommate a parte rispondono alla domanda "quanto mi
+  // costa l'auto questo mese", Bolt/Uber resta fuori da quel totale.
+  const trasportiBySub = monthData.uscite.filter(e=>isReal(e)&&e.categoria==="Trasporti").reduce((acc,e)=>{
+    const k = e.sottocategoria || "Senza sottocategoria";
+    acc[k]=(acc[k]||0)+toEur(e); return acc;
+  },{});
+  const totTrasporti = Object.values(trasportiBySub).reduce((s,v)=>s+v,0);
+  const totAuto = SOTTOCAT_AUTO.reduce((s,k)=>s+(trasportiBySub[k]||0),0);
   const totPatrimonio = Object.entries(monthData.saldi||{}).reduce((s,[id,v])=>{
     const val = parseFloat(v)||0;
     const isRon = CONTI_BY_ID[id]?.currency === "RON";
@@ -430,6 +440,9 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
     // si salva come undefined (JSON lo scarta) invece di stringa vuota.
     delete item._viaggioManual;
     if (!item.viaggio) delete item.viaggio;
+    // La sottocategoria ha senso solo dentro Trasporti: se la categoria è
+    // cambiata (o la sottocategoria non è stata scelta) non va salvata.
+    if (cat!=="Trasporti" || !item.sottocategoria) delete item.sottocategoria;
     // "Di cui commissioni": quota informativa GIÀ inclusa nell'importo
     // (es. pagamento in HUF con carta €: importo = totale addebitato,
     // commissioni = la parte presa dalla banca per il cambio). Non tocca
@@ -683,11 +696,12 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
   // sempre a quello che l'utente sta guardando. Generato lato client con
   // un Blob, senza passare dal server.
   const exportCSV = (items, tipo) => {
-    const header = ["Data","Descrizione","Categoria","Conto","Importo","Valuta","Viaggio","Di cui commissioni"];
+    const header = ["Data","Descrizione","Categoria","Sottocategoria","Conto","Importo","Valuta","Viaggio","Di cui commissioni"];
     const rows = items.map(e => [
       e.data || "",
       (e.descrizione||"").replace(/"/g,'""'),
       (e.categoria||"").replace(/"/g,'""'),
+      (e.sottocategoria||"").replace(/"/g,'""'),
       CONTI_BY_ID[e.conto]?.label || e.conto || "",
       e.importo,
       contoCurrency(e.conto)==="RON"?"RON":"EUR",
@@ -893,7 +907,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                   <div key={e.id} style={{ display:"grid", gridTemplateColumns:"1fr auto auto auto", gap:0, borderTop:i===0?"none":"1px solid var(--c-border)", background:flaggedIds.has(e.id)?"#F59E0B1F":(i%2===0?"var(--c-panel)":"var(--c-panel2)"), boxShadow:flaggedIds.has(e.id)?"inset 3px 0 0 #F59E0B":"none" }}>
                     <Cell style={{ flexDirection:"column", alignItems:"flex-start", gap:2 }}>
                       <span style={{ color:"var(--c-text)" }}>{flaggedIds.has(e.id)?"⚠️ ":""}{e.descrizione}</span>
-                      <span style={{ fontSize:fs-4, color:"var(--c-text-faint)" }}>{e.data?`${e.data}`:""}{e.data?" · ":""}{e.categoria}{e.conto?` · ${CONTI_BY_ID[e.conto]?.label||e.conto}`:""}{e.viaggio&&viaggioById[e.viaggio]?<span style={{color:"#F59E0B"}}> · ✈️ {viaggioById[e.viaggio].nome}</span>:""}{parseFloat(e.commissioni)>0?<span style={{color:"#06B6D4"}}> · di cui {fmt(e.commissioni)}{contoCurrency(e.conto)==="RON"?" RON":"€"} commissioni</span>:""}</span>
+                      <span style={{ fontSize:fs-4, color:"var(--c-text-faint)" }}>{e.data?`${e.data}`:""}{e.data?" · ":""}{e.categoria}{e.sottocategoria?<span style={{color:"#F97316"}}> › {e.sottocategoria}</span>:""}{e.conto?` · ${CONTI_BY_ID[e.conto]?.label||e.conto}`:""}{e.viaggio&&viaggioById[e.viaggio]?<span style={{color:"#F59E0B"}}> · ✈️ {viaggioById[e.viaggio].nome}</span>:""}{parseFloat(e.commissioni)>0?<span style={{color:"#06B6D4"}}> · di cui {fmt(e.commissioni)}{contoCurrency(e.conto)==="RON"?" RON":"€"} commissioni</span>:""}</span>
                     </Cell>
                     <Cell style={{ color:"#EF4444", fontWeight:700 }}>-{fmt(e.importo)}{contoCurrency(e.conto)==="RON"?" RON":"€"}</Cell>
                     <Cell><button onClick={()=>openEdit("uscita",e)} style={{ width:24, height:24, borderRadius:5, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-dim)", cursor:"pointer", fontSize:10 }}>✏️</button></Cell>
@@ -1275,6 +1289,21 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                 )}
                 {Object.keys(speseViaggiMese).length===0 && totCommissioniMese===0 && <div style={{ marginBottom:10 }}/>}
                 <CategoryBars data={usciteByCat} total={totUscite} color="#EF4444" fs={fs} fmt={fmt}/>
+                {/* Dettaglio Trasporti: quanto costa l'AUTO (amministrativo +
+                    rifornimento/manutenzione) rispetto alle corse Bolt/Uber. */}
+                {totTrasporti>0 && (
+                  <div style={{ marginTop:14, padding:"10px 12px", background:"var(--c-bg)", border:"1px solid var(--c-border)", borderRadius:8 }}>
+                    <div style={{ fontSize:fs-3, fontWeight:700, color:"var(--c-text-dim)", marginBottom:8 }}>
+                      🚗 Dettaglio Trasporti — auto: <span style={{ color:"#F97316" }}>{fmt(totAuto)}€</span> · totale: {fmt(totTrasporti)}€
+                    </div>
+                    {Object.entries(trasportiBySub).sort((a,b)=>b[1]-a[1]).map(([sc,val])=>(
+                      <div key={sc} style={{ display:"flex", justifyContent:"space-between", fontSize:fs-3, marginBottom:4 }}>
+                        <span style={{ color:"var(--c-text)" }}>{SOTTOCAT_AUTO.includes(sc)?"🚗 ":sc==="Bolt/Uber"?"🚕 ":"· "}{sc}</span>
+                        <span style={{ color:"var(--c-text-dim)", fontWeight:600 }}>{fmt(val)}€</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div>
@@ -1316,6 +1345,23 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                     </div>
                     <input type="text" value={customCat} onChange={e=>{ const val=e.target.value; setCustomCat(val); setForm(p=>({...p, viaggio: p._viaggioManual ? p.viaggio : autoViaggioFor(p.data, val.trim()||p.categoria) })); }} placeholder="Oppure categoria personalizzata..."
                       style={{ width:"100%", padding:"7px 10px", borderRadius:7, border:`1px solid ${customCat?"#EF4444":"var(--c-border)"}`, background:"var(--c-bg)", color:"var(--c-text)", fontSize:12, outline:"none" }}/>
+                    {/* Sottocategoria: solo per Trasporti — distingue i costi
+                        auto (amministrativo, carburante/manutenzione) dalle
+                        corse Bolt/Uber. Facoltativa per non bloccare
+                        l'inserimento veloce. */}
+                    {form.categoria==="Trasporti" && !customCat && (
+                      <div style={{ marginTop:8 }}>
+                        <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:6 }}>Sottocategoria 🚗</div>
+                        <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                          {SOTTOCAT_TRASPORTI.map(sc=>(
+                            <button key={sc} onClick={()=>setForm(p=>({...p,sottocategoria:p.sottocategoria===sc?"":sc}))}
+                              style={{ padding:"4px 10px", borderRadius:6, border:`1px solid ${form.sottocategoria===sc?"#F97316":"var(--c-border)"}`, background:form.sottocategoria===sc?"#F9731620":"transparent", color:form.sottocategoria===sc?"#F97316":"var(--c-text-faint)", cursor:"pointer", fontSize:11 }}>
+                              {sc}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </>
                 ) : (
                   <input type="text" value={form.categoria||""} onChange={e=>setForm(p=>({...p,categoria:e.target.value}))} placeholder="es. Stipendio, Freelance..."
