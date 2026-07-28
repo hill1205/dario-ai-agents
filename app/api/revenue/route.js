@@ -47,7 +47,12 @@ function sumEur(items, rate) {
 }
 function round2(n) { return Math.round((parseFloat(n) || 0) * 100) / 100; }
 
-function getCurrentMonth() { return new Date().toISOString().slice(0, 7); } // YYYY-MM
+// Mese corrente nel fuso di Dario (Europe/Bucharest), non in UTC: il server
+// Vercel gira in UTC, quindi il giorno 1 del mese tra mezzanotte e le 3 la
+// card Finanze avrebbe mostrato ancora il mese precedente.
+function getCurrentMonth() {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Bucharest", year: "numeric", month: "2-digit" }).format(new Date()); // YYYY-MM
+}
 function getMonthLabel(ym) {
   const [y, m] = ym.split("-");
   const months = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
