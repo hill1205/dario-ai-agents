@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useMemo } from "react";
-import PipelinePage from "./components/PipelinePage";
+import { localISODate } from "./lib/finance-ui";
+import PipelinePage, { STAGE_PROBABILITY } from "./components/PipelinePage";
 import BrunoPage from "./components/BrunoPage";
 import ClientiPage from "./components/ClientiPage";
 import IAGREXPage from "./components/IAGREXPage";
@@ -345,6 +346,10 @@ export default function App() {
   const [routineStreak, setRoutineStreak]   = useState(0);
   const [streakHistory, setStreakHistory]   = useState([]); // ultimi 30 giorni, da ClickUp
   const [leadDaRicontattare, setLeadDaRicontattare] = useState([]);
+  // Valore della pipeline aperta (lordo + ponderato per probabilità di
+  // chiusura): portato in home perché è il numero che collega la Pipeline
+  // all'obiettivo 1M€ — quanto MRR potenziale sta maturando nelle trattative.
+  const [pipelineStats, setPipelineStats] = useState(null); // {leads, lordo, ponderato}
   const [inactivityDays, setInactivityDays] = useState(0);
   // Idee vocali: catturarle/leggerle ora vive tutto nella pagina dedicata
   // "Idee" (IdeasPage), non più qui. Qui resta solo "ideas" — la lista
@@ -591,6 +596,12 @@ export default function App() {
           return days >= 3;
         });
         setLeadDaRicontattare(stale);
+        // Stesso calcolo di PipelinePage: lead aperti, budget lordo e
+        // ponderato con STAGE_PROBABILITY (import condiviso, stessi pesi).
+        const aperti = pRes.entries.filter(e=>e.tipo==="lead" && !["chiuso","rifiutato"].includes(e.stage));
+        const lordo = aperti.reduce((s,e)=>s+(parseFloat(e.budget)||0),0);
+        const ponderato = aperti.reduce((s,e)=>s+(parseFloat(e.budget)||0)*(STAGE_PROBABILITY[e.stage] ?? 0),0);
+        setPipelineStats({ leads: aperti.length, lordo, ponderato });
       }
       // Teniamo traccia di QUALI dati non si sono caricati, invece di
       // lasciare che un errore silenzioso si travesta da "0€"/"–" senza
@@ -758,7 +769,7 @@ export default function App() {
   const saveWeightModal = async ()=>{
     const p = parseFloat(weightInput.replace(",","."));
     if (!weightInput||isNaN(p)) return;
-    const today = new Date().toISOString().slice(0,10);
+    const today = localISODate();
     try {
       const res  = await fetch("/api/weight",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({data:today,peso:p})});
       const data = await res.json();
@@ -854,7 +865,7 @@ export default function App() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `dario-backup-${new Date().toISOString().slice(0,10)}.json`;
+      a.download = `dario-backup-${localISODate()}.json`;
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
       URL.revokeObjectURL(url);
       setBackupStatus(payload.errors?.length ? "error" : "done");
@@ -1011,6 +1022,17 @@ export default function App() {
                 <div onClick={()=>setView("pipeline")}
                   style={{margin:"10px 16px 0",padding:"8px 12px",borderRadius:8,border:"1px solid #F59E0B40",background:"#F59E0B0D",color:"#F59E0B",fontSize:12,flexShrink:0,cursor:"pointer"}}>
                   📨 {leadDaRicontattare.length} lead da ricontattare: {leadDaRicontattare.slice(0,3).map(l=>l.nome).join(", ")}{leadDaRicontattare.length>3?"…":""}
+                </div>
+              )}
+
+              {/* MRR potenziale che matura in pipeline: il ponte tra le
+                  trattative aperte e l'obiettivo 1M€. Il valore ponderato
+                  pesa ogni budget per la probabilità del suo stage. */}
+              {pipelineStats && pipelineStats.ponderato > 0 && (
+                <div onClick={()=>setView("pipeline")}
+                  style={{margin:"10px 16px 0",padding:"8px 12px",borderRadius:8,border:"1px solid #8B5CF640",background:"#8B5CF60D",color:"#8B5CF6",fontSize:12,flexShrink:0,cursor:"pointer"}}
+                  title="Somma dei budget dei lead aperti, pesata per la probabilità di chiusura di ogni stage">
+                  🎯 In pipeline: {pipelineStats.leads} lead · {Math.round(pipelineStats.lordo).toLocaleString("it-IT")}€/mese potenziali · ~<b>{Math.round(pipelineStats.ponderato).toLocaleString("it-IT")}€/mese</b> realistici se chiudi al ritmo atteso
                 </div>
               )}
 
