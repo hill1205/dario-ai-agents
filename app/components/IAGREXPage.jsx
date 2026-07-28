@@ -565,7 +565,7 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
           )}
         </div>
 
-        <CashFlowMiniChart allData={allData} marginTop={12}/>
+        <CashFlowMiniChart allData={allData} marginTop={12} toEur={toEur}/>
 
         {/* Month summary */}
         <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,marginTop:10}}>

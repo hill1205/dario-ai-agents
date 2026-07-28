@@ -721,7 +721,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
           ))}
         </div>
 
-        <CashFlowMiniChart allData={allData}/>
+        <CashFlowMiniChart allData={allData} toEur={toEur}/>
 
         {usciteAnnoScorso!=null && (
           <div style={{marginTop:8,fontSize:fs-4,color:"var(--c-text-faint)"}}>
