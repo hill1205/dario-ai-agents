@@ -215,8 +215,15 @@ export function getMonthLabel(ym) {
   return `${months[parseInt(m)-1]} ${y}`;
 }
 
+// Data locale in formato ISO (YYYY-MM-DD). NON usare toISOString(): ragiona
+// in UTC, quindi tra la mezzanotte e le 3 di notte in Romania (UTC+3) dava il
+// giorno precedente — e il giorno 1 del mese perfino il mese precedente.
+export function localISODate(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
+
 export function getCurrentMonth() {
-  return new Date().toISOString().slice(0,7);
+  return localISODate().slice(0,7);
 }
 
 // Stessa idea del mini cash-flow di IAGREXPage: ultimi 6 mesi, entrate
@@ -255,8 +262,15 @@ export function lastMonths(allData, n, toEur) {
 // (10px le finanze personali, 12px IAGREX): tenerlo configurabile evita di
 // alterare la resa grafica di una delle due ora che il componente è condiviso.
 export function CashFlowMiniChart({ allData, marginTop = 10, toEur }) {
-  const data = lastMonths(allData, 6, toEur);
-  const W = 260, H = 56, gap = 10;
+  // Toggle 6/12 mesi, ricordato tra una visita e l'altra: la scelta è una
+  // preferenza di lettura, non un filtro momentaneo. localStorage si legge
+  // in useEffect (non nell'initializer) per non creare differenze tra il
+  // render server e quello client (hydration mismatch).
+  const [nMesi, setNMesi] = useState(6);
+  useEffect(()=>{ try { if (parseInt(localStorage.getItem("dario-cashflow-mesi"))===12) setNMesi(12); } catch {} },[]);
+  const setMesi = (n)=>{ setNMesi(n); try { localStorage.setItem("dario-cashflow-mesi", String(n)); } catch {} };
+  const data = lastMonths(allData, nMesi, toEur);
+  const W = 260, H = 56, gap = nMesi===12 ? 5 : 10;
   const groupW = (W - gap*(data.length-1)) / data.length;
   const barW = groupW/2 - 1;
   const max = Math.max(...data.map(d=>Math.max(d.entrate,d.uscite)), 1);
@@ -264,8 +278,15 @@ export function CashFlowMiniChart({ allData, marginTop = 10, toEur }) {
   return (
     <div style={{marginTop,background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,padding:"12px 14px",position:"relative"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-        <div style={{fontSize:11,color:"var(--c-text-dim)",textTransform:"uppercase",letterSpacing:"0.06em"}}>Cash flow ultimi 6 mesi</div>
-        <div style={{fontSize:10,color:"var(--c-text-faint)"}}><span style={{color:"#10B981"}}>■</span> entrate <span style={{color:"#EF4444",marginLeft:6}}>■</span> uscite</div>
+        <div style={{fontSize:11,color:"var(--c-text-dim)",textTransform:"uppercase",letterSpacing:"0.06em"}}>Cash flow ultimi {nMesi} mesi</div>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <div style={{fontSize:10,color:"var(--c-text-faint)"}}><span style={{color:"#10B981"}}>■</span> entrate <span style={{color:"#EF4444",marginLeft:6}}>■</span> uscite <span style={{color:"#3B82F6",marginLeft:6}}>—</span> netto</div>
+          <div style={{display:"flex",border:"1px solid var(--c-border)",borderRadius:6,overflow:"hidden"}}>
+            {[6,12].map(n=>(
+              <button key={n} onClick={()=>setMesi(n)} style={{padding:"2px 8px",border:"none",cursor:"pointer",fontSize:10,fontWeight:nMesi===n?700:400,background:nMesi===n?"var(--c-border)":"transparent",color:nMesi===n?"var(--c-text-strong)":"var(--c-text-faint)"}}>{n}M</button>
+            ))}
+          </div>
+        </div>
       </div>
       {hover && (
         <div style={{position:"absolute",left:hover.x,top:hover.y,transform:"translate(-50%,-100%)",background:"#000000E0",color:"#fff",fontSize:11,fontWeight:600,padding:"4px 8px",borderRadius:6,whiteSpace:"nowrap",pointerEvents:"none",zIndex:10,marginTop:-6}}>
@@ -281,21 +302,42 @@ export function CashFlowMiniChart({ allData, marginTop = 10, toEur }) {
             const rect = e.currentTarget.closest("svg").parentElement.getBoundingClientRect();
             setHover({ x: e.clientX - rect.left, y: e.clientY - rect.top, label });
           };
+          const netto = d.entrate - d.uscite;
+          const nettoStr = `${netto>=0?"+":"−"}${fmt(Math.abs(netto))}€`;
           return (
             <g key={d.mese}>
               <rect x={gx} y={H-24-he} width={barW} height={he} rx={1.5} fill="#10B981" style={{cursor:"pointer"}}
-                onMouseMove={onMove(`${getMonthLabel(d.mese)} — Entrate: ${fmt(d.entrate)}€`)}
+                onMouseMove={onMove(`${getMonthLabel(d.mese)} — Entrate: ${fmt(d.entrate)}€ · Netto: ${nettoStr}`)}
                 onMouseLeave={()=>setHover(null)}/>
               <rect x={gx+barW+2} y={H-24-hu} width={barW} height={hu} rx={1.5} fill="#EF4444" style={{cursor:"pointer"}}
-                onMouseMove={onMove(`${getMonthLabel(d.mese)} — Uscite: ${fmt(d.uscite)}€`)}
+                onMouseMove={onMove(`${getMonthLabel(d.mese)} — Uscite: ${fmt(d.uscite)}€ · Netto: ${nettoStr}`)}
                 onMouseLeave={()=>setHover(null)}/>
             </g>
           );
         })}
+        {(()=>{
+          // Linea del netto (entrate − uscite) con scala propria: il netto può
+          // essere negativo, quindi non condivide la scala delle barre (che
+          // parte da zero). Mostra il TREND del netto, non il valore assoluto —
+          // i numeri esatti sono nel tooltip delle barre.
+          const netti = data.map(d=>d.entrate-d.uscite);
+          const nMin = Math.min(...netti, 0), nMax = Math.max(...netti, 0);
+          const span = (nMax-nMin) || 1;
+          const yOf = v => (H-24) - ((v-nMin)/span)*(H-26) - 1;
+          const pts = netti.map((v,i)=>`${i*(groupW+gap)+groupW/2},${yOf(v)}`).join(" ");
+          return (
+            <g style={{pointerEvents:"none"}}>
+              <polyline points={pts} fill="none" stroke="#3B82F6" strokeWidth="1.5" opacity="0.9"/>
+              {netti.map((v,i)=>(
+                <circle key={i} cx={i*(groupW+gap)+groupW/2} cy={yOf(v)} r="2" fill="#3B82F6"/>
+              ))}
+            </g>
+          );
+        })()}
       </svg>
       <div style={{display:"flex",marginTop:4}}>
         {data.map(d=>(
-          <div key={d.mese} style={{flex:1,textAlign:"center",fontSize:12,fontWeight:500,color:"var(--c-text-faint)",letterSpacing:"0.01em"}}>{d.label}</div>
+          <div key={d.mese} style={{flex:1,textAlign:"center",fontSize:nMesi===12?10:12,fontWeight:500,color:"var(--c-text-faint)",letterSpacing:"0.01em"}}>{d.label}</div>
         ))}
       </div>
     </div>
