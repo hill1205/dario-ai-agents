@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
+import { localISODate } from "../lib/finance-ui";
 
 const FASI = [
   { id:"attivo",   label:"Attivo ✅", color:"#10B981" },
@@ -9,7 +10,7 @@ const FASI = [
 const CATEGORIE = ["Fashion","Beauty","Food","Pet","Jewelry","Home Decor","Children","Sport","Altro"];
 const EMPTY_FORM = {
   id:null, nome:"", fase:"attivo", categoria:"", contatto:"", email:"",
-  telefono:"", sito:"", budget:"", data_inizio:new Date().toISOString().slice(0,10),
+  telefono:"", sito:"", budget:"", data_inizio:localISODate(),
   note:"", fatturazione:[],
   // Dati fatturazione: servono per emettere le fatture senza dover andare
   // a recuperarli altrove ogni volta.
@@ -21,7 +22,7 @@ const THEME_VARS = {
   light: { "--c-bg":"#F4F5F7", "--c-panel":"#FFFFFF", "--c-panel2":"#F1F2F5", "--c-border":"#E2E4E9", "--c-text-strong":"#0F172A", "--c-text":"#1A1A2E", "--c-text-dim":"#475569", "--c-text-faint":"#94A3B8", "--c-text-faintest":"#CBD5E1", "--c-text-muted":"#64748B" },
 };
 
-function currentMonthKey() { return new Date().toISOString().slice(0,7); } // YYYY-MM
+function currentMonthKey() { return localISODate().slice(0,7); } // YYYY-MM
 function monthLabel(key) {
   const [y,m] = key.split("-");
   const mesi = ["Gen","Feb","Mar","Apr","Mag","Giu","Lug","Ago","Set","Ott","Nov","Dic"];

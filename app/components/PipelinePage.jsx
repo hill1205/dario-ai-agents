@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback, useRef } from "react";
+import { localISODate } from "../lib/finance-ui";
 
 const LEAD_STAGES = [
   { id:"da_contattare",    label:"Da Contattare",   color:"var(--c-text-faint)" },
@@ -21,7 +22,9 @@ const CLIENT_STAGES = [
 // vedere la dimensione della pipeline, inutile per stimare quanto incasserai
 // davvero. Sono percentuali di partenza ragionevoli, da tarare quando lo
 // storico dei lead chiusi sarà abbastanza ampio da calcolarle sui dati reali.
-const STAGE_PROBABILITY = {
+// Esportato: la home lo usa per mostrare la pipeline ponderata anche lì,
+// con gli stessi pesi (un solo posto da tarare quando arriverà lo storico).
+export const STAGE_PROBABILITY = {
   da_contattare: 0.05,
   contattato: 0.15,
   proposta_inviata: 0.35,
@@ -34,7 +37,7 @@ const EMPTY_FORM = {
   email:"", telefono:"", sito:"", facebook:"", instagram:"", linkedin:"", linkedin_referente:"",
   budget:"", stage:"da_contattare",
   ultimo_contatto:"", tentativi:0,
-  data:new Date().toISOString().slice(0,10), note:"",
+  data:localISODate(), note:"",
 };
 
 // Variabili CSS per il tema chiaro/scuro: i colori di sfondo/testo neutri
@@ -58,7 +61,7 @@ function daysSince(dateStr) {
   if (!dateStr) return null;
   const d = new Date(dateStr);
   if (isNaN(d.getTime())) return null;
-  const today = new Date(new Date().toISOString().slice(0,10));
+  const today = new Date(localISODate());
   return Math.floor((today - new Date(dateStr)) / 86400000);
 }
 function isFollowUpDue(entry) {
@@ -167,7 +170,7 @@ function mapCsvToEntries(rows) {
   const firstNameIdx = headers.indexOf("first name");
   const lastNameIdx  = headers.indexOf("last name");
 
-  const today = new Date().toISOString().slice(0,10);
+  const today = localISODate();
   return rows.slice(1).map(r => {
     const get = (field) => {
       const idxs = colIndexes[field] || [];
@@ -535,30 +538,44 @@ export default function PipelinePage({ fontSize=14, theme="dark", onGoToIagrex }
     try { const res=await fetch("/api/pipeline-data"); if(res.ok){const data=await res.json();const e=data.entries||[];setEntries(e);lsSet(e);} } catch {} finally { setSyncing(false); }
   };
 
-  const saveData = useCallback(async (updated)=>{
-    setEntries(updated); lsSet(updated); setSaveStatus("saving");
-    try { const res=await fetch("/api/pipeline-data",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({entries:updated})}); setSaveStatus(res.ok?"saved":"error"); } catch { setSaveStatus("error"); }
-    setTimeout(()=>setSaveStatus(null),2500);
+  // Unico punto che parla con Notion in scrittura: prima drag&drop, contatore
+  // tentativi e storico messaggi salvavano con `.catch(()=>{})` — se la rete
+  // o Notion fallivano, la modifica sembrava salvata ma andava persa in
+  // silenzio. Ora tutti i salvataggi passano da qui e aggiornano l'indicatore
+  // saveStatus (saving/saved/error) già mostrato in header.
+  const postEntries = useCallback(async (updated)=>{
+    setSaveStatus("saving");
+    let ok = false;
+    try { const res=await fetch("/api/pipeline-data",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({entries:updated})}); ok = res.ok; } catch { ok = false; }
+    setSaveStatus(ok?"saved":"error");
+    // "Salvato" sparisce da solo; "Errore" resta visibile finché un nuovo
+    // salvataggio non va a buon fine, così un fallimento non passa inosservato.
+    if (ok) setTimeout(()=>setSaveStatus(s=>s==="saved"?null:s),2500);
   },[]);
+
+  const saveData = useCallback(async (updated)=>{
+    setEntries(updated); lsSet(updated);
+    await postEntries(updated);
+  },[postEntries]);
 
   const handleDropToStage = useCallback((entryId, newStage)=>{
     setEntries(prev=>{
       const updated = prev.map(e=>e.id===entryId?{...e,stage:newStage}:e);
       lsSet(updated);
-      fetch("/api/pipeline-data",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({entries:updated})}).catch(()=>{});
+      postEntries(updated);
       return updated;
     });
-  },[]);
+  },[postEntries]);
 
   const handleIncrTentativi = useCallback((entryId)=>{
-    const today = new Date().toISOString().slice(0,10);
+    const today = localISODate();
     setEntries(prev=>{
       const updated = prev.map(e=>e.id===entryId?{...e,tentativi:(e.tentativi||0)+1,ultimo_contatto:today}:e);
       lsSet(updated);
-      fetch("/api/pipeline-data",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({entries:updated})}).catch(()=>{});
+      postEntries(updated);
       return updated;
     });
-  },[]);
+  },[postEntries]);
 
   // Ponte verso Finanze IAGREX: invece di dover riscrivere a mano nome
   // cliente e importo (già presenti qui come "budget"), salviamo un draft
@@ -572,13 +589,13 @@ export default function PipelinePage({ fontSize=14, theme="dark", onGoToIagrex }
         cliente: entry.nome,
         importo: entry.budget || "",
         categoria: "Retainer",
-        data: new Date().toISOString().slice(0,10),
+        data: localISODate(),
       }));
     } catch {}
     if (onGoToIagrex) onGoToIagrex();
   };
 
-  const openAdd    = (tipo="lead",stage=null)=>{ setForm({...EMPTY_FORM,tipo,stage:stage||(tipo==="lead"?"da_contattare":"attivo"),data:new Date().toISOString().slice(0,10)}); setModal("add"); };
+  const openAdd    = (tipo="lead",stage=null)=>{ setForm({...EMPTY_FORM,tipo,stage:stage||(tipo==="lead"?"da_contattare":"attivo"),data:localISODate()}); setModal("add"); };
   const openEdit   = (entry)=>{ setForm({...EMPTY_FORM,...entry}); setModal("edit"); };
   const closeModal = ()=>{ setModal(null); setForm(EMPTY_FORM); };
   const saveEntry  = ()=>{
@@ -685,7 +702,7 @@ export default function PipelinePage({ fontSize=14, theme="dark", onGoToIagrex }
         // ricarica dalla fonte.
         const updatedEntry = { ...msgLead, messaggi: updated };
         setEntries(prev => prev.map(e => e.id === msgLead.id ? updatedEntry : e));
-        fetch("/api/pipeline-data",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({entries:[updatedEntry]})}).catch(()=>{});
+        postEntries([updatedEntry]);
       }
     } catch(e){ setMsgText("Errore: "+e.message); }
     setMsgLoading(false);
@@ -771,7 +788,7 @@ export default function PipelinePage({ fontSize=14, theme="dark", onGoToIagrex }
   const leadDates = entries.filter(e=>e.tipo==="lead").map(e=>e.data).filter(Boolean);
   const ultimoLeadData = leadDates.length ? leadDates.reduce((a,b)=>a>b?a:b) : null;
   const giorniSenzaLead = ultimoLeadData
-    ? Math.floor((new Date(new Date().toISOString().slice(0,10)) - new Date(ultimoLeadData)) / 86400000)
+    ? Math.floor((new Date(localISODate()) - new Date(ultimoLeadData)) / 86400000)
     : null;
 
   return (
@@ -794,7 +811,7 @@ export default function PipelinePage({ fontSize=14, theme="dark", onGoToIagrex }
             {syncing               && <span style={{fontSize:11,color:"var(--c-text-dim)"}}>🔄</span>}
             {saveStatus==="saving" && <span style={{fontSize:11,color:"#F59E0B"}}>☁️ Salvando...</span>}
             {saveStatus==="saved"  && <span style={{fontSize:11,color:"#10B981"}}>✅ Salvato</span>}
-            {saveStatus==="error"  && <span style={{fontSize:11,color:"#EF4444"}}>❌ Errore</span>}
+            {saveStatus==="error"  && <span style={{fontSize:11,color:"#EF4444",fontWeight:700}}>❌ Non salvato su Notion — riprova</span>}
           </div>
           <div style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap"}}>
             {["tutti","lead","cliente"].map(fi=>(

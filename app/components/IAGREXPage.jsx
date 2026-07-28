@@ -5,7 +5,7 @@ import {
   genId, sortByDataDesc, groupByDayDesc, formatDayLabel,
   pad2, ymdStr, fmtShortDate, daysGrid,
   DateRangePicker, VistaToggle, fmt, round2,
-  getMonthLabel, getCurrentMonth, lastMonths,
+  getMonthLabel, getCurrentMonth, lastMonths, localISODate,
   CashFlowMiniChart, CategoryBars, costoCambio,
 } from "../lib/finance-ui";
 
@@ -93,7 +93,7 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
         categoria: draft.categoria || CAT_ENTRATE[0],
         cliente: draft.cliente||"",
         conto: CONTI_IAGREX[0].id,
-        data: draft.data || new Date().toISOString().slice(0,10),
+        data: draft.data || localISODate(),
       });
       setModal({ tipo:"entrata", mode:"add" });
       setTab("entrate");
@@ -244,7 +244,7 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
   const toEurVal = (val, contoId) => { const v = parseFloat(val)||0; return contoCurrency(contoId)==="RON" ? v/rate : v; };
   const totCommissioniMese = monthData.uscite.reduce((s,e)=>s+toEurVal(e.commissioni,e.conto),0);
 
-  const openAdd = (tipo) => { setForm({descrizione:"",importo:"",categoria:tipo==="entrata"?CAT_ENTRATE[0]:CAT_USCITE[0],cliente:"",conto:CONTI_IAGREX[0].id,data:new Date().toISOString().slice(0,10)}); setModal({tipo,mode:"add"}); };
+  const openAdd = (tipo) => { setForm({descrizione:"",importo:"",categoria:tipo==="entrata"?CAT_ENTRATE[0]:CAT_USCITE[0],cliente:"",conto:CONTI_IAGREX[0].id,data:localISODate()}); setModal({tipo,mode:"add"}); };
   const openEdit = (tipo,item) => { setForm({...item}); setModal({tipo,mode:"edit",item}); };
   const closeModal = () => { setModal(null); setForm({}); };
 
@@ -458,7 +458,7 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
       // differenza col tasso applicato da UniCredit è la commissione
       // implicita del cambio, salvata sul movimento per il recap.
       tassoBce: (eurRonRate||EUR_RON_FALLBACK).toFixed(4),
-      data: new Date().toISOString().slice(0,10),
+      data: localISODate(),
     });
     setConvModal(true);
   };
@@ -611,7 +611,7 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
           {tab==="entrate" && (
             <div>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,gap:8,flexWrap:"wrap"}}>
-                <div style={{fontSize:fs-2,color:"var(--c-text-dim)"}}>Totale: <span style={{color:"#10B981",fontWeight:700}}>+{fmt(monthData.entrate.filter(inDateRange).reduce((s,e)=>s+toEur(e),0))}€</span></div>
+                <div style={{fontSize:fs-2,color:"var(--c-text-dim)"}}>Totale: <span style={{color:"#10B981",fontWeight:700}}>+{fmt(monthData.entrate.filter(e=>isReal(e)&&inDateRange(e)).reduce((s,e)=>s+toEur(e),0))}€</span></div>
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
                   <VistaToggle vista={vistaEntrate} onChange={setVistaEntrate} accent="#10B981"/>
                   <button onClick={()=>openAdd("entrata")} style={{padding:"6px 14px",borderRadius:7,border:"none",background:"#10B981",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:600,whiteSpace:"nowrap"}}>+ Aggiungi</button>
@@ -670,7 +670,7 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
           {tab==="uscite" && (
             <div>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,gap:8,flexWrap:"wrap"}}>
-                <div style={{fontSize:fs-2,color:"var(--c-text-dim)"}}>Totale: <span style={{color:"#EF4444",fontWeight:700}}>-{fmt(monthData.uscite.filter(e=>(!filtroConto||e.conto===filtroConto)&&inDateRange(e)).reduce((s,e)=>s+toEur(e),0))}€</span></div>
+                <div style={{fontSize:fs-2,color:"var(--c-text-dim)"}}>Totale: <span style={{color:"#EF4444",fontWeight:700}}>-{fmt(monthData.uscite.filter(e=>isReal(e)&&(!filtroConto||e.conto===filtroConto)&&inDateRange(e)).reduce((s,e)=>s+toEur(e),0))}€</span></div>
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
                   <VistaToggle vista={vistaUscite} onChange={setVistaUscite} accent="#EF4444"/>
                   <button onClick={()=>openAdd("uscita")} style={{padding:"6px 14px",borderRadius:7,border:"none",background:"#EF4444",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:600,whiteSpace:"nowrap"}}>+ Aggiungi</button>

@@ -5,7 +5,7 @@ import {
   genId, sortByDataDesc, groupByDayDesc, formatDayLabel,
   pad2, ymdStr, fmtShortDate, daysGrid,
   DateRangePicker, VistaToggle, fmt, round2,
-  getMonthLabel, getCurrentMonth, lastMonths,
+  getMonthLabel, getCurrentMonth, lastMonths, localISODate,
   CashFlowMiniChart, CategoryBars, costoCambio,
 } from "../lib/finance-ui";
 
@@ -120,6 +120,10 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
   // delle discrepanze trovate (vedi sezione "Saldi" più sotto).
   const [checkModal, setCheckModal] = useState(null); // {mode:"add", item?}
   const [checkForm, setCheckForm]   = useState({});
+  // Budget mensile per categoria di uscita: soglie in EUR, uguali per tutti
+  // i mesi (vivono a livello allData, non nel singolo mese).
+  const [budgetModal, setBudgetModal] = useState(false);
+  const [budgetForm, setBudgetForm]   = useState({});
   // Stessa protezione introdotta su IAGREXPage: finché non confermiamo di
   // aver letto lo storico vero da ClickUp, blocchiamo il salvataggio per
   // non rischiare di sovrascrivere tutti i mesi con dati vuoti.
@@ -247,6 +251,18 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
   const totUscite   = monthData.uscite.filter(isReal).reduce((s,e)=>s+toEur(e),0);
   const saldoNetto  = totEntrate - totUscite;
 
+  // Proiezione fine mese sulle uscite (stessa idea dell'alert "ritmo 1M€" di
+  // IAGREX, ma sulle spese): run-rate = uscite finora / giorni passati ×
+  // giorni del mese. Solo sul mese corrente (sui mesi chiusi non ha senso) e
+  // dal giorno 3 in poi, perché con 1-2 giorni di dati l'estrapolazione
+  // spara numeri a caso (es. un affitto pagato il giorno 1 proietterebbe
+  // 30 affitti).
+  const isCurrentMonthView = month === getCurrentMonth();
+  const giornoOggi = new Date().getDate();
+  const giorniNelMese = new Date(new Date().getFullYear(), new Date().getMonth()+1, 0).getDate();
+  const proiezioneUscite = (isCurrentMonthView && giornoOggi >= 3 && totUscite > 0)
+    ? (totUscite / giornoOggi) * giorniNelMese : null;
+
   // Confronto anno su anno: stesso mese dell'anno precedente, per capire se
   // il trend personale sta davvero migliorando o è solo l'effetto stagionale
   // del mese. Mostrato solo se esiste storico per quel mese.
@@ -266,6 +282,27 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
   },0)
     + (parseFloat(monthData.investimenti)||0)
     + (parseFloat(monthData.risparmi)||0);
+
+  // --- Budget per categoria -------------------------------------------
+  // Le soglie stanno in allData.budgetCategorie (chiave non-mese: le API che
+  // iterano i mesi filtrano già con /^\d{4}-\d{2}$/, quindi non disturba).
+  // La spesa confrontata è usciteByCat del mese visualizzato: già in EUR e
+  // già senza conversioni.
+  const budgetCategorie = allData.budgetCategorie || {};
+  const budgetEntries = Object.entries(budgetCategorie).filter(([,v])=>parseFloat(v)>0);
+  const budgetSforati = budgetEntries.filter(([cat,bud])=>(usciteByCat[cat]||0) > parseFloat(bud));
+  const openBudgetModal = () => { setBudgetForm({...budgetCategorie}); setBudgetModal(true); };
+  const saveBudget = () => {
+    const cleaned = {};
+    Object.entries(budgetForm).forEach(([k,v])=>{ const n=parseFloat(v); if (n>0) cleaned[k]=round2(n); });
+    saveData({ ...allData, budgetCategorie: cleaned });
+    setBudgetModal(false);
+  };
+  // Categorie proponibili nella modale: le fisse + quelle realmente usate
+  // nel mese + quelle che hanno già un budget (una categoria custom con
+  // budget non deve sparire dalla modale solo perché stavolta non ha spese).
+  const budgetCatList = [...new Set([...CAT_USCITE_FISSE, ...Object.keys(usciteByCat), ...Object.keys(budgetCategorie)])]
+    .filter(c=>c!=="Conversione");
 
   // --- Viaggi: helper e CRUD ---
   const viaggi = allData.viaggi || [];
@@ -310,7 +347,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
   // un costo reale e va contata.
   const totCommissioniMese = monthData.uscite.reduce((s,e)=>s+toEurVal(e.commissioni,e.conto),0);
 
-  const openViaggioAdd  = () => { setViaggioForm({ nome:"", dataInizio:new Date().toISOString().slice(0,10), dataFine:"" }); setViaggioModal({ mode:"add" }); };
+  const openViaggioAdd  = () => { setViaggioForm({ nome:"", dataInizio:localISODate(), dataFine:"" }); setViaggioModal({ mode:"add" }); };
   const openViaggioEdit = (v) => { setViaggioForm({ ...v }); setViaggioModal({ mode:"edit" }); };
   const closeViaggioModal = () => { setViaggioModal(null); setViaggioForm({}); };
   const saveViaggio = () => {
@@ -365,7 +402,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
 
   // MODAL HANDLERS
   const openAdd = (tipo) => {
-    const oggi = new Date().toISOString().slice(0,10);
+    const oggi = localISODate();
     // Il viaggio viene pre-selezionato se oggi cade nelle date di un
     // viaggio: mentre sei via non devi fare niente, ogni spesa è taggata
     // da sola. _viaggioManual traccia se l'utente ha toccato il chip a
@@ -585,7 +622,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
       // banca-vs-BCE è la commissione implicita del cambio, salvata sul
       // movimento e sommata nel recap "commissioni bancarie".
       tassoBce: (eurRonRate||EUR_RON_FALLBACK).toFixed(4),
-      data: new Date().toISOString().slice(0,10),
+      data: localISODate(),
     });
     setConvModal(true);
   };
@@ -723,6 +760,12 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
 
         <CashFlowMiniChart allData={allData} toEur={toEur}/>
 
+        {proiezioneUscite!=null && (
+          <div style={{marginTop:8,fontSize:fs-4,color:"var(--c-text-faint)"}}>
+            🔮 A questo ritmo ({fmt(totUscite/giornoOggi)}€/giorno) chiuderai il mese a ~<b style={{color:proiezioneUscite>totEntrate&&totEntrate>0?"#EF4444":"var(--c-text)"}}>{fmt(proiezioneUscite)}€</b> di uscite
+            {proiezioneUscite>totEntrate&&totEntrate>0 && <span style={{color:"#EF4444",fontWeight:700}}> — sopra le entrate del mese ({fmt(totEntrate)}€)</span>}
+          </div>
+        )}
         {usciteAnnoScorso!=null && (
           <div style={{marginTop:8,fontSize:fs-4,color:"var(--c-text-faint)"}}>
             📉 Uscite vs {getMonthLabel(mesePrecAnno)}: {fmt(usciteAnnoScorso)}€
@@ -753,7 +796,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
           {tab==="entrate" && (
             <div>
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10, gap:8, flexWrap:"wrap" }}>
-                <div style={{ fontSize:fs-2, color:"var(--c-text-dim)" }}>Totale: <span style={{ color:"#10B981", fontWeight:700 }}>+{fmt(monthData.entrate.filter(inDateRange).reduce((s,e)=>s+toEur(e),0))}€</span></div>
+                <div style={{ fontSize:fs-2, color:"var(--c-text-dim)" }}>Totale: <span style={{ color:"#10B981", fontWeight:700 }}>+{fmt(monthData.entrate.filter(e=>isReal(e)&&inDateRange(e)).reduce((s,e)=>s+toEur(e),0))}€</span></div>
                 <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                   <VistaToggle vista={vistaEntrate} onChange={setVistaEntrate} accent="#10B981"/>
                   <button onClick={()=>openAdd("entrata")} style={{ padding:"6px 14px", borderRadius:7, border:"none", background:"#10B981", color:"#fff", cursor:"pointer", fontSize:12, fontWeight:600, whiteSpace:"nowrap" }}>+ Aggiungi</button>
@@ -813,7 +856,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
           {tab==="uscite" && (
             <div>
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10, gap:8, flexWrap:"wrap" }}>
-                <div style={{ fontSize:fs-2, color:"var(--c-text-dim)" }}>Totale: <span style={{ color:"#EF4444", fontWeight:700 }}>-{fmt(monthData.uscite.filter(e=>(!filtroConto||e.conto===filtroConto)&&(!filtroViaggio||e.viaggio===filtroViaggio)&&inDateRange(e)).reduce((s,e)=>s+toEur(e),0))}€</span></div>
+                <div style={{ fontSize:fs-2, color:"var(--c-text-dim)" }}>Totale: <span style={{ color:"#EF4444", fontWeight:700 }}>-{fmt(monthData.uscite.filter(e=>isReal(e)&&(!filtroConto||e.conto===filtroConto)&&(!filtroViaggio||e.viaggio===filtroViaggio)&&inDateRange(e)).reduce((s,e)=>s+toEur(e),0))}€</span></div>
                 <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                   <VistaToggle vista={vistaUscite} onChange={setVistaUscite} accent="#EF4444"/>
                   <button onClick={()=>openAdd("uscita")} style={{ padding:"6px 14px", borderRadius:7, border:"none", background:"#EF4444", color:"#fff", cursor:"pointer", fontSize:12, fontWeight:600, whiteSpace:"nowrap" }}>+ Aggiungi</button>
@@ -1137,7 +1180,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                   <div style={{ background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10, overflow:"hidden" }}>
                     {viaggiOrdinati.map((v,i)=>{
                       const s = statsViaggio(v);
-                      const inCorso = !v.dataFine || (new Date().toISOString().slice(0,10) >= v.dataInizio && new Date().toISOString().slice(0,10) <= v.dataFine);
+                      const inCorso = !v.dataFine || (localISODate() >= v.dataInizio && localISODate() <= v.dataFine);
                       return (
                         <div key={v.id} onClick={()=>{setViaggioSel(v.id);setProInput("");setControInput("");}} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, padding:"12px 14px", borderTop:i===0?"none":"1px solid var(--c-border)", background:i%2===0?"var(--c-panel)":"var(--c-panel2)", cursor:"pointer" }}>
                           <div style={{ minWidth:0 }}>
@@ -1172,6 +1215,42 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
             <div>
               <div style={{ fontSize:fs-1, fontWeight:700, color:"var(--c-text-strong)", marginBottom:16 }}>
                 📊 Recap {getMonthLabel(month)}
+              </div>
+
+              {/* Budget mensile per categoria: barre spesa/soglia con alert
+                  sforamento. La spesa è quella del mese visualizzato. */}
+              <div style={{ marginBottom:24 }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+                  <div style={{ fontSize:fs-3, fontWeight:700, color:"#F59E0B", textTransform:"uppercase", letterSpacing:"0.08em" }}>
+                    🎯 Budget mensile{budgetSforati.length>0 && <span style={{color:"#EF4444"}}> — {budgetSforati.length} sforat{budgetSforati.length===1?"o":"i"}</span>}
+                  </div>
+                  <button onClick={openBudgetModal} style={{ padding:"4px 10px", borderRadius:6, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-dim)", cursor:"pointer", fontSize:11 }}>
+                    {budgetEntries.length>0?"✏️ Modifica":"➕ Imposta budget"}
+                  </button>
+                </div>
+                {budgetEntries.length===0 && (
+                  <div style={{ fontSize:fs-2, color:"var(--c-text-faintest)", padding:"4px 0 8px" }}>
+                    Nessun budget impostato — definisci una soglia mensile per le categorie che vuoi tenere d'occhio (es. Cibo, Abbonamenti).
+                  </div>
+                )}
+                {budgetEntries.sort((a,b)=>((usciteByCat[b[0]]||0)/b[1])-((usciteByCat[a[0]]||0)/a[1])).map(([cat,bud])=>{
+                  const spesa = usciteByCat[cat]||0;
+                  const pct = (spesa/bud)*100;
+                  const color = pct>100 ? "#EF4444" : pct>80 ? "#F59E0B" : "#10B981";
+                  return (
+                    <div key={cat} style={{ marginBottom:10 }}>
+                      <div style={{ display:"flex", justifyContent:"space-between", fontSize:fs-2, marginBottom:4 }}>
+                        <span style={{ color:"var(--c-text)" }}>{pct>100?"⚠️ ":""}{cat}</span>
+                        <span style={{ color, fontWeight:600 }}>
+                          {fmt(spesa)}€ / {fmt(bud)}€ · {Math.round(pct)}%{pct>100 && ` · sforato di ${fmt(spesa-bud)}€`}
+                        </span>
+                      </div>
+                      <div style={{ height:8, background:"var(--c-border)", borderRadius:4, overflow:"hidden" }}>
+                        <div style={{ height:"100%", width:`${Math.min(pct,100)}%`, background:color, borderRadius:4 }}/>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
 
               <div style={{ marginBottom:24 }}>
@@ -1423,6 +1502,33 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
             <div style={{ display:"flex", gap:8, marginTop:20 }}>
               <button onClick={closeConv} style={{ flex:1, padding:10, borderRadius:8, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-faint)", cursor:"pointer", fontSize:13 }}>Annulla</button>
               <button onClick={saveConversione} style={{ flex:2, padding:10, borderRadius:8, border:"none", background:"#8B5CF6", color:"#fff", cursor:"pointer", fontSize:13, fontWeight:700 }}>Registra conversione</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Budget per categoria */}
+      {budgetModal && (
+        <div style={{ position:"fixed", inset:0, background:"#00000090", zIndex:999, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }} onClick={()=>setBudgetModal(false)}>
+          <div style={{ background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:16, padding:24, width:"100%", maxWidth:400, maxHeight:"90vh", overflowY:"auto" }} onClick={e=>e.stopPropagation()}>
+            <div style={{ fontSize:15, fontWeight:700, color:"var(--c-text-strong)", marginBottom:6 }}>🎯 Budget mensile per categoria</div>
+            <div style={{ fontSize:11, color:"var(--c-text-faint)", marginBottom:20 }}>
+              Soglia di spesa mensile in EUR. Lascia vuoto (o 0) per non monitorare una categoria. Le soglie valgono per tutti i mesi.
+            </div>
+            <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+              {budgetCatList.map(cat=>(
+                <div key={cat} style={{ display:"flex", alignItems:"center", gap:10 }}>
+                  <div style={{ flex:1, fontSize:13, color:"var(--c-text)" }}>{cat}</div>
+                  <input type="number" min="0" placeholder="—" value={budgetForm[cat]??""}
+                    onChange={e=>setBudgetForm(p=>({...p,[cat]:e.target.value}))}
+                    style={{ width:110, padding:"8px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:13, outline:"none", textAlign:"right" }}/>
+                  <span style={{ fontSize:12, color:"var(--c-text-faint)" }}>€</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ display:"flex", gap:8, marginTop:20 }}>
+              <button onClick={()=>setBudgetModal(false)} style={{ flex:1, padding:10, borderRadius:8, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-faint)", cursor:"pointer", fontSize:13 }}>Annulla</button>
+              <button onClick={saveBudget} style={{ flex:2, padding:10, borderRadius:8, border:"none", background:"#F59E0B", color:"#fff", cursor:"pointer", fontSize:13, fontWeight:700 }}>Salva budget</button>
             </div>
           </div>
         </div>
