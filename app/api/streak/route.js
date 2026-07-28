@@ -43,19 +43,22 @@ async function writeStreakDoc(days) {
 // ieri) in cui "completed" è true. Se manca il giorno di oggi lo streak
 // resta valido finché non passa anche ieri senza completamento, cosi' un
 // giorno ancora in corso non azzera il conteggio prematuramente.
+// Data nel fuso di Dario (Europe/Bucharest), non in UTC: il server Vercel
+// gira in UTC, quindi tra mezzanotte e le 3 di notte "oggi" sarebbe stato
+// ieri — segnando la routine sul giorno sbagliato e falsando lo streak.
+function bucharestDate(offsetDays = 0) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Bucharest", year: "numeric", month: "2-digit", day: "2-digit" })
+    .format(new Date(Date.now() + offsetDays * 86400000)); // YYYY-MM-DD
+}
+
 function computeStreak(days) {
   const byDate = new Map(days.map((d) => [d.data, d.completed]));
-  const todayStr = new Date().toISOString().slice(0, 10);
   let count = 0;
-  let cursor = new Date();
   // Se oggi non e' ancora segnato come completato, si parte da ieri.
-  if (!byDate.get(todayStr)) cursor.setDate(cursor.getDate() - 1);
-  while (true) {
-    const ds = cursor.toISOString().slice(0, 10);
-    if (byDate.get(ds)) {
-      count++;
-      cursor.setDate(cursor.getDate() - 1);
-    } else break;
+  let offset = byDate.get(bucharestDate(0)) ? 0 : -1;
+  while (byDate.get(bucharestDate(offset))) {
+    count++;
+    offset--;
   }
   return count;
 }
@@ -75,7 +78,7 @@ export async function GET() {
 export async function POST(request) {
   try {
     const { data, completed } = await request.json();
-    const day = data || new Date().toISOString().slice(0, 10);
+    const day = data || bucharestDate(0);
     const days = await readStreakDoc();
     const idx = days.findIndex((d) => d.data === day);
     if (idx >= 0) days[idx].completed = !!completed;
