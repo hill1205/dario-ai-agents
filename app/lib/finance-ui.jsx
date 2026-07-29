@@ -18,6 +18,8 @@ import { useState, useEffect, useRef } from "react";
 
 export const MESI_BREVI = ["gen","feb","mar","apr","mag","giu","lug","ago","set","ott","nov","dic"];
 
+// (deploy 2026-07-29: commit di retrigger — Vercel aveva saltato la build
+// del commit con le chip nelle pagine, questo forza una build completa)
 // Sottocategorie della categoria "Trasporti", condivise tra Finanze personali
 // e IAGREX: servono a distinguere i costi dell'AUTO (pratiche amministrative,
 // carburante e manutenzione) dalle corse Bolt/Uber, che sono trasporti ma non
