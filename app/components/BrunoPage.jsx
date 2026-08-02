@@ -1376,14 +1376,25 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                     <div style={{ marginTop:10 }}>
                       <div style={{ display:"flex", justifyContent:"space-between", fontSize:fs-5, color:"var(--c-text-faint)", marginBottom:4 }}>
                         <span>{pagate}/{rateTot} rate pagate ({pct}%)</span>
-                        <span>residuo <b style={{ color: residuo>0?"#EF4444":"#10B981" }}>{fmt(residuo)}{ccy(r)}</b></span>
+                        <span title="Rate ancora da pagare × importo rata: è quanto ti resta da sborsare, interessi inclusi">ancora da versare <b style={{ color: residuo>0?"#EF4444":"#10B981" }}>{fmt(residuo)}{ccy(r)}</b></span>
                       </div>
                       <div style={{ height:6, borderRadius:4, background:"var(--c-border)", overflow:"hidden" }}>
                         <div style={{ width:`${pct}%`, height:"100%", background:r.chiusa?"#10B981":"#F59E0B" }}/>
                       </div>
                       {rateTot>0 && !r.chiusa && (()=>{
                         const ultima = occorrenze({ ...r, chiusa:null }, "2099-12-31").at(-1);
-                        return ultima ? <div style={{ fontSize:fs-5, color:"var(--c-text-faintest)", marginTop:4 }}>ultima rata: {ultima.data}</div> : null;
+                        // Costo del prestito: somma rate meno capitale ricevuto.
+                        // Sono due numeri che si confondono facilmente, quindi
+                        // qui stanno scritti uno accanto all'altro.
+                        const totaleRate = rateTot * (parseFloat(r.importo)||0);
+                        const capitale = parseFloat(r.importoFinanziato)||0;
+                        return (
+                          <div style={{ fontSize:fs-5, color:"var(--c-text-faintest)", marginTop:4 }}>
+                            {ultima && <>ultima rata: {ultima.data} · </>}
+                            somma rate {fmt(totaleRate)}{ccy(r)}
+                            {capitale>0 && <> · capitale {fmt(capitale)}{ccy(r)} · <span style={{ color:"#EF4444" }}>interessi {fmt(totaleRate-capitale)}{ccy(r)}</span></>}
+                          </div>
+                        );
                       })()}
                     </div>
                   )}
@@ -1991,7 +2002,12 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
               const ultima = rateTot ? occorrenze(finto, "2099-12-31").at(-1) : null;
               const meseOra = getCurrentMonth();
               const storiche = passate.filter(o=>o.ym < meseOra).length;
-              return { passate: passate.length, storiche, ultima, totale: rateTot ? rateTot*(parseFloat(ricForm.importo)||0) : 0 };
+              // "totaleRate" è quanto sborserai in tutto (rate × importo), che
+              // NON è il capitale finanziato: la differenza sono gli interessi.
+              const totaleRate = rateTot ? rateTot*(parseFloat(ricForm.importo)||0) : 0;
+              const capitale = parseFloat(ricForm.importoFinanziato)||0;
+              return { passate: passate.length, storiche, ultima, totaleRate, capitale,
+                interessi: (capitale>0 && totaleRate>0) ? totaleRate-capitale : 0 };
             })()
           : null;
         return (
@@ -2056,10 +2072,20 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                       style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:13, outline:"none" }}/>
                   </div>
                   <div>
+                    <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:4 }}>Importo finanziato {ccy}</div>
+                    <input type="number" step="0.01" value={ricForm.importoFinanziato||""} onChange={e=>setRicForm(p=>({...p,importoFinanziato:e.target.value}))} placeholder="18375,76"
+                      style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:13, outline:"none" }}/>
+                  </div>
+                  <div>
                     <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:4 }}>TAEG % (facoltativo)</div>
                     <input type="number" step="0.01" value={ricForm.taeg||""} onChange={e=>setRicForm(p=>({...p,taeg:e.target.value}))} placeholder="7,5"
                       style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:13, outline:"none" }}/>
                   </div>
+                </div>
+              )}
+              {isFin && (
+                <div style={{ fontSize:10, color:"var(--c-text-faintest)", marginTop:-6 }}>
+                  "Importo finanziato" = il capitale che ti ha prestato la banca (quello sul contratto), non la somma delle rate: la differenza sono gli interessi.
                 </div>
               )}
               {isFin && (
@@ -2079,7 +2105,14 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                   Verranno registrati subito <b style={{ color:"var(--c-text)" }}>{anteprima.passate}</b> addebiti già maturati
                   {anteprima.storiche>0 && <>, di cui <b style={{ color:"var(--c-text)" }}>{anteprima.storiche}</b> come storico senza toccare i saldi</>}
                   {anteprima.ultima && <> · ultima rata <b style={{ color:"var(--c-text)" }}>{anteprima.ultima.data}</b></>}
-                  {anteprima.totale>0 && <> · costo totale <b style={{ color:"var(--c-text)" }}>{fmt(anteprima.totale)}{ccy}</b></>}
+                  {anteprima.totaleRate>0 && (
+                    <div style={{ marginTop:6 }}>
+                      Somma di tutte le rate: <b style={{ color:"var(--c-text)" }}>{fmt(anteprima.totaleRate)}{ccy}</b>
+                      {anteprima.capitale>0
+                        ? <> = capitale <b style={{ color:"var(--c-text)" }}>{fmt(anteprima.capitale)}{ccy}</b> + interessi <b style={{ color:"#EF4444" }}>{fmt(anteprima.interessi)}{ccy}</b></>
+                        : <span style={{ color:"var(--c-text-faintest)" }}> — non è il capitale finanziato: compila "Importo finanziato" per vedere quanto sono gli interessi.</span>}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
