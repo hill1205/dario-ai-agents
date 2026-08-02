@@ -61,17 +61,22 @@ echo "✅ Fatto. Stato attuale:"
 git log --oneline -1
 git status --short --branch
 
-cat <<'FINE'
+# Il blocco sulle credenziali serve solo la prima volta: se GitHub CLI e' gia'
+# autenticato (dal 2026-08-02 lo e'), stamparlo ogni volta confonde e basta.
+if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+  echo "Autenticazione GitHub: ✅ gia' configurata — puoi usare scripts/deploy.sh"
+else
+  cat <<'FINE'
 
 PROSSIMO PASSO — le credenziali di push
 Il repo ora e' allineato, ma per fare `git push` serve autenticarsi con GitHub.
-Il modo piu' semplice, dal Terminale:
+Dal Terminale:
 
-    brew install gh      # solo se non hai gia' GitHub CLI
-    gh auth login        # scegli: GitHub.com → HTTPS → Login with a web browser
+    gh auth login        # scegli: GitHub.com → HTTPS → Yes → Login with a web browser
 
-Segui il browser, incolla il codice che ti mostra, e da quel momento
-`git push` funziona da qui senza altre configurazioni.
+Se il comando `gh` non esiste, va installato GitHub CLI (pacchetto .pkg dalla
+pagina github.com/cli/cli/releases/latest, voce "macOS universal").
 
 Nota: le credenziali le inserisci tu, io non le vedo e non le tocco.
 FINE
+fi
