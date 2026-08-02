@@ -10,6 +10,9 @@ import {
   SOTTOCAT_TRASPORTI, SOTTOCAT_AUTO, propagaSaldiAiMesiSuccessivi,
 } from "../lib/finance-ui";
 import { useUndoStack, UndoButton } from "../lib/undo";
+import {
+  applicaRicorrenze, debitoResiduo, ratePagate, prossimaScadenza, occorrenze,
+} from "../lib/ricorrenze";
 
 // Revolut è diviso in due saldi (EUR/RON) perché Dario spende in RON da
 // quel conto: stessa idea di UniCredit Romania su IAGREXPage, con
@@ -26,7 +29,7 @@ const CONTI = [
 const CONTI_BY_ID = Object.fromEntries(CONTI.map(c=>[c.id,c]));
 const EUR_RON_FALLBACK = 5; // usato solo se il fetch del cambio live fallisce
 
-const CAT_USCITE_FISSE = ["Affitto","Cibo","Palestra","Trasporti","Abbonamenti","Utenze","Salute","Personale","Extra"];
+const CAT_USCITE_FISSE = ["Affitto","Cibo","Palestra","Trasporti","Abbonamenti","Finanziamenti","Utenze","Salute","Personale","Extra"];
 // Categorie che NON vengono mai pre-taggate su un viaggio: sono spese di
 // casa che continuano ad arrivare anche mentre Dario è in trasferta
 // (bolletta pagata da Budapest ≠ spesa del viaggio a Budapest). Il tag
@@ -352,6 +355,182 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
   const budgetCatList = [...new Set([...CAT_USCITE_FISSE, ...Object.keys(usciteByCat), ...Object.keys(budgetCategorie)])]
     .filter(c=>c!=="Conversione");
 
+  // --- Finanziamenti & Abbonamenti (spese ricorrenti) -------------------
+  // Vivono in allData.ricorrenze (chiave non-mese, come viaggi/checkSaldi).
+  // La logica pura sta in lib/ricorrenze.js ed è testata da
+  // scripts/test-ricorrenze.mjs: qui c'è solo il collegamento all'interfaccia.
+  const ricorrenze = allData.ricorrenze || [];
+  const oggiStr = localISODate();
+  const finanziamenti = ricorrenze.filter(r=>r.tipo==="finanziamento");
+  const abbonamenti   = ricorrenze.filter(r=>r.tipo==="abbonamento");
+
+  // Debito residuo totale in EUR: le rate sono nella valuta del conto che le
+  // paga, quindi vanno convertite prima di sommarle (stessa regola dei saldi).
+  const debitoTotale = finanziamenti.reduce((s,r)=>s+toEurVal(debitoResiduo(r, oggiStr), r.conto), 0);
+  // Quanto del mese è già impegnato da rate e canoni ancora attivi.
+  const impegnoMensileEur = ricorrenze
+    .filter(r=>r.attiva!==false && !r.chiusa && prossimaScadenza(r, oggiStr))
+    .reduce((s,r)=>s+toEurVal(r.importo, r.conto), 0);
+  // Patrimonio netto = quello che hai davvero, tolti i debiti ancora da pagare.
+  const patrimonioNetto = totPatrimonio - debitoTotale;
+
+  // Addebiti di questo mese non ancora scattati: servono alla proiezione
+  // uscite (senza, il 2 del mese la proiezione ignora l'affitto del 15).
+  const ricorrenzeResiduaMese = isCurrentMonthView
+    ? ricorrenze.filter(r=>r.attiva!==false && !r.chiusa).reduce((s,r)=>{
+        const p = prossimaScadenza(r, oggiStr);
+        return (p && p.ym===month) ? s + toEurVal(r.importo, r.conto) : s;
+      },0)
+    : 0;
+
+  // Alert saldo insufficiente: addebiti previsti nei prossimi 7 giorni
+  // raggruppati per conto, confrontati col saldo attuale di quel conto.
+  const alertSaldi = (()=>{
+    const limite = new Date(); limite.setDate(limite.getDate()+7);
+    const limiteStr = `${limite.getFullYear()}-${pad2(limite.getMonth()+1)}-${pad2(limite.getDate())}`;
+    const perConto = {};
+    for (const r of ricorrenze) {
+      if (r.attiva===false || r.chiusa) continue;
+      const p = prossimaScadenza(r, oggiStr);
+      if (!p || p.data > limiteStr) continue;
+      perConto[r.conto] = perConto[r.conto] || { totale:0, voci:[], data:p.data };
+      perConto[r.conto].totale += parseFloat(r.importo)||0;
+      perConto[r.conto].voci.push(`${r.nome} ${fmt(r.importo)}${contoCurrency(r.conto)==="RON"?" RON":"€"} il ${p.data.slice(8)}/${p.data.slice(5,7)}`);
+      if (p.data < perConto[r.conto].data) perConto[r.conto].data = p.data;
+    }
+    return Object.entries(perConto)
+      .map(([conto,info])=>({ conto, ...info, saldo: parseFloat(monthData.saldi?.[conto])||0 }))
+      .filter(a=>a.saldo < a.totale);
+  })();
+
+  // Generazione automatica degli addebiti dovuti. Gira una sola volta per
+  // sessione (autoRunRef) ed è comunque idempotente lato motore: rilanciarla
+  // non può duplicare nulla. skipPropagazione perché la propagazione dei saldi
+  // ai mesi successivi la fa già applicaRicorrenze, in un colpo solo su tutti
+  // i mesi coinvolti (propagaSaldiAiMesiSuccessivi salterebbe i mesi toccati).
+  const autoRunRef = useRef(false);
+  const [autoInfo, setAutoInfo] = useState(null);
+  const generaAddebiti = useCallback((baseAll, lista) => {
+    const { next, creati } = applicaRicorrenze(baseAll, lista, localISODate(), {
+      emptyMonth: EMPTY_MONTH,
+      carried: (all, ym) => getCarriedFinancials(all, ym),
+      // Addebiti cancellati a mano: non vanno rigenerati (vedi deleteItem).
+      saltati: baseAll?.ricorrenzeSaltate || [],
+    });
+    return { next, creati };
+  }, []);
+  useEffect(()=>{
+    if (!loadOk || autoRunRef.current) return;
+    autoRunRef.current = true;
+    const lista = allDataRef.current?.ricorrenze || [];
+    if (!lista.length) return;
+    const { next, creati } = generaAddebiti(allDataRef.current, lista);
+    if (!creati.length) return;
+    setAutoInfo({
+      n: creati.length,
+      storici: creati.filter(c=>!c.toccaSaldi).length,
+      voci: creati.map(c=>`${c.item.descrizione} — ${fmt(c.item.importo)}${contoCurrency(c.item.conto)==="RON"?" RON":"€"} il ${c.item.data}`),
+    });
+    saveData(next, { skipPropagazione:true, etichetta:`Addebiti automatici (${creati.length})` });
+  }, [loadOk, generaAddebiti, saveData]);
+
+  const [ricModal, setRicModal] = useState(null); // {mode:"add"|"edit", tipo}
+  const [ricForm, setRicForm]   = useState({});
+  const [estingueId, setEstingueId] = useState(null);
+  const [estingueForm, setEstingueForm] = useState({});
+
+  const openRicAdd = (tipo) => {
+    setRicForm({
+      tipo, nome:"", ente:"", conto: CONTI[0].id, importo:"",
+      giorno: tipo==="finanziamento" ? 15 : new Date().getDate(),
+      dataInizio: localISODate(), rateTotali: tipo==="finanziamento" ? "" : "",
+      importoFinanziato:"", taeg:"",
+      categoria: tipo==="finanziamento" ? "Finanziamenti" : "Abbonamenti",
+      attiva:true,
+    });
+    setRicModal({ mode:"add", tipo });
+  };
+  const openRicEdit = (r) => { setRicForm({ ...r }); setRicModal({ mode:"edit", tipo:r.tipo }); };
+  const closeRicModal = () => { setRicModal(null); setRicForm({}); };
+
+  const saveRicorrenza = () => {
+    if (!ricForm.nome?.trim() || !(parseFloat(ricForm.importo)>0) || !ricForm.dataInizio) return;
+    const g = parseInt(ricForm.giorno,10);
+    if (!(g>=1 && g<=31)) return;
+    const r = {
+      id: ricModal.mode==="add" ? genId() : ricForm.id,
+      tipo: ricForm.tipo,
+      nome: ricForm.nome.trim(),
+      ente: (ricForm.ente||"").trim(),
+      conto: ricForm.conto,
+      importo: round2(parseFloat(ricForm.importo)),
+      giorno: g,
+      dataInizio: ricForm.dataInizio,
+      rateTotali: parseInt(ricForm.rateTotali,10) || 0,
+      importoFinanziato: parseFloat(ricForm.importoFinanziato) || 0,
+      taeg: parseFloat(ricForm.taeg) || 0,
+      categoria: ricForm.categoria || (ricForm.tipo==="finanziamento" ? "Finanziamenti" : "Abbonamenti"),
+      attiva: ricForm.attiva !== false,
+      chiusa: ricForm.chiusa || null,
+      creata: ricForm.creata || new Date().toISOString(),
+    };
+    const lista = ricModal.mode==="add" ? [...ricorrenze, r] : ricorrenze.map(x=>x.id===r.id?r:x);
+    // Appena salvata, si generano subito gli addebiti già maturati: se
+    // inserisci oggi un finanziamento partito a marzo, le rate arretrate
+    // compaiono immediatamente nei mesi giusti invece che al prossimo reload.
+    const { next, creati } = generaAddebiti({ ...allData, ricorrenze: lista }, lista);
+    if (creati.length) setAutoInfo({
+      n: creati.length,
+      storici: creati.filter(c=>!c.toccaSaldi).length,
+      voci: creati.map(c=>`${c.item.descrizione} — ${fmt(c.item.importo)}${contoCurrency(c.item.conto)==="RON"?" RON":"€"} il ${c.item.data}`),
+    });
+    saveData(next, { skipPropagazione:true, etichetta: ricModal.mode==="add" ? "Nuova ricorrenza" : "Modifica ricorrenza" });
+    closeRicModal();
+  };
+
+  const toggleRicAttiva = (r) => {
+    saveData({ ...allData, ricorrenze: ricorrenze.map(x=>x.id===r.id?{...x, attiva: x.attiva===false}:x) }, { etichetta:"Pausa/riattiva ricorrenza" });
+  };
+
+  const deleteRicorrenza = (r) => {
+    if (!confirm(`Eliminare "${r.nome}"? Gli addebiti già registrati restano fra le uscite (sono spese realmente avvenute): vanno cancellati a mano se non li vuoi.`)) return;
+    saveData({ ...allData, ricorrenze: ricorrenze.filter(x=>x.id!==r.id) }, { etichetta:"Elimina ricorrenza" });
+  };
+
+  // Estinzione anticipata: chiude il finanziamento a una data (da lì in poi
+  // niente più rate) e, se indicato un importo di conguaglio, registra
+  // l'uscita corrispondente nel mese di quella data.
+  const openEstingue = (r) => {
+    setEstingueForm({ data: localISODate(), importoEstinzione:"", motivo:"Estinzione anticipata" });
+    setEstingueId(r.id);
+  };
+  const confermaEstinzione = () => {
+    const r = ricorrenze.find(x=>x.id===estingueId);
+    if (!r || !estingueForm.data) return;
+    const lista = ricorrenze.map(x=>x.id===r.id
+      ? { ...x, chiusa: { data: estingueForm.data, motivo: estingueForm.motivo||"Estinzione anticipata", importoEstinzione: round2(parseFloat(estingueForm.importoEstinzione)||0) }, attiva:false }
+      : x);
+    let next = { ...allData, ricorrenze: lista };
+    const imp = parseFloat(estingueForm.importoEstinzione)||0;
+    if (imp > 0) {
+      const ym = estingueForm.data.slice(0,7);
+      const base = next[ym] || { ...EMPTY_MONTH, ...getCarriedFinancials(next, ym) };
+      const item = { id:genId(), descrizione:`${r.nome} — estinzione anticipata`, categoria:r.categoria||"Finanziamenti",
+        conto:r.conto, importo:round2(imp), data:estingueForm.data, ricorrenzaId:r.id, auto:true };
+      const mese = { ...base, uscite:[...(base.uscite||[]), item], saldi:{ ...(base.saldi||{}) } };
+      if (mese.saldi[r.conto] !== undefined) mese.saldi[r.conto] = round2((parseFloat(mese.saldi[r.conto])||0) - item.importo);
+      next[ym] = mese;
+      for (const k of Object.keys(next)) {
+        if (!/^\d{4}-\d{2}$/.test(k) || k <= ym) continue;
+        const md = next[k];
+        if (!md?.saldi || md.saldi[r.conto] === undefined) continue;
+        next[k] = { ...md, saldi:{ ...md.saldi, [r.conto]: round2((parseFloat(md.saldi[r.conto])||0) - item.importo) } };
+      }
+    }
+    saveData(next, { skipPropagazione:true, etichetta:"Estinzione finanziamento" });
+    setEstingueId(null); setEstingueForm({});
+  };
+
   // --- Viaggi: helper e CRUD ---
   const viaggi = allData.viaggi || [];
   const viaggiOrdinati = [...viaggi].sort((a,b)=>(b.dataInizio||"").localeCompare(a.dataInizio||""));
@@ -493,6 +672,12 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
     // Segno dell'effetto sul saldo: un'uscita scala il conto, un'entrata lo
     // accredita.
     const segno = isUscita ? -1 : 1;
+    // I movimenti storici generati dalle ricorrenze (noSaldo) non hanno mai
+    // toccato i saldi — quelli dei mesi passati sono scritti a mano leggendo la
+    // banca e già li contengono. Quindi né in modifica né in creazione devono
+    // muovere il saldo, altrimenti la rata verrebbe contata due volte.
+    const noSaldoNuovo   = !!item.noSaldo;
+    const noSaldoVecchio = !!modal.item?.noSaldo;
     const applicaSaldo = (md, contoId, delta) => {
       if (!contoId || md.saldi[contoId] === undefined) return;
       md.saldi[contoId] = round2((parseFloat(md.saldi[contoId])||0) + delta);
@@ -506,13 +691,13 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
     let updated = { ...monthData, saldi: {...monthData.saldi} };
     // Annulla l'effetto della versione precedente sul saldo (solo in edit e
     // solo se il movimento stava in questo mese).
-    if (modal.mode==="edit" && modal.item?.conto) {
+    if (modal.mode==="edit" && modal.item?.conto && !noSaldoVecchio) {
       applicaSaldo(updated, modal.item.conto, -segno * (parseFloat(modal.item.importo)||0));
     }
 
     if (meseTarget === month) {
       // Caso normale: resta nel mese visualizzato.
-      applicaSaldo(updated, item.conto, segno * parseFloat(item.importo));
+      if (!noSaldoNuovo) applicaSaldo(updated, item.conto, segno * parseFloat(item.importo));
       updated[chiave] = modal.mode==="add" ? [...updated[chiave], item] : updated[chiave].map(e=>e.id===item.id?item:e);
       updateMonth(updated);
     } else {
@@ -524,7 +709,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
       const base = allData[meseTarget] || { ...EMPTY_MONTH, ...getCarriedFinancials(allData, meseTarget) };
       const target = { ...base, uscite:[...(base.uscite||[])], entrate:[...(base.entrate||[])], saldi:{...base.saldi} };
       target[chiave] = [...target[chiave].filter(e=>e.id!==item.id), item];
-      applicaSaldo(target, item.conto, segno * parseFloat(item.importo));
+      if (!noSaldoNuovo) applicaSaldo(target, item.conto, segno * parseFloat(item.importo));
       saveData({ ...allData, [month]: updated, [meseTarget]: target });
     }
     closeModal();
@@ -538,6 +723,9 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
     // il conto, un'entrata torna a scalarlo (logica inversa di saveItem).
     const reverse = (it, eraUscita) => {
       if (!it?.conto || updated.saldi[it.conto] === undefined) return;
+      // Un movimento storico (noSaldo) non ha mai scalato il conto: annullarlo
+      // gli restituirebbe soldi che non erano mai stati tolti.
+      if (it.noSaldo) return;
       updated.saldi[it.conto] = round2((parseFloat(updated.saldi[it.conto])||0) + (eraUscita?1:-1)*parseFloat(it.importo));
     };
     reverse(item, tipo==="uscita");
@@ -557,7 +745,15 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
         updated.entrate = updated.entrate.filter(e=>e.id!==pair.id);
       }
     }
-    updateMonth(updated);
+    // Se il movimento era generato da una ricorrenza (rata/abbonamento), il
+    // suo id è deterministico: senza segnarlo fra i "saltati" tornerebbe da
+    // solo al prossimo caricamento, e cancellarlo sarebbe impossibile.
+    if (item?.ricorrenzaId) {
+      const saltati = [...new Set([...(allData.ricorrenzeSaltate||[]), id])];
+      saveData({ ...allData, [month]: updated, ricorrenzeSaltate: saltati }, { etichetta:"Elimina addebito ricorrente" });
+    } else {
+      updateMonth(updated);
+    }
   };
 
   const updateSaldo = (contoId, val) => {
@@ -817,23 +1013,48 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
             { label:"Entrate", val:totEntrate, color:"#10B981", prefix:"+" },
             { label:"Uscite",  val:totUscite,  color:"#EF4444", prefix:"-" },
             { label:"Saldo netto", val:saldoNetto, color:saldoNetto>=0?"#10B981":"#EF4444", prefix:saldoNetto>=0?"+":"" },
-            { label:"Patrimonio", val:totPatrimonio, color:"#8B5CF6", prefix:"" },
+            // Con dei debiti aperti il patrimonio lordo da solo racconta una
+            // mezza verità: sotto il numero mostriamo il netto (meno il
+            // debito residuo), che è quello che possiedi davvero.
+            { label:"Patrimonio", val:totPatrimonio, color:"#8B5CF6", prefix:"",
+              sub: debitoTotale>0 ? `netto ${fmt(patrimonioNetto)}€ · debiti ${fmt(debitoTotale)}€` : null },
           ].map(c=>(
             <div key={c.label} style={{ background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10, padding:"10px 12px", minWidth:0, overflow:"hidden" }}>
               <div style={{ fontSize:fs-4, color:"var(--c-text-faint)", marginBottom:4, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{c.label}</div>
               <div style={{ fontSize:isMobile?fs:fs+2, fontWeight:800, color:c.color, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{c.prefix}{fmt(c.val)}€</div>
+              {c.sub && <div style={{ fontSize:fs-5, color:"var(--c-text-faintest)", marginTop:2, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{c.sub}</div>}
             </div>
           ))}
         </div>
 
         <CashFlowMiniChart allData={allData} toEur={toEur}/>
 
-        {proiezioneUscite!=null && (
-          <div style={{marginTop:8,fontSize:fs-4,color:"var(--c-text-faint)"}}>
-            🔮 A questo ritmo ({fmt(totUscite/giornoOggi)}€/giorno) chiuderai il mese a ~<b style={{color:proiezioneUscite>totEntrate&&totEntrate>0?"#EF4444":"var(--c-text)"}}>{fmt(proiezioneUscite)}€</b> di uscite
-            {proiezioneUscite>totEntrate&&totEntrate>0 && <span style={{color:"#EF4444",fontWeight:700}}> — sopra le entrate del mese ({fmt(totEntrate)}€)</span>}
+        {/* Avvisi delle spese ricorrenti: addebiti in arrivo che il conto non
+            copre, e riepilogo di quelli appena registrati in automatico. */}
+        {autoInfo && (
+          <div style={{marginTop:8,padding:"8px 10px",borderRadius:8,border:"1px solid #10B98140",background:"#10B9810D",color:"#10B981",fontSize:fs-4}}>
+            🔁 Registrati {autoInfo.n} addebiti ricorrenti{autoInfo.storici>0?` (${autoInfo.storici} arretrati, registrati come storico senza toccare i saldi)`:""}: {autoInfo.voci.slice(0,4).join(" · ")}{autoInfo.voci.length>4?` · +${autoInfo.voci.length-4} altri`:""}
+            <button onClick={()=>setAutoInfo(null)} style={{marginLeft:8,background:"none",border:"none",color:"#10B981",textDecoration:"underline",cursor:"pointer",fontSize:fs-4,padding:0}}>ok</button>
           </div>
         )}
+        {alertSaldi.map(a=>(
+          <div key={a.conto} style={{marginTop:8,padding:"8px 10px",borderRadius:8,border:"1px solid #EF444440",background:"#EF44440D",color:"#EF4444",fontSize:fs-4}}>
+            ⚠️ Su <b>{CONTI_BY_ID[a.conto]?.label||a.conto}</b> stanno per scalare <b>{fmt(a.totale)}{contoCurrency(a.conto)==="RON"?" RON":"€"}</b> ({a.voci.join(" · ")}) ma il saldo è {fmt(a.saldo)}{contoCurrency(a.conto)==="RON"?" RON":"€"}
+          </div>
+        ))}
+        {proiezioneUscite!=null && (()=>{
+          // La proiezione a run-rate non "vede" le rate/canoni non ancora
+          // scattati del mese: li sommiamo esplicitamente, altrimenti il 2 del
+          // mese la stima ignora 317€ di rata che arriveranno di sicuro.
+          const proiezioneTot = proiezioneUscite + ricorrenzeResiduaMese;
+          return (
+            <div style={{marginTop:8,fontSize:fs-4,color:"var(--c-text-faint)"}}>
+              🔮 A questo ritmo ({fmt(totUscite/giornoOggi)}€/giorno) chiuderai il mese a ~<b style={{color:proiezioneTot>totEntrate&&totEntrate>0?"#EF4444":"var(--c-text)"}}>{fmt(proiezioneTot)}€</b> di uscite
+              {ricorrenzeResiduaMese>0 && <span style={{color:"var(--c-text-faintest)"}}> (di cui {fmt(ricorrenzeResiduaMese)}€ di rate/abbonamenti ancora da addebitare)</span>}
+              {proiezioneTot>totEntrate&&totEntrate>0 && <span style={{color:"#EF4444",fontWeight:700}}> — sopra le entrate del mese ({fmt(totEntrate)}€)</span>}
+            </div>
+          );
+        })()}
         {usciteAnnoScorso!=null && (
           <div style={{marginTop:8,fontSize:fs-4,color:"var(--c-text-faint)"}}>
             📉 Uscite vs {getMonthLabel(mesePrecAnno)}: {fmt(usciteAnnoScorso)}€
@@ -845,7 +1066,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
       {/* Tabs */}
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", borderBottom:"1px solid var(--c-border)", flexShrink:0, background:"var(--c-bg)" }}>
         <div style={{ display:"flex", flexWrap:"wrap" }}>
-          {[["entrate","💚 Entrate"],["uscite","🔴 Uscite"],["saldi","🏦 Saldi & Obiettivi"],["viaggi","✈️ Viaggi"],["recap","📊 Recap"]].map(([t,label])=>(
+          {[["entrate","💚 Entrate"],["uscite","🔴 Uscite"],["saldi","🏦 Saldi & Obiettivi"],["ricorrenti","🔁 Rate & Abbonamenti"],["viaggi","✈️ Viaggi"],["recap","📊 Recap"]].map(([t,label])=>(
             <button key={t} onClick={()=>setTab(t)} style={{ padding:"10px 16px", border:"none", background:"transparent", cursor:"pointer", fontSize:fs-2, fontWeight:tab===t?700:400, color:tab===t?"var(--c-text-strong)":"var(--c-text-faint)", borderBottom:tab===t?"2px solid #F59E0B":"2px solid transparent" }}>{label}</button>
           ))}
         </div>
@@ -968,7 +1189,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                   <div key={e.id} style={{ display:"grid", gridTemplateColumns:"1fr auto auto auto", gap:0, borderTop:i===0?"none":"1px solid var(--c-border)", background:flaggedIds.has(e.id)?"#F59E0B1F":(i%2===0?"var(--c-panel)":"var(--c-panel2)"), boxShadow:flaggedIds.has(e.id)?"inset 3px 0 0 #F59E0B":"none" }}>
                     <Cell style={{ flexDirection:"column", alignItems:"flex-start", gap:2 }}>
                       <span style={{ color:"var(--c-text)" }}>{flaggedIds.has(e.id)?"⚠️ ":""}{e.descrizione}</span>
-                      <span style={{ fontSize:fs-4, color:"var(--c-text-faint)" }}>{e.data?`${e.data}`:""}{e.data?" · ":""}{e.categoria}{e.sottocategoria?<span style={{color:"#F97316"}}> › {e.sottocategoria}</span>:""}{e.conto?` · ${CONTI_BY_ID[e.conto]?.label||e.conto}`:""}{e.viaggio&&viaggioById[e.viaggio]?<span style={{color:"#F59E0B"}}> · ✈️ {viaggioById[e.viaggio].nome}</span>:""}{parseFloat(e.commissioni)>0?<span style={{color:"#06B6D4"}}> · di cui {fmt(e.commissioni)}{contoCurrency(e.conto)==="RON"?" RON":"€"} commissioni</span>:""}</span>
+                      <span style={{ fontSize:fs-4, color:"var(--c-text-faint)" }}>{e.data?`${e.data}`:""}{e.data?" · ":""}{e.categoria}{e.sottocategoria?<span style={{color:"#F97316"}}> › {e.sottocategoria}</span>:""}{e.conto?` · ${CONTI_BY_ID[e.conto]?.label||e.conto}`:""}{e.viaggio&&viaggioById[e.viaggio]?<span style={{color:"#F59E0B"}}> · ✈️ {viaggioById[e.viaggio].nome}</span>:""}{parseFloat(e.commissioni)>0?<span style={{color:"#06B6D4"}}> · di cui {fmt(e.commissioni)}{contoCurrency(e.conto)==="RON"?" RON":"€"} commissioni</span>:""}{e.noSaldo?<span style={{color:"#94A3B8"}} title="Rata/canone arretrato registrato come storico: il saldo del conto non è stato toccato, perché lo avevi già scritto a mano dalla banca"> · 📎 storico, saldo non toccato</span>:""}</span>
                     </Cell>
                     {/* Le conversioni non sono spese vere: mostrate in viola con ↔
                         invece del rosso -, così la lista non le fa sembrare uscite. */}
@@ -1117,6 +1338,120 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
               </div>
             </div>
           )}
+
+          {/* RATE & ABBONAMENTI: spese ricorrenti addebitate in automatico */}
+          {tab==="ricorrenti" && (()=>{
+            const ccy = (r) => contoCurrency(r.conto)==="RON" ? " RON" : "€";
+            const totAbbMese = abbonamenti.filter(r=>r.attiva!==false&&!r.chiusa).reduce((s,r)=>s+toEurVal(r.importo,r.conto),0);
+
+            const Riga = ({ r }) => {
+              const rateTot = parseInt(r.rateTotali,10)||0;
+              const pagate  = Math.min(ratePagate(r, oggiStr), rateTot||Infinity);
+              const residuo = debitoResiduo(r, oggiStr);
+              const prossima= prossimaScadenza(r, oggiStr);
+              const pausa   = r.attiva===false && !r.chiusa;
+              const pct     = rateTot ? Math.round((pagate/rateTot)*100) : null;
+              const colore  = r.chiusa ? "#10B981" : pausa ? "var(--c-text-faint)" : r.tipo==="finanziamento" ? "#EF4444" : "#3B82F6";
+              return (
+                <div style={{ background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10, padding:"12px 14px", opacity:(pausa||r.chiusa)?0.65:1 }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:10, flexWrap:"wrap" }}>
+                    <div style={{ minWidth:0 }}>
+                      <div style={{ fontSize:fs-1, fontWeight:700, color:"var(--c-text-strong)" }}>
+                        {r.nome}
+                        {r.chiusa && <span style={{ marginLeft:8, fontSize:fs-4, color:"#10B981", fontWeight:600 }}>✅ estinto {r.chiusa.data}</span>}
+                        {pausa && <span style={{ marginLeft:8, fontSize:fs-4, color:"var(--c-text-faint)", fontWeight:600 }}>⏸ in pausa</span>}
+                      </div>
+                      <div style={{ fontSize:fs-4, color:"var(--c-text-faint)", marginTop:3 }}>
+                        {r.ente ? `${r.ente} · ` : ""}{CONTI_BY_ID[r.conto]?.label||r.conto} · ogni {r.giorno} del mese
+                        {rateTot ? ` · ${rateTot} rate` : ""}
+                      </div>
+                    </div>
+                    <div style={{ textAlign:"right" }}>
+                      <div style={{ fontSize:fs+1, fontWeight:800, color:colore }}>-{fmt(r.importo)}{ccy(r)}</div>
+                      {prossima && <div style={{ fontSize:fs-5, color:"var(--c-text-faintest)", marginTop:2 }}>prossimo: {prossima.data.slice(8)}/{prossima.data.slice(5,7)}</div>}
+                    </div>
+                  </div>
+
+                  {pct!=null && (
+                    <div style={{ marginTop:10 }}>
+                      <div style={{ display:"flex", justifyContent:"space-between", fontSize:fs-5, color:"var(--c-text-faint)", marginBottom:4 }}>
+                        <span>{pagate}/{rateTot} rate pagate ({pct}%)</span>
+                        <span>residuo <b style={{ color: residuo>0?"#EF4444":"#10B981" }}>{fmt(residuo)}{ccy(r)}</b></span>
+                      </div>
+                      <div style={{ height:6, borderRadius:4, background:"var(--c-border)", overflow:"hidden" }}>
+                        <div style={{ width:`${pct}%`, height:"100%", background:r.chiusa?"#10B981":"#F59E0B" }}/>
+                      </div>
+                      {rateTot>0 && !r.chiusa && (()=>{
+                        const ultima = occorrenze({ ...r, chiusa:null }, "2099-12-31").at(-1);
+                        return ultima ? <div style={{ fontSize:fs-5, color:"var(--c-text-faintest)", marginTop:4 }}>ultima rata: {ultima.data}</div> : null;
+                      })()}
+                    </div>
+                  )}
+
+                  <div style={{ display:"flex", gap:6, marginTop:10, flexWrap:"wrap" }}>
+                    <button onClick={()=>openRicEdit(r)} style={{ padding:"4px 10px", borderRadius:6, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-dim)", cursor:"pointer", fontSize:11 }}>✏️ Modifica</button>
+                    {!r.chiusa && <button onClick={()=>toggleRicAttiva(r)} style={{ padding:"4px 10px", borderRadius:6, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-dim)", cursor:"pointer", fontSize:11 }}>{pausa?"▶️ Riattiva":"⏸ Pausa"}</button>}
+                    {r.tipo==="finanziamento" && !r.chiusa && <button onClick={()=>openEstingue(r)} style={{ padding:"4px 10px", borderRadius:6, border:"1px solid #10B98150", background:"#10B9811A", color:"#10B981", cursor:"pointer", fontSize:11, fontWeight:600 }}>💸 Estingui</button>}
+                    <button onClick={()=>deleteRicorrenza(r)} style={{ padding:"4px 10px", borderRadius:6, border:"1px solid #EF444440", background:"transparent", color:"#EF4444", cursor:"pointer", fontSize:11 }}>🗑 Elimina</button>
+                  </div>
+                </div>
+              );
+            };
+
+            return (
+              <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+                <div style={{ fontSize:fs-4, color:"var(--c-text-faintest)", background:"var(--c-panel2)", border:"1px solid var(--c-border)", borderRadius:8, padding:"8px 10px" }}>
+                  ℹ️ Ogni volta che apri Finanze, gli addebiti già scaduti vengono registrati fra le Uscite. <b>I saldi dei conti cambiano solo dal mese corrente in poi</b>: le rate dei mesi passati entrano come storico ma non toccano i saldi, che avevi già scritto a mano dalla banca e che quindi le contengono già. Non possono generarsi doppioni.
+                </div>
+
+                {/* Numeri di sintesi */}
+                <div style={{ display:"grid", gridTemplateColumns:isMobile?"repeat(2,1fr)":"repeat(4,1fr)", gap:8 }}>
+                  {[
+                    { label:"Debito residuo", val:debitoTotale, color:"#EF4444" },
+                    { label:"Impegno mensile", val:impegnoMensileEur, color:"#F59E0B" },
+                    { label:"Abbonamenti/mese", val:totAbbMese, color:"#3B82F6" },
+                    { label:"Patrimonio netto", val:patrimonioNetto, color:patrimonioNetto>=0?"#10B981":"#EF4444" },
+                  ].map(c=>(
+                    <div key={c.label} style={{ background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10, padding:"10px 12px", minWidth:0 }}>
+                      <div style={{ fontSize:fs-4, color:"var(--c-text-faint)", marginBottom:4, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{c.label}</div>
+                      <div style={{ fontSize:isMobile?fs:fs+2, fontWeight:800, color:c.color, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{fmt(c.val)}€</div>
+                    </div>
+                  ))}
+                </div>
+                {totAbbMese>0 && (
+                  <div style={{ fontSize:fs-4, color:"var(--c-text-faint)", marginTop:-8 }}>
+                    📅 Gli abbonamenti ti costano <b style={{color:"#3B82F6"}}>{fmt(totAbbMese*12)}€ all'anno</b>.
+                  </div>
+                )}
+
+                {/* Finanziamenti */}
+                <div>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+                    <div style={{ fontSize:fs-3, fontWeight:700, color:"#EF4444", textTransform:"uppercase", letterSpacing:"0.08em" }}>🏦 Finanziamenti & debiti</div>
+                    <button onClick={()=>openRicAdd("finanziamento")} style={{ padding:"5px 12px", borderRadius:7, border:"none", background:"#EF4444", color:"#fff", cursor:"pointer", fontSize:11, fontWeight:600 }}>+ Finanziamento</button>
+                  </div>
+                  <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                    {finanziamenti.length===0
+                      ? <div style={{ padding:16, textAlign:"center", color:"var(--c-text-faintest)", fontSize:fs-3, background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10 }}>Nessun finanziamento. Aggiungi quello dell'auto: rata, giorno di addebito e numero di rate.</div>
+                      : finanziamenti.map(r=><Riga key={r.id} r={r}/>)}
+                  </div>
+                </div>
+
+                {/* Abbonamenti */}
+                <div>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+                    <div style={{ fontSize:fs-3, fontWeight:700, color:"#3B82F6", textTransform:"uppercase", letterSpacing:"0.08em" }}>🔁 Abbonamenti</div>
+                    <button onClick={()=>openRicAdd("abbonamento")} style={{ padding:"5px 12px", borderRadius:7, border:"none", background:"#3B82F6", color:"#fff", cursor:"pointer", fontSize:11, fontWeight:600 }}>+ Abbonamento</button>
+                  </div>
+                  <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                    {abbonamenti.length===0
+                      ? <div style={{ padding:16, textAlign:"center", color:"var(--c-text-faintest)", fontSize:fs-3, background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10 }}>Nessun abbonamento. Aggiungi ricarica cellulare, Claude, CapCut e compagnia: te li segna da solo ogni mese.</div>
+                      : abbonamenti.map(r=><Riga key={r.id} r={r}/>)}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* VIAGGI: budget separato per ogni trasferta */}
           {tab==="viaggi" && (()=>{
@@ -1642,6 +1977,157 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
           </div>
         </div>
       )}
+
+      {/* Modal Finanziamento / Abbonamento */}
+      {ricModal && (()=>{
+        const isFin = ricForm.tipo==="finanziamento";
+        const ccy = contoCurrency(ricForm.conto);
+        // Anteprima: quante rate risulterebbero già pagate e quando finisce.
+        const anteprima = (ricForm.dataInizio && ricForm.giorno && parseFloat(ricForm.importo)>0)
+          ? (()=>{
+              const finto = { ...ricForm, rateTotali: parseInt(ricForm.rateTotali,10)||0, chiusa:null };
+              const passate = occorrenze(finto, oggiStr);
+              const rateTot = parseInt(ricForm.rateTotali,10)||0;
+              const ultima = rateTot ? occorrenze(finto, "2099-12-31").at(-1) : null;
+              const meseOra = getCurrentMonth();
+              const storiche = passate.filter(o=>o.ym < meseOra).length;
+              return { passate: passate.length, storiche, ultima, totale: rateTot ? rateTot*(parseFloat(ricForm.importo)||0) : 0 };
+            })()
+          : null;
+        return (
+        <div style={{ position:"fixed", inset:0, background:"#00000090", zIndex:999, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }} onClick={closeRicModal}>
+          <div style={{ background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:16, padding:24, width:"100%", maxWidth:420, maxHeight:"90vh", overflowY:"auto" }} onClick={e=>e.stopPropagation()}>
+            <div style={{ fontSize:15, fontWeight:700, color:"var(--c-text-strong)", marginBottom:6 }}>
+              {ricModal.mode==="add" ? "Nuovo" : "Modifica"} {isFin ? "finanziamento 🏦" : "abbonamento 🔁"}
+            </div>
+            <div style={{ fontSize:11, color:"var(--c-text-faint)", marginBottom:20 }}>
+              L'addebito verrà registrato da solo fra le Uscite ogni mese, nel giorno indicato, scalando il conto scelto.
+            </div>
+            <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+              <div>
+                <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:4 }}>Nome *</div>
+                <input type="text" value={ricForm.nome||""} onChange={e=>setRicForm(p=>({...p,nome:e.target.value}))}
+                  placeholder={isFin?"es. Auto BMW":"es. Claude, CapCut, ricarica cellulare"}
+                  style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:13, outline:"none" }}/>
+              </div>
+              <div>
+                <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:4 }}>{isFin?"Ente erogante":"Fornitore"}</div>
+                <input type="text" value={ricForm.ente||""} onChange={e=>setRicForm(p=>({...p,ente:e.target.value}))}
+                  placeholder={isFin?"es. BdM Banca":"es. Anthropic"}
+                  style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:13, outline:"none" }}/>
+              </div>
+              <div>
+                <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:4 }}>Addebitato su 🏦</div>
+                <select value={ricForm.conto||""} onChange={e=>setRicForm(p=>({...p,conto:e.target.value}))}
+                  style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:13, outline:"none" }}>
+                  {CONTI.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
+                </select>
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+                <div>
+                  <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:4 }}>{isFin?"Rata":"Canone"} {ccy} *</div>
+                  <input type="number" step="0.01" value={ricForm.importo||""} onChange={e=>setRicForm(p=>({...p,importo:e.target.value}))} placeholder="317,52"
+                    style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:13, outline:"none" }}/>
+                </div>
+                <div>
+                  <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:4 }}>Giorno del mese *</div>
+                  <input type="number" min="1" max="31" value={ricForm.giorno||""} onChange={e=>setRicForm(p=>({...p,giorno:e.target.value}))}
+                    style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:13, outline:"none" }}/>
+                </div>
+              </div>
+              {parseInt(ricForm.giorno,10)>28 && (
+                <div style={{ fontSize:10, color:"var(--c-text-faintest)", marginTop:-6 }}>
+                  Nei mesi più corti l'addebito slitta all'ultimo giorno disponibile (a febbraio il 28).
+                </div>
+              )}
+              <div>
+                <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:4 }}>Data {isFin?"prima rata":"primo addebito"} *</div>
+                <input type="date" value={ricForm.dataInizio||""} onChange={e=>setRicForm(p=>({...p,dataInizio:e.target.value}))}
+                  style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:13, outline:"none" }}/>
+                <div style={{ fontSize:10, color:"var(--c-text-faintest)", marginTop:4 }}>
+                  Se è nel passato, gli addebiti arretrati vengono registrati nei mesi corrispondenti come storico, <b>senza toccare i saldi</b>: i saldi cambiano solo da {getMonthLabel(getCurrentMonth())} in poi.
+                </div>
+              </div>
+              {isFin && (
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+                  <div>
+                    <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:4 }}>Numero rate totali</div>
+                    <input type="number" min="1" value={ricForm.rateTotali||""} onChange={e=>setRicForm(p=>({...p,rateTotali:e.target.value}))} placeholder="60"
+                      style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:13, outline:"none" }}/>
+                  </div>
+                  <div>
+                    <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:4 }}>TAEG % (facoltativo)</div>
+                    <input type="number" step="0.01" value={ricForm.taeg||""} onChange={e=>setRicForm(p=>({...p,taeg:e.target.value}))} placeholder="7,5"
+                      style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:13, outline:"none" }}/>
+                  </div>
+                </div>
+              )}
+              {isFin && (
+                <div style={{ fontSize:10, color:"var(--c-text-faintest)", marginTop:-6 }}>
+                  Senza il numero di rate non si può calcolare il debito residuo: l'addebito funziona lo stesso, ma resta a tempo indeterminato.
+                </div>
+              )}
+              <div>
+                <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:4 }}>Categoria dell'uscita</div>
+                <select value={ricForm.categoria||""} onChange={e=>setRicForm(p=>({...p,categoria:e.target.value}))}
+                  style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:13, outline:"none" }}>
+                  {[...new Set([...CAT_USCITE_FISSE, ricForm.categoria].filter(Boolean))].map(c=><option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              {anteprima && (
+                <div style={{ background:"var(--c-bg)", border:"1px solid var(--c-border)", borderRadius:8, padding:"8px 10px", fontSize:12, color:"var(--c-text-dim)" }}>
+                  Verranno registrati subito <b style={{ color:"var(--c-text)" }}>{anteprima.passate}</b> addebiti già maturati
+                  {anteprima.storiche>0 && <>, di cui <b style={{ color:"var(--c-text)" }}>{anteprima.storiche}</b> come storico senza toccare i saldi</>}
+                  {anteprima.ultima && <> · ultima rata <b style={{ color:"var(--c-text)" }}>{anteprima.ultima.data}</b></>}
+                  {anteprima.totale>0 && <> · costo totale <b style={{ color:"var(--c-text)" }}>{fmt(anteprima.totale)}{ccy}</b></>}
+                </div>
+              )}
+            </div>
+            <div style={{ display:"flex", gap:8, marginTop:20 }}>
+              <button onClick={closeRicModal} style={{ flex:1, padding:10, borderRadius:8, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-faint)", cursor:"pointer", fontSize:13 }}>Annulla</button>
+              <button onClick={saveRicorrenza} style={{ flex:2, padding:10, borderRadius:8, border:"none", background:isFin?"#EF4444":"#3B82F6", color:"#fff", cursor:"pointer", fontSize:13, fontWeight:700 }}>Salva</button>
+            </div>
+          </div>
+        </div>
+        );
+      })()}
+
+      {/* Modal Estinzione anticipata */}
+      {estingueId && (()=>{
+        const r = ricorrenze.find(x=>x.id===estingueId);
+        if (!r) return null;
+        const residuo = debitoResiduo(r, oggiStr);
+        const ccy = contoCurrency(r.conto)==="RON" ? " RON" : "€";
+        return (
+        <div style={{ position:"fixed", inset:0, background:"#00000090", zIndex:999, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }} onClick={()=>setEstingueId(null)}>
+          <div style={{ background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:16, padding:24, width:"100%", maxWidth:400 }} onClick={e=>e.stopPropagation()}>
+            <div style={{ fontSize:15, fontWeight:700, color:"var(--c-text-strong)", marginBottom:6 }}>💸 Estingui "{r.nome}"</div>
+            <div style={{ fontSize:11, color:"var(--c-text-faint)", marginBottom:20 }}>
+              Da questa data non verranno più generate rate. Debito residuo a oggi: <b style={{ color:"#EF4444" }}>{fmt(residuo)}{ccy}</b>.
+            </div>
+            <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+              <div>
+                <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:4 }}>Data estinzione *</div>
+                <input type="date" value={estingueForm.data||""} onChange={e=>setEstingueForm(p=>({...p,data:e.target.value}))}
+                  style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:13, outline:"none" }}/>
+              </div>
+              <div>
+                <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:4 }}>Importo pagato per chiudere {contoCurrency(r.conto)}</div>
+                <input type="number" step="0.01" value={estingueForm.importoEstinzione||""} onChange={e=>setEstingueForm(p=>({...p,importoEstinzione:e.target.value}))} placeholder={fmt(residuo)}
+                  style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:13, outline:"none" }}/>
+                <div style={{ fontSize:10, color:"var(--c-text-faintest)", marginTop:4 }}>
+                  Se lo indichi, viene registrata un'uscita di quell'importo che scala il conto. Lascia vuoto se il finanziamento si chiude senza conguaglio.
+                </div>
+              </div>
+            </div>
+            <div style={{ display:"flex", gap:8, marginTop:20 }}>
+              <button onClick={()=>setEstingueId(null)} style={{ flex:1, padding:10, borderRadius:8, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-faint)", cursor:"pointer", fontSize:13 }}>Annulla</button>
+              <button onClick={confermaEstinzione} style={{ flex:2, padding:10, borderRadius:8, border:"none", background:"#10B981", color:"#fff", cursor:"pointer", fontSize:13, fontWeight:700 }}>Conferma estinzione</button>
+            </div>
+          </div>
+        </div>
+        );
+      })()}
 
       {/* Modal Check estratto conto */}
       {checkModal && (

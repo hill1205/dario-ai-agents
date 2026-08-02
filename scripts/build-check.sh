@@ -14,7 +14,11 @@
 set -euo pipefail
 
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DEST="/tmp/dario-build-check"
+# La destinazione è sovrascrivibile: capita che una sessione precedente lasci
+# /tmp/dario-build-check di proprietà di un altro utente del sandbox, e da lì in
+# poi rsync fallisce con "Permission denied". In quel caso:
+#   BUILD_CHECK_DIR=/tmp/dario-build-check2 bash scripts/build-check.sh
+DEST="${BUILD_CHECK_DIR:-/tmp/dario-build-check}"
 
 echo "→ Copio i sorgenti da $SRC (escludo node_modules/.next/.git)"
 mkdir -p "$DEST"
