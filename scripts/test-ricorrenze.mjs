@@ -7,7 +7,7 @@ import {
   prossimaScadenza, impegnoMensile, applicaRicorrenze, idMovimento,
   pianoRate, rateTotaliDi, importoRata, totaleRate, maxirataInfo,
   importoCerto, storicoRicorrenza, daConfermare, mediaStorico, importoAtteso,
-  riepilogoAnnuale, costoUnitario, annoCompetenza,
+  riepilogoAnnuale, costoUnitario, annoCompetenza, letturaDaFare,
 } from "../app/lib/ricorrenze.js";
 
 let ok = 0, ko = 0;
@@ -293,6 +293,31 @@ eq("quote fisse sommate", perAnno[0].quotaFissa, round(13.2 * 2));
 eq("tariffa media annua al netto delle quote fisse",
   perAnno[0].costoUnitario,
   Math.round(((166.92 + 151.89 + 200 - 26.4) / (114 + 103 + 150)) * 10000) / 10000);
+
+// ---------------------------------------------------------------------------
+// Autolettura: seconda scadenza della bolletta, separata dal pagamento.
+// E.ON chiede l'indice fra il giorno 8 e il 14; la fattura arriva dopo.
+// ---------------------------------------------------------------------------
+console.log("\n— Promemoria autolettura —");
+const gasRic = {
+  id: "gas", tipo: "spesa", nome: "Bolletta gas", conto: "unicredit_ron",
+  giorno: 20, letturaGiorno: 10, dataInizio: "2026-01-20", attiva: true,
+};
+eq("prima del giorno 10 non chiede nulla", letturaDaFare(gasRic, "2026-08-05", []), null);
+eq("dal 10 in poi la chiede", letturaDaFare(gasRic, "2026-08-10", [])?.chiave, "gas-2026-08");
+eq("data dell'autolettura", letturaDaFare(gasRic, "2026-08-12", [])?.data, "2026-08-10");
+eq("una volta spuntata sparisce", letturaDaFare(gasRic, "2026-08-12", ["gas-2026-08"]), null);
+eq("il mese dopo la richiede di nuovo", letturaDaFare(gasRic, "2026-09-11", ["gas-2026-08"])?.chiave, "gas-2026-09");
+eq("senza giorno lettura non chiede mai", letturaDaFare({ ...gasRic, letturaGiorno: 0 }, "2026-08-12", []), null);
+eq("in pausa non chiede", letturaDaFare({ ...gasRic, attiva: false }, "2026-08-12", []), null);
+
+console.log("\n— Spesa fissa senza importo atteso —");
+// È il caso di luce, gas e wifi: nessuna cifra dichiarata e nessuno storico.
+// L'app non deve inventare un importo (né 0 né una media inesistente).
+const senzaAtteso = { ...affitto, id: "senza", importo: 0 };
+eq("importo atteso resta 0, non una cifra inventata", importoAtteso(senzaAtteso, []), 0);
+eq("non entra nell'impegno mensile con un numero finto", impegnoMensile([senzaAtteso], OGGI), 0);
+eq("ma il promemoria arriva lo stesso", daConfermare(senzaAtteso, OGGI, new Set()).length > 0, true);
 
 function round(n) { return Math.round(n * 100) / 100; }
 

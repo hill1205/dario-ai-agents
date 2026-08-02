@@ -220,6 +220,25 @@ export function riepilogoAnnuale(storico) {
 
 function round4(n) { return Math.round((parseFloat(n) || 0) * 10000) / 10000; }
 
+// --- Autolettura del contatore ----------------------------------------------
+// Una bolletta ha due scadenze diverse: mandare l'autolettura (per E.ON dal
+// giorno 8 al 14) e pagare la fattura che arriva dopo. Non sono la stessa
+// cosa e non si possono mettere sullo stesso giorno: la prima non è un
+// pagamento, quindi non genera nessun movimento — solo un promemoria da
+// spuntare, tracciato in `letturaFatte` come lista di mesi già inviati.
+export function letturaDaFare(ric, oggi, letturaFatte = []) {
+  const giorno = parseInt(ric?.letturaGiorno, 10) || 0;
+  if (!giorno || ric.attiva === false || ric.chiusa) return null;
+  const fatte = new Set(letturaFatte);
+  const ym = (oggi || "").slice(0, 7);
+  if (!ym) return null;
+  const data = dataOccorrenza(ym, giorno);
+  // Solo il mese corrente: un'autolettura di due mesi fa non si può più fare.
+  if (data > oggi) return null;
+  if (fatte.has(`${ric.id}-${ym}`)) return null;
+  return { ym, data, chiave: `${ric.id}-${ym}` };
+}
+
 // Media degli ultimi N importi registrati: è l'"importo atteso" migliore per
 // una bolletta, meglio di un valore fisso scritto una volta e mai aggiornato.
 export function mediaStorico(storico, n = 6) {

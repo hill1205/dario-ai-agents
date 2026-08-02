@@ -15,7 +15,7 @@ import {
   applicaRicorrenze, debitoResiduo, ratePagate, prossimaScadenza, occorrenze,
   pianoRate, rateTotaliDi, importoRata, totaleRate, maxirataInfo,
   importoCerto, storicoRicorrenza, daConfermare, mediaStorico, importoAtteso,
-  riepilogoAnnuale,
+  riepilogoAnnuale, letturaDaFare,
 } from "../lib/ricorrenze";
 
 // Revolut è diviso in due saldi (EUR/RON) perché Dario spende in RON da
@@ -453,6 +453,14 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
       .map(occ=>({ r, occ, atteso: attesoInfo(r, storico) }));
   });
 
+  // Autoletture da mandare questo mese (promemoria, non pagamenti).
+  const lettureDaFare = speseFisse
+    .map(r=>({ r, occ: letturaDaFare(r, oggiStr, allData.lettureFatte||[]) }))
+    .filter(x=>x.occ);
+  const segnaLetturaFatta = (chiave) => {
+    saveData({ ...allData, lettureFatte: [...new Set([...(allData.lettureFatte||[]), chiave])] }, { etichetta:"Autolettura inviata" });
+  };
+
   // Apre il form uscita già compilato: resta da scrivere solo l'importo.
   const openRegistraSpesa = (r, occ) => {
     setForm({
@@ -644,6 +652,9 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
       sottocategoria: SOTTOCATEGORIE[ricForm.categoria]?.includes(ricForm.sottocategoria) ? ricForm.sottocategoria : "",
       // In quale valuta è scritto l'importo atteso (vedi attesoInfo).
       importoValuta: ricForm.tipo==="spesa" ? (ricForm.importoValuta || contoCurrency(ricForm.conto)) : undefined,
+      // Giorno dell'autolettura del contatore: scadenza diversa dal pagamento.
+      letturaGiorno: (ricForm.tipo==="spesa" && parseInt(ricForm.letturaGiorno,10)>=1 && parseInt(ricForm.letturaGiorno,10)<=31)
+        ? parseInt(ricForm.letturaGiorno,10) : 0,
       attiva: ricForm.attiva !== false,
       chiusa: ricForm.chiusa || null,
       creata: ricForm.creata || new Date().toISOString(),
@@ -1244,6 +1255,14 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
             <button onClick={()=>setAutoInfo(null)} style={{marginLeft:8,background:"none",border:"none",color:"#10B981",textDecoration:"underline",cursor:"pointer",fontSize:fs-4,padding:0}}>ok</button>
           </div>
         )}
+        {/* Autolettura: promemoria di un'azione, non di un pagamento. Niente
+            importo, niente movimento — solo "fatto". */}
+        {lettureDaFare.map(({r,occ})=>(
+          <div key={occ.chiave} style={{marginTop:8,padding:"8px 10px",borderRadius:8,border:"1px solid #F9731640",background:"#F973160D",color:"#F97316",fontSize:fs-4,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+            <span>📟 Manda l'autolettura del contatore per <b>{r.nome}</b> — era prevista il {occ.data.slice(8)}/{occ.data.slice(5,7)}</span>
+            <button onClick={()=>segnaLetturaFatta(occ.chiave)} style={{ padding:"4px 12px", borderRadius:6, border:"none", background:"#F97316", color:"#fff", cursor:"pointer", fontSize:11, fontWeight:700 }}>Fatto</button>
+          </div>
+        ))}
         {/* Spese fisse da confermare: l'app sa che sono dovute ma non quanto,
             quindi chiede invece di inventare una cifra. */}
         {promemoriaSpese.map(({r,occ,atteso})=>(
@@ -1599,6 +1618,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                       </div>
                       <div style={{ fontSize:fs-4, color:"var(--c-text-faint)", marginTop:3 }}>
                         {r.ente ? `${r.ente} · ` : ""}{CONTI_BY_ID[r.conto]?.label||r.conto} · ogni {r.giorno} del mese
+                        {parseInt(r.letturaGiorno,10)>0 && <span style={{ color:"#F97316" }}> · 📟 autolettura il {r.letturaGiorno}</span>}
                         {rateTot ? ` · ${rateTot} rate` : ""}
                         {scaglioni && <span style={{ color:"#F59E0B" }}> · piano a scaglioni: {scaglioni.map(p=>`${p.rate}×${fmt(p.importo)}`).join(" poi ")}</span>}
                       </div>
@@ -1609,10 +1629,16 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                           <div style={{ fontSize:fs+1, fontWeight:800, color:colore }}>-{fmt(rataOra)}{ccy(r)}</div>
                         );
                         const a = attesoInfo(r, storicoRicorrenza(allData, r.id));
+                        // Senza importo atteso e senza storico non c'è nessuna
+                        // cifra da mostrare: "~0" sarebbe un numero inventato,
+                        // e su una bolletta è proprio il dato che non si sa.
+                        if (!(a.eur > 0)) return (
+                          <div style={{ fontSize:fs, fontWeight:700, color:"var(--c-text-faintest)" }} title="Importo variabile: lo scrivi tu quando registri il pagamento">—</div>
+                        );
                         return (
                           <>
                             <div style={{ fontSize:fs+1, fontWeight:800, color:colore }}>~{fmt(a.nativo)}{ccy(r)}</div>
-                            {contoCurrency(r.conto)==="RON" && a.eur>0 && (
+                            {contoCurrency(r.conto)==="RON" && (
                               <div style={{ fontSize:fs-5, color:"var(--c-text-faint)" }}>≈ {fmt(a.eur)}€{a.valuta==="€"?" (fisso in €)":""}</div>
                             )}
                           </>
@@ -2530,7 +2556,18 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
               )}
               {isSpesa && (
                 <div style={{ fontSize:10, color:"var(--c-text-faintest)", marginTop:-6 }}>
-                  L'importo atteso serve solo per la proiezione di fine mese e per avvisarti se il conto non basta — non verrà mai registrato al posto della cifra vera. Se lo lasci vuoto uso la media degli ultimi 6 pagamenti.
+                  L'importo atteso è facoltativo: serve solo alla proiezione di fine mese e all'alert saldo. Lascialo vuoto per le bollette, dove la cifra non si può prevedere.
+                </div>
+              )}
+              {/* Autolettura: seconda scadenza, diversa dal pagamento. */}
+              {isSpesa && (
+                <div>
+                  <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:4 }}>Giorno dell'autolettura del contatore (facoltativo)</div>
+                  <input type="number" min="1" max="31" value={ricForm.letturaGiorno||""} onChange={e=>setRicForm(p=>({...p,letturaGiorno:e.target.value}))} placeholder="es. 10"
+                    style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:13, outline:"none" }}/>
+                  <div style={{ fontSize:10, color:"var(--c-text-faintest)", marginTop:4 }}>
+                    Se il fornitore vuole l'autolettura entro una certa data (E.ON: dal giorno 8 al 14), ti mando un promemoria a parte da spuntare. Non è un pagamento, quindi non crea nessun movimento.
+                  </div>
                 </div>
               )}
               {parseInt(ricForm.giorno,10)>28 && (
