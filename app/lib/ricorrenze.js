@@ -53,12 +53,46 @@ export function meseSuccessivo(ym) {
   return `${y}-${pad2(m)}`;
 }
 
+// --- Piano rate a scaglioni -------------------------------------------------
+// Un finanziamento può avere periodi con rata diversa: quello dell'auto di
+// Dario (Compass) è 48 rate da 317,52€ e poi 36 da 238,74€. Trattarlo come
+// rata unica sovrastimava il debito residuo di quasi 2.900€.
+//
+// `ric.periodi` = [{ rate: 48, importo: 317.52 }, { rate: 36, importo: 238.74 }]
+// Se manca, si ricade sul piano a rata unica (importo + rateTotali), quindi i
+// finanziamenti e gli abbonamenti già salvati continuano a funzionare identici.
+export function pianoRate(ric) {
+  const periodi = (ric?.periodi || [])
+    .map(p => ({ rate: parseInt(p.rate, 10) || 0, importo: parseFloat(p.importo) || 0 }))
+    .filter(p => p.rate > 0 && p.importo > 0);
+  if (periodi.length) return periodi;
+  return [{ rate: parseInt(ric?.rateTotali, 10) || 0, importo: parseFloat(ric?.importo) || 0 }];
+}
+
+// Numero complessivo di rate (0 = a tempo indeterminato, es. abbonamenti).
+export function rateTotaliDi(ric) {
+  const piano = pianoRate(ric);
+  if (piano.some(p => !p.rate)) return 0;
+  return piano.reduce((s, p) => s + p.rate, 0);
+}
+
+// Importo della rata numero `indice` (1-based).
+export function importoRata(ric, indice) {
+  let resto = indice;
+  for (const p of pianoRate(ric)) {
+    if (!p.rate) return p.importo;      // periodo senza fine: vale sempre
+    if (resto <= p.rate) return p.importo;
+    resto -= p.rate;
+  }
+  return parseFloat(ric?.importo) || 0;
+}
+
 // Tutte le occorrenze di una ricorrenza fino a `finoA` incluso (di norma oggi).
-// Ritorna [{ ym, data, indice }] con indice 1-based (= numero della rata).
+// Ritorna [{ ym, data, indice, importo }] con indice 1-based (= numero rata).
 export function occorrenze(ric, finoA, { limite = 600 } = {}) {
   const out = [];
   if (!ric?.dataInizio || !ric?.giorno || !finoA) return out;
-  const rateTotali = parseInt(ric.rateTotali, 10) || 0;
+  const rateTotali = rateTotaliDi(ric);
   const chiusuraData = ric.chiusa?.data || null;
   let ym = ric.dataInizio.slice(0, 7);
   let indice = 0;
@@ -71,7 +105,7 @@ export function occorrenze(ric, finoA, { limite = 600 } = {}) {
       if (chiusuraData && data > chiusuraData) break; // finanziamento estinto
       indice += 1;
       if (rateTotali && indice > rateTotali) break;   // finito di pagare
-      out.push({ ym, data, indice });
+      out.push({ ym, data, indice, importo: importoRata(ric, indice) });
     }
     ym = meseSuccessivo(ym);
   }
@@ -85,7 +119,7 @@ export function idMovimento(ric, ym) {
 }
 
 export function descrizioneMovimento(ric, occ) {
-  const rateTotali = parseInt(ric.rateTotali, 10) || 0;
+  const rateTotali = rateTotaliDi(ric);
   if (ric.tipo === "finanziamento") {
     return rateTotali
       ? `${ric.nome} — rata ${occ.indice}/${rateTotali}`
@@ -99,24 +133,37 @@ export function ratePagate(ric, oggi) {
   return occorrenze(ric, oggi).length;
 }
 
-// Debito residuo di un finanziamento: rate ancora da pagare × importo rata.
+// Debito residuo di un finanziamento: somma delle rate ancora da pagare. Con
+// un piano a scaglioni NON si può moltiplicare rate × importo, perché le rate
+// future costano meno (o più) di quella corrente: vanno sommate una per una.
 // Gli abbonamenti non producono debito (sono un impegno mensile, non un
-// capitale dovuto): sommarli al debito gonfierebbe il dato con un numero
-// che non esiste.
+// capitale dovuto): sommarli gonfierebbe il dato con un numero che non esiste.
 export function debitoResiduo(ric, oggi) {
   if (ric.tipo !== "finanziamento") return 0;
   if (ric.chiusa) return 0;
-  const rateTotali = parseInt(ric.rateTotali, 10) || 0;
+  const rateTotali = rateTotaliDi(ric);
   if (!rateTotali) return 0; // senza numero rate non si può calcolare un residuo
   const pagate = Math.min(ratePagate(ric, oggi), rateTotali);
-  return Math.max(rateTotali - pagate, 0) * (parseFloat(ric.importo) || 0);
+  let tot = 0;
+  for (let i = pagate + 1; i <= rateTotali; i++) tot += importoRata(ric, i);
+  return round2(tot);
+}
+
+// Quanto costa il finanziamento in tutto: somma di tutte le rate del piano.
+// Non è il capitale finanziato — la differenza sono interessi e spese.
+export function totaleRate(ric) {
+  const n = rateTotaliDi(ric);
+  if (!n) return 0;
+  let tot = 0;
+  for (let i = 1; i <= n; i++) tot += importoRata(ric, i);
+  return round2(tot);
 }
 
 // Prossimo addebito futuro (o odierno) di una ricorrenza ancora attiva.
 export function prossimaScadenza(ric, oggi) {
   if (!ric || ric.attiva === false || ric.chiusa) return null;
   if (!ric.dataInizio || !ric.giorno) return null;
-  const rateTotali = parseInt(ric.rateTotali, 10) || 0;
+  const rateTotali = rateTotaliDi(ric);
   const passate = occorrenze(ric, oggi);
   const prossimoIndice = passate.length + 1;
   if (rateTotali && prossimoIndice > rateTotali) return null;
@@ -124,7 +171,7 @@ export function prossimaScadenza(ric, oggi) {
   let ym = passate.length ? meseSuccessivo(passate[passate.length - 1].ym) : ric.dataInizio.slice(0, 7);
   for (let i = 0; i < 24; i++) {
     const data = dataOccorrenza(ym, ric.giorno);
-    if (data >= ric.dataInizio && data > oggi) return { ym, data, indice: prossimoIndice };
+    if (data >= ric.dataInizio && data > oggi) return { ym, data, indice: prossimoIndice, importo: importoRata(ric, prossimoIndice) };
     ym = meseSuccessivo(ym);
   }
   return null;
@@ -133,9 +180,24 @@ export function prossimaScadenza(ric, oggi) {
 // Quota mensile totale già impegnata dalle ricorrenze attive, per valuta del
 // conto: è il "quanto del mio mese è già bloccato prima ancora di iniziare".
 export function impegnoMensile(ricorrenze, oggi) {
-  return (ricorrenze || [])
-    .filter(r => r.attiva !== false && !r.chiusa && prossimaScadenza(r, oggi))
-    .reduce((s, r) => s + (parseFloat(r.importo) || 0), 0);
+  return (ricorrenze || []).reduce((s, r) => {
+    if (r.attiva === false || r.chiusa) return s;
+    const p = prossimaScadenza(r, oggi);
+    // L'importo lo dà la prossima scadenza: con un piano a scaglioni la rata
+    // corrente può essere diversa da quella "base" salvata sulla ricorrenza.
+    return p ? s + (p.importo || parseFloat(r.importo) || 0) : s;
+  }, 0);
+}
+
+// Finestra della maxirata (opzione di chiusura anticipata a metà piano):
+// { importo, entro, allaRata } sulla ricorrenza. Ritorna anche i giorni che
+// mancano, per decidere se avvisare.
+export function maxirataInfo(ric, oggi) {
+  const m = ric?.maxirata;
+  if (!m || !(parseFloat(m.importo) > 0) || !m.entro) return null;
+  if (ric.chiusa) return null;
+  const giorni = Math.round((new Date(m.entro + "T00:00:00") - new Date(oggi + "T00:00:00")) / 86400000);
+  return { importo: parseFloat(m.importo), entro: m.entro, allaRata: parseInt(m.allaRata, 10) || 0, giorni, scaduta: giorni < 0 };
 }
 
 // --- Generazione degli addebiti ---------------------------------------------
@@ -168,7 +230,8 @@ export function applicaRicorrenze(allData, ricorrenze, oggi, { emptyMonth, carri
   const attive = (ricorrenze || []).filter(r => r.attiva !== false);
 
   for (const ric of attive) {
-    if (!ric.conto || !(parseFloat(ric.importo) > 0)) continue;
+    if (!ric.conto) continue;
+    if (!(parseFloat(ric.importo) > 0) && !pianoRate(ric).some(p => p.importo > 0)) continue;
     for (const occ of occorrenze(ric, oggi)) {
       const movId = idMovimento(ric, occ.ym);
       if (skip.has(movId)) continue;
@@ -183,7 +246,8 @@ export function applicaRicorrenze(allData, ricorrenze, oggi, { emptyMonth, carri
         descrizione: descrizioneMovimento(ric, occ),
         categoria: ric.categoria || (ric.tipo === "finanziamento" ? "Finanziamenti" : "Abbonamenti"),
         conto: ric.conto,
-        importo: parseFloat(ric.importo),
+        // L'importo lo dà l'occorrenza: nei piani a scaglioni la rata cambia.
+        importo: round2(occ.importo || parseFloat(ric.importo) || 0),
         data: occ.data,
         ricorrenzaId: ric.id,
         ricorrenzaTipo: ric.tipo,

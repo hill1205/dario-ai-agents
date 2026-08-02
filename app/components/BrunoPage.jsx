@@ -12,6 +12,7 @@ import {
 import { useUndoStack, UndoButton } from "../lib/undo";
 import {
   applicaRicorrenze, debitoResiduo, ratePagate, prossimaScadenza, occorrenze,
+  pianoRate, rateTotaliDi, importoRata, totaleRate, maxirataInfo,
 } from "../lib/ricorrenze";
 
 // Revolut è diviso in due saldi (EUR/RON) perché Dario spende in RON da
@@ -368,9 +369,19 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
   // paga, quindi vanno convertite prima di sommarle (stessa regola dei saldi).
   const debitoTotale = finanziamenti.reduce((s,r)=>s+toEurVal(debitoResiduo(r, oggiStr), r.conto), 0);
   // Quanto del mese è già impegnato da rate e canoni ancora attivi.
-  const impegnoMensileEur = ricorrenze
-    .filter(r=>r.attiva!==false && !r.chiusa && prossimaScadenza(r, oggiStr))
-    .reduce((s,r)=>s+toEurVal(r.importo, r.conto), 0);
+  // La rata "corrente" la dà prossimaScadenza: con un piano a scaglioni non
+  // coincide con l'importo base salvato sulla ricorrenza.
+  const impegnoMensileEur = ricorrenze.reduce((s,r)=>{
+    if (r.attiva===false || r.chiusa) return s;
+    const p = prossimaScadenza(r, oggiStr);
+    return p ? s + toEurVal(p.importo || r.importo, r.conto) : s;
+  }, 0);
+
+  // Maxirata: finestra per chiudere il finanziamento a metà piano. Si avvisa da
+  // 120 giorni prima, così c'è il tempo di decidere e mettere da parte i soldi.
+  const maxirateInScadenza = finanziamenti
+    .map(r=>({ r, info: maxirataInfo(r, oggiStr) }))
+    .filter(x=>x.info && !x.info.scaduta);
   // Patrimonio netto = quello che hai davvero, tolti i debiti ancora da pagare.
   const patrimonioNetto = totPatrimonio - debitoTotale;
 
@@ -379,7 +390,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
   const ricorrenzeResiduaMese = isCurrentMonthView
     ? ricorrenze.filter(r=>r.attiva!==false && !r.chiusa).reduce((s,r)=>{
         const p = prossimaScadenza(r, oggiStr);
-        return (p && p.ym===month) ? s + toEurVal(r.importo, r.conto) : s;
+        return (p && p.ym===month) ? s + toEurVal(p.importo || r.importo, r.conto) : s;
       },0)
     : 0;
 
@@ -393,9 +404,10 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
       if (r.attiva===false || r.chiusa) continue;
       const p = prossimaScadenza(r, oggiStr);
       if (!p || p.data > limiteStr) continue;
+      const imp = parseFloat(p.importo || r.importo)||0;
       perConto[r.conto] = perConto[r.conto] || { totale:0, voci:[], data:p.data };
-      perConto[r.conto].totale += parseFloat(r.importo)||0;
-      perConto[r.conto].voci.push(`${r.nome} ${fmt(r.importo)}${contoCurrency(r.conto)==="RON"?" RON":"€"} il ${p.data.slice(8)}/${p.data.slice(5,7)}`);
+      perConto[r.conto].totale += imp;
+      perConto[r.conto].voci.push(`${r.nome} ${fmt(imp)}${contoCurrency(r.conto)==="RON"?" RON":"€"} il ${p.data.slice(8)}/${p.data.slice(5,7)}`);
       if (p.data < perConto[r.conto].data) perConto[r.conto].data = p.data;
     }
     return Object.entries(perConto)
@@ -443,30 +455,57 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
     setRicForm({
       tipo, nome:"", ente:"", conto: CONTI[0].id, importo:"",
       giorno: tipo==="finanziamento" ? 15 : new Date().getDate(),
-      dataInizio: localISODate(), rateTotali: tipo==="finanziamento" ? "" : "",
+      dataInizio: localISODate(), rateTotali: "",
+      periodi: [], maxirata: null,
       importoFinanziato:"", taeg:"",
       categoria: tipo==="finanziamento" ? "Finanziamenti" : "Abbonamenti",
       attiva:true,
     });
     setRicModal({ mode:"add", tipo });
   };
-  const openRicEdit = (r) => { setRicForm({ ...r }); setRicModal({ mode:"edit", tipo:r.tipo }); };
+  const openRicEdit = (r) => {
+    // La maxirata è un oggetto annidato: nel form vive come tre campi piatti.
+    setRicForm({ ...r, periodi: r.periodi || [],
+      maxirataImporto: r.maxirata?.importo || "", maxirataEntro: r.maxirata?.entro || "", maxirataAllaRata: r.maxirata?.allaRata || "" });
+    setRicModal({ mode:"edit", tipo:r.tipo });
+  };
   const closeRicModal = () => { setRicModal(null); setRicForm({}); };
 
+  // Piano a scaglioni: periodi con rata diversa (48 da 317,52 + 36 da 238,74).
+  // Vuoto = piano a rata unica, cioè il comportamento normale.
+  const periodiForm = ricForm.periodi || [];
+  const addPeriodo = () => setRicForm(p=>({ ...p, periodi:[...(p.periodi||[]), { rate:"", importo:"" }] }));
+  const updPeriodo = (i, campo, val) => setRicForm(p=>({ ...p, periodi:(p.periodi||[]).map((x,j)=>j===i?{...x,[campo]:val}:x) }));
+  const delPeriodo = (i) => setRicForm(p=>({ ...p, periodi:(p.periodi||[]).filter((_,j)=>j!==i) }));
+  const periodiPuliti = periodiForm
+    .map(p=>({ rate: parseInt(p.rate,10)||0, importo: round2(parseFloat(p.importo)||0) }))
+    .filter(p=>p.rate>0 && p.importo>0);
+
   const saveRicorrenza = () => {
-    if (!ricForm.nome?.trim() || !(parseFloat(ricForm.importo)>0) || !ricForm.dataInizio) return;
+    if (!ricForm.nome?.trim() || !ricForm.dataInizio) return;
+    // Con gli scaglioni l'importo base può restare vuoto: lo prende dal primo periodo.
+    if (!(parseFloat(ricForm.importo)>0) && !periodiPuliti.length) return;
     const g = parseInt(ricForm.giorno,10);
     if (!(g>=1 && g<=31)) return;
+    const maxi = (parseFloat(ricForm.maxirataImporto)>0 && ricForm.maxirataEntro)
+      ? { importo: round2(parseFloat(ricForm.maxirataImporto)), entro: ricForm.maxirataEntro, allaRata: parseInt(ricForm.maxirataAllaRata,10)||0 }
+      : null;
     const r = {
       id: ricModal.mode==="add" ? genId() : ricForm.id,
       tipo: ricForm.tipo,
       nome: ricForm.nome.trim(),
       ente: (ricForm.ente||"").trim(),
       conto: ricForm.conto,
-      importo: round2(parseFloat(ricForm.importo)),
+      importo: round2(parseFloat(ricForm.importo) || periodiPuliti[0]?.importo || 0),
       giorno: g,
       dataInizio: ricForm.dataInizio,
-      rateTotali: parseInt(ricForm.rateTotali,10) || 0,
+      // Con gli scaglioni il numero rate è la somma dei periodi, così non può
+      // esserci disaccordo fra i due campi.
+      rateTotali: periodiPuliti.length
+        ? periodiPuliti.reduce((s,p)=>s+p.rate,0)
+        : (parseInt(ricForm.rateTotali,10) || 0),
+      periodi: periodiPuliti,
+      maxirata: maxi,
       importoFinanziato: parseFloat(ricForm.importoFinanziato) || 0,
       taeg: parseFloat(ricForm.taeg) || 0,
       categoria: ricForm.categoria || (ricForm.tipo==="finanziamento" ? "Finanziamenti" : "Abbonamenti"),
@@ -1037,6 +1076,14 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
             <button onClick={()=>setAutoInfo(null)} style={{marginLeft:8,background:"none",border:"none",color:"#10B981",textDecoration:"underline",cursor:"pointer",fontSize:fs-4,padding:0}}>ok</button>
           </div>
         )}
+        {/* Maxirata: si avvisa da 120 giorni prima della scadenza della
+            finestra di richiesta — abbastanza per decidere e mettere da parte
+            i soldi, non così presto da diventare rumore di fondo. */}
+        {maxirateInScadenza.filter(x=>x.info.giorni<=120).map(({r,info})=>(
+          <div key={r.id} style={{marginTop:8,padding:"8px 10px",borderRadius:8,border:"1px solid #F59E0B40",background:"#F59E0B0D",color:"#F59E0B",fontSize:fs-4}}>
+            🎯 <b>{r.nome}</b>: puoi chiuderlo con una maxirata di <b>{fmt(info.importo)}{contoCurrency(r.conto)==="RON"?" RON":"€"}</b> invece di pagare le rate restanti ({fmt(debitoResiduo(r, oggiStr))}{contoCurrency(r.conto)==="RON"?" RON":"€"}). Va richiesto entro il {info.entro} — mancano {info.giorni} giorni.
+          </div>
+        ))}
         {alertSaldi.map(a=>(
           <div key={a.conto} style={{marginTop:8,padding:"8px 10px",borderRadius:8,border:"1px solid #EF444440",background:"#EF44440D",color:"#EF4444",fontSize:fs-4}}>
             ⚠️ Su <b>{CONTI_BY_ID[a.conto]?.label||a.conto}</b> stanno per scalare <b>{fmt(a.totale)}{contoCurrency(a.conto)==="RON"?" RON":"€"}</b> ({a.voci.join(" · ")}) ma il saldo è {fmt(a.saldo)}{contoCurrency(a.conto)==="RON"?" RON":"€"}
@@ -1345,10 +1392,15 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
             const totAbbMese = abbonamenti.filter(r=>r.attiva!==false&&!r.chiusa).reduce((s,r)=>s+toEurVal(r.importo,r.conto),0);
 
             const Riga = ({ r }) => {
-              const rateTot = parseInt(r.rateTotali,10)||0;
+              const rateTot = rateTotaliDi(r);
               const pagate  = Math.min(ratePagate(r, oggiStr), rateTot||Infinity);
               const residuo = debitoResiduo(r, oggiStr);
               const prossima= prossimaScadenza(r, oggiStr);
+              const scaglioni = (r.periodi||[]).length>1 ? pianoRate(r) : null;
+              const maxi    = maxirataInfo(r, oggiStr);
+              // Con gli scaglioni la rata da mostrare è quella in corso, non
+              // l'importo base salvato sulla ricorrenza.
+              const rataOra = prossima?.importo || parseFloat(r.importo) || 0;
               const pausa   = r.attiva===false && !r.chiusa;
               const pct     = rateTot ? Math.round((pagate/rateTot)*100) : null;
               const colore  = r.chiusa ? "#10B981" : pausa ? "var(--c-text-faint)" : r.tipo==="finanziamento" ? "#EF4444" : "#3B82F6";
@@ -1364,10 +1416,11 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                       <div style={{ fontSize:fs-4, color:"var(--c-text-faint)", marginTop:3 }}>
                         {r.ente ? `${r.ente} · ` : ""}{CONTI_BY_ID[r.conto]?.label||r.conto} · ogni {r.giorno} del mese
                         {rateTot ? ` · ${rateTot} rate` : ""}
+                        {scaglioni && <span style={{ color:"#F59E0B" }}> · piano a scaglioni: {scaglioni.map(p=>`${p.rate}×${fmt(p.importo)}`).join(" poi ")}</span>}
                       </div>
                     </div>
                     <div style={{ textAlign:"right" }}>
-                      <div style={{ fontSize:fs+1, fontWeight:800, color:colore }}>-{fmt(r.importo)}{ccy(r)}</div>
+                      <div style={{ fontSize:fs+1, fontWeight:800, color:colore }}>-{fmt(rataOra)}{ccy(r)}</div>
                       {prossima && <div style={{ fontSize:fs-5, color:"var(--c-text-faintest)", marginTop:2 }}>prossimo: {prossima.data.slice(8)}/{prossima.data.slice(5,7)}</div>}
                     </div>
                   </div>
@@ -1386,16 +1439,21 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                         // Costo del prestito: somma rate meno capitale ricevuto.
                         // Sono due numeri che si confondono facilmente, quindi
                         // qui stanno scritti uno accanto all'altro.
-                        const totaleRate = rateTot * (parseFloat(r.importo)||0);
+                        const tot = totaleRate(r);
                         const capitale = parseFloat(r.importoFinanziato)||0;
                         return (
                           <div style={{ fontSize:fs-5, color:"var(--c-text-faintest)", marginTop:4 }}>
                             {ultima && <>ultima rata: {ultima.data} · </>}
-                            somma rate {fmt(totaleRate)}{ccy(r)}
-                            {capitale>0 && <> · capitale {fmt(capitale)}{ccy(r)} · <span style={{ color:"#EF4444" }}>interessi {fmt(totaleRate-capitale)}{ccy(r)}</span></>}
+                            somma rate {fmt(tot)}{ccy(r)}
+                            {capitale>0 && <> · capitale {fmt(capitale)}{ccy(r)} · <span style={{ color:"#EF4444" }}>interessi e spese {fmt(round2(tot-capitale))}{ccy(r)}</span></>}
                           </div>
                         );
                       })()}
+                      {maxi && !maxi.scaduta && (
+                        <div style={{ fontSize:fs-5, color:"#F59E0B", marginTop:4 }}>
+                          🎯 Puoi chiudere alla rata {maxi.allaRata||"?"} con una maxirata di <b>{fmt(maxi.importo)}{ccy(r)}</b> — da richiedere entro {maxi.entro} ({maxi.giorni} giorni)
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -1994,20 +2052,26 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
         const isFin = ricForm.tipo==="finanziamento";
         const ccy = contoCurrency(ricForm.conto);
         // Anteprima: quante rate risulterebbero già pagate e quando finisce.
-        const anteprima = (ricForm.dataInizio && ricForm.giorno && parseFloat(ricForm.importo)>0)
+        const anteprima = (ricForm.dataInizio && ricForm.giorno && (parseFloat(ricForm.importo)>0 || periodiPuliti.length))
           ? (()=>{
-              const finto = { ...ricForm, rateTotali: parseInt(ricForm.rateTotali,10)||0, chiusa:null };
+              // Si costruisce una ricorrenza "finta" con i valori del form e la
+              // si passa alle stesse funzioni usate a regime: così l'anteprima
+              // non può divergere da quello che poi succede davvero.
+              const finto = { ...ricForm, periodi: periodiPuliti,
+                rateTotali: periodiPuliti.length ? periodiPuliti.reduce((s,p)=>s+p.rate,0) : (parseInt(ricForm.rateTotali,10)||0),
+                importo: parseFloat(ricForm.importo) || periodiPuliti[0]?.importo || 0, chiusa:null };
               const passate = occorrenze(finto, oggiStr);
-              const rateTot = parseInt(ricForm.rateTotali,10)||0;
+              const rateTot = rateTotaliDi(finto);
               const ultima = rateTot ? occorrenze(finto, "2099-12-31").at(-1) : null;
               const meseOra = getCurrentMonth();
               const storiche = passate.filter(o=>o.ym < meseOra).length;
-              // "totaleRate" è quanto sborserai in tutto (rate × importo), che
-              // NON è il capitale finanziato: la differenza sono gli interessi.
-              const totaleRate = rateTot ? rateTot*(parseFloat(ricForm.importo)||0) : 0;
+              // Somma di tutte le rate: NON è il capitale finanziato — la
+              // differenza sono interessi e spese.
+              const tot = totaleRate(finto);
               const capitale = parseFloat(ricForm.importoFinanziato)||0;
-              return { passate: passate.length, storiche, ultima, totaleRate, capitale,
-                interessi: (capitale>0 && totaleRate>0) ? totaleRate-capitale : 0 };
+              return { passate: passate.length, storiche, ultima, totaleRate: tot, capitale,
+                residuoOggi: debitoResiduo({ ...finto, tipo:"finanziamento" }, oggiStr),
+                interessi: (capitale>0 && tot>0) ? round2(tot-capitale) : 0 };
             })()
           : null;
         return (
@@ -2068,8 +2132,11 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
                   <div>
                     <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:4 }}>Numero rate totali</div>
-                    <input type="number" min="1" value={ricForm.rateTotali||""} onChange={e=>setRicForm(p=>({...p,rateTotali:e.target.value}))} placeholder="60"
-                      style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:13, outline:"none" }}/>
+                    <input type="number" min="1" disabled={periodiPuliti.length>0}
+                      value={periodiPuliti.length ? periodiPuliti.reduce((s,p)=>s+p.rate,0) : (ricForm.rateTotali||"")}
+                      onChange={e=>setRicForm(p=>({...p,rateTotali:e.target.value}))} placeholder="60"
+                      title={periodiPuliti.length ? "Calcolato dagli scaglioni qui sotto" : ""}
+                      style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:periodiPuliti.length?"var(--c-text-faint)":"var(--c-text)", fontSize:13, outline:"none" }}/>
                   </div>
                   <div>
                     <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:4 }}>Importo finanziato {ccy}</div>
@@ -2086,6 +2153,65 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
               {isFin && (
                 <div style={{ fontSize:10, color:"var(--c-text-faintest)", marginTop:-6 }}>
                   "Importo finanziato" = il capitale che ti ha prestato la banca (quello sul contratto), non la somma delle rate: la differenza sono gli interessi.
+                </div>
+              )}
+
+              {/* Piano a scaglioni: rate che cambiano importo a metà piano.
+                  Molti finanziamenti auto sono così (es. 48 rate + 36 più
+                  leggere): con una rata sola il debito residuo verrebbe
+                  sovrastimato di migliaia di euro. */}
+              {isFin && (
+                <div style={{ border:"1px solid var(--c-border)", borderRadius:8, padding:"10px 12px" }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                    <div style={{ fontSize:11, color:"var(--c-text-dim)", fontWeight:600 }}>📐 Piano a scaglioni (facoltativo)</div>
+                    <button onClick={addPeriodo} style={{ padding:"3px 9px", borderRadius:6, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-dim)", cursor:"pointer", fontSize:11 }}>+ periodo</button>
+                  </div>
+                  <div style={{ fontSize:10, color:"var(--c-text-faintest)", marginTop:4 }}>
+                    Usalo se la rata cambia durante il piano. Es. Compass: 48 rate da 317,52 poi 36 da 238,74. Se lo compili, "Numero rate totali" viene calcolato da qui.
+                  </div>
+                  {periodiForm.map((p,i)=>(
+                    <div key={i} style={{ display:"grid", gridTemplateColumns:"1fr 1fr auto", gap:8, alignItems:"center", marginTop:8 }}>
+                      <input type="number" min="1" value={p.rate||""} onChange={e=>updPeriodo(i,"rate",e.target.value)} placeholder={i===0?"48 rate":"36 rate"}
+                        style={{ width:"100%", padding:"7px 9px", borderRadius:6, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:12, outline:"none" }}/>
+                      <input type="number" step="0.01" value={p.importo||""} onChange={e=>updPeriodo(i,"importo",e.target.value)} placeholder={`rata ${ccy}`}
+                        style={{ width:"100%", padding:"7px 9px", borderRadius:6, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:12, outline:"none" }}/>
+                      <button onClick={()=>delPeriodo(i)} style={{ width:26, height:26, borderRadius:6, border:"1px solid #EF444440", background:"transparent", color:"#EF4444", cursor:"pointer", fontSize:12 }}>×</button>
+                    </div>
+                  ))}
+                  {periodiPuliti.length>0 && (
+                    <div style={{ fontSize:10, color:"var(--c-text-faint)", marginTop:8 }}>
+                      Totale: <b style={{ color:"var(--c-text)" }}>{periodiPuliti.reduce((s,p)=>s+p.rate,0)} rate</b> · {periodiPuliti.map(p=>`${p.rate}×${fmt(p.importo)}`).join(" + ")}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Maxirata: opzione per chiudere il finanziamento a metà piano
+                  pagando il capitale residuo in un colpo solo. Ha una finestra
+                  di richiesta che scade: senza promemoria si perde. */}
+              {isFin && (
+                <div style={{ border:"1px solid var(--c-border)", borderRadius:8, padding:"10px 12px" }}>
+                  <div style={{ fontSize:11, color:"var(--c-text-dim)", fontWeight:600 }}>🎯 Opzione maxirata (facoltativo)</div>
+                  <div style={{ fontSize:10, color:"var(--c-text-faintest)", marginTop:4, marginBottom:8 }}>
+                    Se il contratto permette di chiudere in anticipo con una maxirata: ti avviso quando la finestra si avvicina.
+                  </div>
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                    <div>
+                      <div style={{ fontSize:10, color:"var(--c-text-faint)", marginBottom:3 }}>Importo {ccy}</div>
+                      <input type="number" step="0.01" value={ricForm.maxirataImporto||""} onChange={e=>setRicForm(p=>({...p,maxirataImporto:e.target.value}))} placeholder="7238,37"
+                        style={{ width:"100%", padding:"7px 9px", borderRadius:6, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:12, outline:"none" }}/>
+                    </div>
+                    <div>
+                      <div style={{ fontSize:10, color:"var(--c-text-faint)", marginBottom:3 }}>Da richiedere entro</div>
+                      <input type="date" value={ricForm.maxirataEntro||""} onChange={e=>setRicForm(p=>({...p,maxirataEntro:e.target.value}))}
+                        style={{ width:"100%", padding:"7px 9px", borderRadius:6, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:12, outline:"none" }}/>
+                    </div>
+                  </div>
+                  <div style={{ marginTop:8 }}>
+                    <div style={{ fontSize:10, color:"var(--c-text-faint)", marginBottom:3 }}>Alla rata numero</div>
+                    <input type="number" min="1" value={ricForm.maxirataAllaRata||""} onChange={e=>setRicForm(p=>({...p,maxirataAllaRata:e.target.value}))} placeholder="48"
+                      style={{ width:"100%", padding:"7px 9px", borderRadius:6, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:12, outline:"none" }}/>
+                  </div>
                 </div>
               )}
               {isFin && (
@@ -2109,8 +2235,11 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                     <div style={{ marginTop:6 }}>
                       Somma di tutte le rate: <b style={{ color:"var(--c-text)" }}>{fmt(anteprima.totaleRate)}{ccy}</b>
                       {anteprima.capitale>0
-                        ? <> = capitale <b style={{ color:"var(--c-text)" }}>{fmt(anteprima.capitale)}{ccy}</b> + interessi <b style={{ color:"#EF4444" }}>{fmt(anteprima.interessi)}{ccy}</b></>
+                        ? <> = capitale <b style={{ color:"var(--c-text)" }}>{fmt(anteprima.capitale)}{ccy}</b> + interessi e spese <b style={{ color:"#EF4444" }}>{fmt(anteprima.interessi)}{ccy}</b></>
                         : <span style={{ color:"var(--c-text-faintest)" }}> — non è il capitale finanziato: compila "Importo finanziato" per vedere quanto sono gli interessi.</span>}
+                      {isFin && anteprima.residuoOggi>0 && (
+                        <div style={{ marginTop:4 }}>Ti resterebbero da versare <b style={{ color:"#EF4444" }}>{fmt(anteprima.residuoOggi)}{ccy}</b> da oggi in poi.</div>
+                      )}
                     </div>
                   )}
                 </div>
