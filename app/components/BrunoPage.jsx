@@ -818,7 +818,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
               </div>
               <div style={{ display:"flex", flexDirection:isMobile?"column":"row", alignItems:isMobile?"stretch":"center", gap:6, marginBottom:12, padding:"8px 10px", background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:8 }}>
                 <DateRangePicker da={filtroDataDa} a={filtroDataA} onChange={(d,a)=>{setFiltroDataDa(d);setFiltroDataA(a);}} accent="#10B981"/>
-                <button onClick={()=>exportCSV(monthData.entrate.filter(inDateRange),"entrate")} title="Esporta le entrate filtrate in CSV"
+                <button onClick={()=>exportCSV(monthData.entrate.filter(e=>isReal(e)&&inDateRange(e)),"entrate")} title="Esporta le entrate filtrate in CSV"
                   style={{ flexShrink:0, padding:"6px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-dim)", cursor:"pointer", fontSize:11, whiteSpace:"nowrap" }}>📥 CSV</button>
               </div>
               {(() => {
@@ -834,7 +834,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                       <span style={{ color:"var(--c-text)", fontWeight:600 }}>{flaggedIds.has(e.id)?"⚠️ ":""}{e.descrizione}</span>
                       <span style={{ fontSize:fs-4, color:"var(--c-text-faint)" }}>{e.data?`${e.data} · `:""}{e.categoria}{e.conto?` · ${CONTI_BY_ID[e.conto]?.label||e.conto}`:""}</span>
                     </Cell>
-                    <Cell style={{ color:"#10B981", fontWeight:700 }}>+{fmt(e.importo)}{contoCurrency(e.conto)==="RON"?" RON":"€"}</Cell>
+                    <Cell style={{ color:e.isConversione?"#8B5CF6":"#10B981", fontWeight:700 }}>{e.isConversione?"↔ ":"+"}{fmt(e.importo)}{contoCurrency(e.conto)==="RON"?" RON":"€"}</Cell>
                     <Cell><button onClick={()=>openEdit("entrata",e)} style={{ width:24, height:24, borderRadius:5, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-dim)", cursor:"pointer", fontSize:10 }}>✏️</button></Cell>
                     <Cell><button onClick={()=>deleteItem("entrata",e.id)} style={{ width:24, height:24, borderRadius:5, border:"1px solid #2A1A1A", background:"transparent", color:"#EF4444", cursor:"pointer", fontSize:12, fontWeight:700 }}>×</button></Cell>
                   </div>
@@ -843,7 +843,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                   <div key={key} style={{ marginBottom:12 }}>
                     <div style={{ fontSize:fs-3, fontWeight:700, color:"var(--c-text-dim)", marginBottom:6, display:"flex", justifyContent:"space-between" }}>
                       <span>{formatDayLabel(data)}</span>
-                      <span style={{ color:"#10B981" }}>+{fmt(items.reduce((s,e)=>s+toEur(e),0))}€</span>
+                      <span style={{ color:"#10B981" }}>+{fmt(items.filter(isReal).reduce((s,e)=>s+toEur(e),0))}€</span>
                     </div>
                     <div style={{ background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10, overflow:"hidden" }}>
                       {items.map(Row)}
@@ -855,7 +855,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                   <div key={cat} style={{ marginBottom:12 }}>
                     <div style={{ fontSize:fs-3, fontWeight:700, color:"var(--c-text-dim)", textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:6, display:"flex", justifyContent:"space-between" }}>
                       <span>{cat}</span>
-                      <span style={{ color:"#10B981" }}>+{fmt(items.reduce((s,e)=>s+toEur(e),0))}€</span>
+                      <span style={{ color:"#10B981" }}>+{fmt(items.filter(isReal).reduce((s,e)=>s+toEur(e),0))}€</span>
                     </div>
                     <div style={{ background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10, overflow:"hidden" }}>
                       {items.map(Row)}
@@ -895,7 +895,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                 )}
                 <div style={{ display:"flex", alignItems:"center", gap:6, flex:1 }}>
                   <DateRangePicker da={filtroDataDa} a={filtroDataA} onChange={(d,a)=>{setFiltroDataDa(d);setFiltroDataA(a);}} accent="#EF4444"/>
-                  <button onClick={()=>exportCSV(monthData.uscite.filter(e=>(!filtroConto||e.conto===filtroConto)&&(!filtroViaggio||e.viaggio===filtroViaggio)&&inDateRange(e)),"uscite")} title="Esporta le uscite filtrate in CSV"
+                  <button onClick={()=>exportCSV(monthData.uscite.filter(e=>isReal(e)&&(!filtroConto||e.conto===filtroConto)&&(!filtroViaggio||e.viaggio===filtroViaggio)&&inDateRange(e)),"uscite")} title="Esporta le uscite filtrate in CSV"
                     style={{ flexShrink:0, padding:"6px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-dim)", cursor:"pointer", fontSize:11, whiteSpace:"nowrap" }}>📥 CSV</button>
                 </div>
               </div>
@@ -909,7 +909,9 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                       <span style={{ color:"var(--c-text)" }}>{flaggedIds.has(e.id)?"⚠️ ":""}{e.descrizione}</span>
                       <span style={{ fontSize:fs-4, color:"var(--c-text-faint)" }}>{e.data?`${e.data}`:""}{e.data?" · ":""}{e.categoria}{e.sottocategoria?<span style={{color:"#F97316"}}> › {e.sottocategoria}</span>:""}{e.conto?` · ${CONTI_BY_ID[e.conto]?.label||e.conto}`:""}{e.viaggio&&viaggioById[e.viaggio]?<span style={{color:"#F59E0B"}}> · ✈️ {viaggioById[e.viaggio].nome}</span>:""}{parseFloat(e.commissioni)>0?<span style={{color:"#06B6D4"}}> · di cui {fmt(e.commissioni)}{contoCurrency(e.conto)==="RON"?" RON":"€"} commissioni</span>:""}</span>
                     </Cell>
-                    <Cell style={{ color:"#EF4444", fontWeight:700 }}>-{fmt(e.importo)}{contoCurrency(e.conto)==="RON"?" RON":"€"}</Cell>
+                    {/* Le conversioni non sono spese vere: mostrate in viola con ↔
+                        invece del rosso -, così la lista non le fa sembrare uscite. */}
+                    <Cell style={{ color:e.isConversione?"#8B5CF6":"#EF4444", fontWeight:700 }}>{e.isConversione?"↔ ":"-"}{fmt(e.importo)}{contoCurrency(e.conto)==="RON"?" RON":"€"}</Cell>
                     <Cell><button onClick={()=>openEdit("uscita",e)} style={{ width:24, height:24, borderRadius:5, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-dim)", cursor:"pointer", fontSize:10 }}>✏️</button></Cell>
                     <Cell><button onClick={()=>deleteItem("uscita",e.id)} style={{ width:24, height:24, borderRadius:5, border:"1px solid #2A1A1A", background:"transparent", color:"#EF4444", cursor:"pointer", fontSize:12, fontWeight:700 }}>×</button></Cell>
                   </div>
@@ -918,7 +920,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                   <div key={key} style={{ marginBottom:12 }}>
                     <div style={{ fontSize:fs-3, fontWeight:700, color:"var(--c-text-dim)", marginBottom:6, display:"flex", justifyContent:"space-between" }}>
                       <span>{formatDayLabel(data)}</span>
-                      <span style={{ color:"#EF4444" }}>-{fmt(items.reduce((s,e)=>s+toEur(e),0))}€</span>
+                      <span style={{ color:"#EF4444" }}>-{fmt(items.filter(isReal).reduce((s,e)=>s+toEur(e),0))}€</span>
                     </div>
                     <div style={{ background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10, overflow:"hidden" }}>
                       {items.map(Row)}
@@ -930,7 +932,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                   <div key={cat} style={{ marginBottom:12 }}>
                     <div style={{ fontSize:fs-3, fontWeight:700, color:"var(--c-text-dim)", textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:6, display:"flex", justifyContent:"space-between" }}>
                       <span>{cat}</span>
-                      <span style={{ color:"#EF4444" }}>-{fmt(items.reduce((s,e)=>s+toEur(e),0))}€</span>
+                      <span style={{ color:"#EF4444" }}>-{fmt(items.filter(isReal).reduce((s,e)=>s+toEur(e),0))}€</span>
                     </div>
                     <div style={{ background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10, overflow:"hidden" }}>
                       {items.map(Row)}
@@ -1168,7 +1170,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                               <span style={{ color:"var(--c-text)" }}>{e.descrizione}</span>
                               <span style={{ fontSize:fs-4, color:"var(--c-text-faint)" }}>{e.categoria}{e.conto?` · ${CONTI_BY_ID[e.conto]?.label||e.conto}`:""}</span>
                             </Cell>
-                            <Cell style={{ color:"#EF4444", fontWeight:700 }}>-{fmt(e.importo)}{contoCurrency(e.conto)==="RON"?" RON":"€"}</Cell>
+                            <Cell style={{ color:e.isConversione?"#8B5CF6":"#EF4444", fontWeight:700 }}>{e.isConversione?"↔ ":"-"}{fmt(e.importo)}{contoCurrency(e.conto)==="RON"?" RON":"€"}</Cell>
                             <Cell><button onClick={()=>openEdit("uscita",e)} style={{ width:24, height:24, borderRadius:5, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-dim)", cursor:"pointer", fontSize:10 }}>✏️</button></Cell>
                           </div>
                         ))}
