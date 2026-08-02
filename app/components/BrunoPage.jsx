@@ -457,6 +457,12 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
       giorno: tipo==="finanziamento" ? 15 : new Date().getDate(),
       dataInizio: localISODate(), rateTotali: "",
       periodi: [], maxirata: null,
+      // Default: NON registrare gli arretrati. Un finanziamento partito anni
+      // fa creerebbe decine di mesi che nell'app non sono mai esistiti, con
+      // saldi a zero e dentro solo la rata — e il cash flow e il confronto
+      // anno-su-anno li leggerebbero come mesi veri. Rate pagate e debito
+      // residuo si calcolano dalle date, quindi saltarli non falsa nulla.
+      registraArretrati: false,
       importoFinanziato:"", taeg:"",
       categoria: tipo==="finanziamento" ? "Finanziamenti" : "Abbonamenti",
       attiva:true,
@@ -514,10 +520,18 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
       creata: ricForm.creata || new Date().toISOString(),
     };
     const lista = ricModal.mode==="add" ? [...ricorrenze, r] : ricorrenze.map(x=>x.id===r.id?r:x);
+    // Arretrati non voluti: si marcano come "già saltati" prima di generare,
+    // così non nascono proprio invece di essere creati e poi cancellati.
+    let saltatiBase = allData.ricorrenzeSaltate || [];
+    if (ricModal.mode==="add" && !ricForm.registraArretrati) {
+      const meseOra = getCurrentMonth();
+      const arretrati = occorrenze(r, oggiStr).filter(o=>o.ym < meseOra).map(o=>`ric-${r.id}-${o.ym}`);
+      saltatiBase = [...new Set([...saltatiBase, ...arretrati])];
+    }
     // Appena salvata, si generano subito gli addebiti già maturati: se
     // inserisci oggi un finanziamento partito a marzo, le rate arretrate
     // compaiono immediatamente nei mesi giusti invece che al prossimo reload.
-    const { next, creati } = generaAddebiti({ ...allData, ricorrenze: lista }, lista);
+    const { next, creati } = generaAddebiti({ ...allData, ricorrenze: lista, ricorrenzeSaltate: saltatiBase }, lista);
     if (creati.length) setAutoInfo({
       n: creati.length,
       storici: creati.filter(c=>!c.toccaSaldi).length,
@@ -2125,9 +2139,30 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                 <input type="date" value={ricForm.dataInizio||""} onChange={e=>setRicForm(p=>({...p,dataInizio:e.target.value}))}
                   style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:13, outline:"none" }}/>
                 <div style={{ fontSize:10, color:"var(--c-text-faintest)", marginTop:4 }}>
-                  Se è nel passato, gli addebiti arretrati vengono registrati nei mesi corrispondenti come storico, <b>senza toccare i saldi</b>: i saldi cambiano solo da {getMonthLabel(getCurrentMonth())} in poi.
+                  I saldi cambiano solo da {getMonthLabel(getCurrentMonth())} in poi, mai sui mesi passati.
                 </div>
               </div>
+
+              {/* Arretrati: scelta esplicita, default NO. Registrarli su un
+                  finanziamento vecchio crea mesi che nell'app non sono mai
+                  esistiti (saldi a zero, dentro solo la rata) e falsa cash flow
+                  e confronto anno-su-anno. Il conteggio rate e il debito
+                  residuo si calcolano dalle date, quindi non serve. */}
+              {ricModal.mode==="add" && anteprima?.storiche>0 && (
+                <div style={{ border:`1px solid ${ricForm.registraArretrati?"#F59E0B60":"var(--c-border)"}`, borderRadius:8, padding:"10px 12px", background:ricForm.registraArretrati?"#F59E0B0D":"transparent" }}>
+                  <label style={{ display:"flex", alignItems:"flex-start", gap:8, cursor:"pointer" }}>
+                    <input type="checkbox" checked={!!ricForm.registraArretrati} onChange={e=>setRicForm(p=>({...p,registraArretrati:e.target.checked}))} style={{ marginTop:2 }}/>
+                    <span>
+                      <span style={{ fontSize:11, color:"var(--c-text-dim)", fontWeight:600 }}>Registra anche i {anteprima.storiche} addebiti arretrati</span>
+                      <span style={{ display:"block", fontSize:10, color:"var(--c-text-faintest)", marginTop:3 }}>
+                        {ricForm.registraArretrati
+                          ? `Verranno creati ${anteprima.storiche} movimenti nei mesi passati, creando anche i mesi che nell'app non esistono ancora (con saldi a zero). Utile solo se vuoi lo storico completo delle spese.`
+                          : "Lasciato spento: si parte dal mese corrente. Rate pagate e debito residuo restano comunque esatti, perché si calcolano dalle date del piano."}
+                      </span>
+                    </span>
+                  </label>
+                </div>
+              )}
               {isFin && (
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
                   <div>
@@ -2228,8 +2263,10 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
               </div>
               {anteprima && (
                 <div style={{ background:"var(--c-bg)", border:"1px solid var(--c-border)", borderRadius:8, padding:"8px 10px", fontSize:12, color:"var(--c-text-dim)" }}>
-                  Verranno registrati subito <b style={{ color:"var(--c-text)" }}>{anteprima.passate}</b> addebiti già maturati
-                  {anteprima.storiche>0 && <>, di cui <b style={{ color:"var(--c-text)" }}>{anteprima.storiche}</b> come storico senza toccare i saldi</>}
+                  {(ricModal.mode==="add" && !ricForm.registraArretrati && anteprima.storiche>0)
+                    ? <>Rate già maturate: <b style={{ color:"var(--c-text)" }}>{anteprima.passate}</b> — gli arretrati non verranno registrati fra le uscite (vedi sotto), si parte da {getMonthLabel(getCurrentMonth())}.</>
+                    : <>Verranno registrati subito <b style={{ color:"var(--c-text)" }}>{anteprima.passate}</b> addebiti già maturati
+                        {anteprima.storiche>0 && <>, di cui <b style={{ color:"var(--c-text)" }}>{anteprima.storiche}</b> come storico senza toccare i saldi</>}</>}
                   {anteprima.ultima && <> · ultima rata <b style={{ color:"var(--c-text)" }}>{anteprima.ultima.data}</b></>}
                   {anteprima.totaleRate>0 && (
                     <div style={{ marginTop:6 }}>
