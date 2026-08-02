@@ -274,26 +274,37 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
     // La sottocategoria ha senso solo dentro Trasporti (stessa regola di
     // BrunoPage): se la categoria è un'altra o non è stata scelta, via.
     if (item.categoria!=="Trasporti" || !item.sottocategoria) delete item.sottocategoria;
+    const isUscita = modal.tipo==="uscita";
+    const chiave = isUscita ? "uscite" : "entrate";
+    // Un'uscita scala il conto, un'entrata lo accredita.
+    const segno = isUscita ? -1 : 1;
+    const applicaSaldo = (md, contoId, delta) => {
+      if (!contoId || md.saldi[contoId] === undefined) return;
+      md.saldi[contoId] = round2((parseFloat(md.saldi[contoId])||0) + delta);
+    };
+    // Il movimento va archiviato nel mese della sua DATA, non in quello che
+    // si sta guardando: altrimenti una spesa datata 1 agosto inserita mentre
+    // si e' su luglio resta nei totali di luglio (stessa logica di BrunoPage).
+    const meseTarget = (item.data && /^\d{4}-\d{2}/.test(item.data)) ? item.data.slice(0,7) : month;
+
     let updated = {...monthData, saldi:{...monthData.saldi}};
-    if (modal.tipo==="uscita") {
-      if (modal.mode==="edit" && modal.item?.conto) {
-        updated.saldi[modal.item.conto] = round2((parseFloat(updated.saldi[modal.item.conto])||0) + (parseFloat(modal.item.importo)||0));
-      }
-      if (item.conto && updated.saldi[item.conto] !== undefined) {
-        updated.saldi[item.conto] = round2((parseFloat(updated.saldi[item.conto])||0) - parseFloat(item.importo));
-      }
-      updated.uscite = modal.mode==="add"?[...updated.uscite,item]:updated.uscite.map(e=>e.id===item.id?item:e);
-    } else {
-      // L'entrata accredita il conto scelto (logica speculare alle uscite).
-      if (modal.mode==="edit" && modal.item?.conto) {
-        updated.saldi[modal.item.conto] = round2((parseFloat(updated.saldi[modal.item.conto])||0) - (parseFloat(modal.item.importo)||0));
-      }
-      if (item.conto && updated.saldi[item.conto] !== undefined) {
-        updated.saldi[item.conto] = round2((parseFloat(updated.saldi[item.conto])||0) + parseFloat(item.importo));
-      }
-      updated.entrate = modal.mode==="add"?[...updated.entrate,item]:updated.entrate.map(e=>e.id===item.id?item:e);
+    if (modal.mode==="edit" && modal.item?.conto) {
+      applicaSaldo(updated, modal.item.conto, -segno * (parseFloat(modal.item.importo)||0));
     }
-    updateMonth(updated);
+
+    if (meseTarget === month) {
+      applicaSaldo(updated, item.conto, segno * parseFloat(item.importo));
+      updated[chiave] = modal.mode==="add"?[...updated[chiave],item]:updated[chiave].map(e=>e.id===item.id?item:e);
+      updateMonth(updated);
+    } else {
+      updated.uscite  = updated.uscite.filter(e=>e.id!==item.id);
+      updated.entrate = updated.entrate.filter(e=>e.id!==item.id);
+      const base = allData[meseTarget] || { ...EMPTY_MONTH, saldi: getCarriedSaldi(allData, meseTarget) };
+      const target = { ...base, uscite:[...(base.uscite||[])], entrate:[...(base.entrate||[])], saldi:{...base.saldi} };
+      target[chiave] = [...target[chiave].filter(e=>e.id!==item.id), item];
+      applicaSaldo(target, item.conto, segno * parseFloat(item.importo));
+      saveData({ ...allData, [month]: updated, [meseTarget]: target });
+    }
     closeModal();
   };
 

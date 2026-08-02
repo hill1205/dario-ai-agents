@@ -466,30 +466,45 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
     const comm = parseFloat(form.commissioni);
     if (comm > 0) item.commissioni = round2(comm); else delete item.commissioni;
     const tipo = modal.tipo;
+    const isUscita = tipo==="uscita";
+    const chiave = isUscita ? "uscite" : "entrate";
+    // Segno dell'effetto sul saldo: un'uscita scala il conto, un'entrata lo
+    // accredita.
+    const segno = isUscita ? -1 : 1;
+    const applicaSaldo = (md, contoId, delta) => {
+      if (!contoId || md.saldi[contoId] === undefined) return;
+      md.saldi[contoId] = round2((parseFloat(md.saldi[contoId])||0) + delta);
+    };
+    // Mese in cui il movimento deve essere archiviato: quello della sua DATA,
+    // non quello che si sta guardando. Senza questo, cambiare la data di una
+    // spesa da 31 luglio a 1 agosto la lasciava nei totali di luglio (la data
+    // è solo un'etichetta di ordinamento, non sposta il contenitore).
+    const meseTarget = (item.data && /^\d{4}-\d{2}/.test(item.data)) ? item.data.slice(0,7) : month;
+
     let updated = { ...monthData, saldi: {...monthData.saldi} };
-    if (tipo==="uscita") {
-      // Ripristina vecchio importo sul vecchio conto (se edit)
-      if (modal.mode==="edit" && modal.item?.conto) {
-        updated.saldi[modal.item.conto] = round2((parseFloat(updated.saldi[modal.item.conto])||0) + (parseFloat(modal.item.importo)||0));
-      }
-      // Scala nuovo importo dal nuovo conto
-      if (item.conto && updated.saldi[item.conto] !== undefined) {
-        updated.saldi[item.conto] = round2((parseFloat(updated.saldi[item.conto])||0) - parseFloat(item.importo));
-      }
-      updated.uscite = modal.mode==="add" ? [...updated.uscite, item] : updated.uscite.map(e=>e.id===item.id?item:e);
-    } else {
-      // Stessa logica delle uscite ma al contrario: l'entrata accredita
-      // il conto scelto (in edit prima si toglie il vecchio importo dal
-      // vecchio conto, poi si aggiunge il nuovo al nuovo conto).
-      if (modal.mode==="edit" && modal.item?.conto) {
-        updated.saldi[modal.item.conto] = round2((parseFloat(updated.saldi[modal.item.conto])||0) - (parseFloat(modal.item.importo)||0));
-      }
-      if (item.conto && updated.saldi[item.conto] !== undefined) {
-        updated.saldi[item.conto] = round2((parseFloat(updated.saldi[item.conto])||0) + parseFloat(item.importo));
-      }
-      updated.entrate = modal.mode==="add" ? [...updated.entrate, item] : updated.entrate.map(e=>e.id===item.id?item:e);
+    // Annulla l'effetto della versione precedente sul saldo (solo in edit e
+    // solo se il movimento stava in questo mese).
+    if (modal.mode==="edit" && modal.item?.conto) {
+      applicaSaldo(updated, modal.item.conto, -segno * (parseFloat(modal.item.importo)||0));
     }
-    updateMonth(updated);
+
+    if (meseTarget === month) {
+      // Caso normale: resta nel mese visualizzato.
+      applicaSaldo(updated, item.conto, segno * parseFloat(item.importo));
+      updated[chiave] = modal.mode==="add" ? [...updated[chiave], item] : updated[chiave].map(e=>e.id===item.id?item:e);
+      updateMonth(updated);
+    } else {
+      // Il movimento appartiene a un altro mese: lo si toglie da qui e lo si
+      // scrive nel contenitore giusto, creandolo se non esiste (con i saldi
+      // riportati dall'ultimo mese disponibile, come fa la vista mensile).
+      updated.uscite  = updated.uscite.filter(e=>e.id!==item.id);
+      updated.entrate = updated.entrate.filter(e=>e.id!==item.id);
+      const base = allData[meseTarget] || { ...EMPTY_MONTH, ...getCarriedFinancials(allData, meseTarget) };
+      const target = { ...base, uscite:[...(base.uscite||[])], entrate:[...(base.entrate||[])], saldi:{...base.saldi} };
+      target[chiave] = [...target[chiave].filter(e=>e.id!==item.id), item];
+      applicaSaldo(target, item.conto, segno * parseFloat(item.importo));
+      saveData({ ...allData, [month]: updated, [meseTarget]: target });
+    }
     closeModal();
   };
 
