@@ -7,7 +7,7 @@ import {
   DateRangePicker, VistaToggle, fmt, round2,
   getMonthLabel, getCurrentMonth, lastMonths, localISODate,
   CashFlowMiniChart, CategoryBars, costoCambio,
-  SOTTOCAT_TRASPORTI, SOTTOCAT_AUTO,
+  SOTTOCAT_TRASPORTI, SOTTOCAT_AUTO, propagaSaldiAiMesiSuccessivi,
 } from "../lib/finance-ui";
 import { useUndoStack, UndoButton } from "../lib/undo";
 
@@ -208,13 +208,17 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
     // Lo snapshot va preso PRIMA di sostituire lo stato, e non quando è la
     // funzione Annulla stessa a salvare (altrimenti si annullerebbe l'annulla).
     if (!opts.skipSnapshot) snapshot(allDataRef.current, opts.etichetta || "Modifica finanze");
-    setAllData(newAllData);
+    // Una correzione su un mese passato deve riflettersi sui saldi dei mesi
+    // successivi, altrimenti restano fotografati al valore vecchio.
+    // L'annullamento passa skipPropagazione: ripristina uno stato già completo.
+    const datiFinali = opts.skipPropagazione ? newAllData : propagaSaldiAiMesiSuccessivi(allDataRef.current, newAllData);
+    setAllData(datiFinali);
     setSaveStatus("saving");
     try {
       const res = await fetch("/api/bruno-finance", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ data: newAllData }),
+        body: JSON.stringify({ data: datiFinali }),
       });
       setSaveStatus(res.ok ? "saved" : "error");
     } catch { setSaveStatus("error"); }
@@ -226,7 +230,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
   const handleUndo = () => {
     const voce = undo();
     if (!voce) return;
-    saveData(voce.stato, { skipSnapshot:true });
+    saveData(voce.stato, { skipSnapshot:true, skipPropagazione:true });
   };
 
   const updateMonth = (updated) => {

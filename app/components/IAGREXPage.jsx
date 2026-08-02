@@ -7,7 +7,7 @@ import {
   DateRangePicker, VistaToggle, fmt, round2,
   getMonthLabel, getCurrentMonth, lastMonths, localISODate,
   CashFlowMiniChart, CategoryBars, costoCambio,
-  SOTTOCAT_TRASPORTI, SOTTOCAT_AUTO,
+  SOTTOCAT_TRASPORTI, SOTTOCAT_AUTO, propagaSaldiAiMesiSuccessivi,
 } from "../lib/finance-ui";
 import { useUndoStack, UndoButton } from "../lib/undo";
 
@@ -162,13 +162,17 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
       return;
     }
     if (!opts.skipSnapshot) snapshot(allDataRef.current, opts.etichetta || "Modifica IAGREX");
-    setAllData(newAllData);
+    // Una correzione su un mese passato deve riflettersi sui saldi dei mesi
+    // successivi, altrimenti restano fotografati al valore vecchio.
+    // L'annullamento passa skipPropagazione: ripristina uno stato già completo.
+    const datiFinali = opts.skipPropagazione ? newAllData : propagaSaldiAiMesiSuccessivi(allDataRef.current, newAllData);
+    setAllData(datiFinali);
     setSaveStatus("saving");
     try {
       const res = await fetch("/api/iagrex-finance", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ data: newAllData }),
+        body: JSON.stringify({ data: datiFinali }),
       });
       setSaveStatus(res.ok?"saved":"error");
     } catch { setSaveStatus("error"); }
@@ -178,7 +182,7 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
   const handleUndo = () => {
     const voce = undo();
     if (!voce) return;
-    saveData(voce.stato, { skipSnapshot:true });
+    saveData(voce.stato, { skipSnapshot:true, skipPropagazione:true });
   };
 
   const updateMonth = (updated) => saveData({...allData,[month]:updated});

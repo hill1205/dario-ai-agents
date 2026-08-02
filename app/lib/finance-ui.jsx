@@ -377,3 +377,62 @@ export function CategoryBars({ data, total, color, fs, fmt }) {
     );
   });
 }
+
+// ---------------------------------------------------------------------------
+// Propagazione dei saldi ai mesi successivi.
+//
+// PERCHE' ESISTE
+// Ogni mese conserva i propri saldi, fotografati quando il mese viene creato.
+// Finché il mese successivo non esiste, correggere una spesa del mese in corso
+// funziona; ma appena esiste (es. agosto), una correzione retroattiva a luglio
+// aggiornava solo luglio e agosto restava disallineato — il 2026-08-02 questo
+// ha prodotto 4,34€ di scarto su BdM.
+//
+// COME FUNZIONA
+// Si confrontano i saldi prima e dopo il salvataggio: per ogni mese che è
+// cambiato si calcola la differenza per conto e la si somma a TUTTI i mesi
+// successivi già esistenti. In pratica una correzione nel passato scorre in
+// avanti, come succederebbe su un estratto conto reale.
+//
+// I mesi che l'operazione ha già modificato per conto proprio vengono saltati:
+// è il caso di un movimento spostato da luglio ad agosto, dove entrambi i mesi
+// sono già stati sistemati e sommare di nuovo la differenza raddoppierebbe
+// l'effetto.
+// ---------------------------------------------------------------------------
+export function propagaSaldiAiMesiSuccessivi(prevAll, nextAll) {
+  const isMese = (k) => /^\d{4}-\d{2}$/.test(k);
+  const mesi = Object.keys(nextAll || {}).filter(isMese).sort();
+  if (mesi.length < 2) return nextAll;
+
+  const saldiDi = (all, m) => (all && all[m] && all[m].saldi) || null;
+  const toccati = mesi.filter(m => JSON.stringify(saldiDi(prevAll, m)) !== JSON.stringify(saldiDi(nextAll, m)));
+  if (toccati.length === 0) return nextAll;
+
+  const out = { ...nextAll };
+  for (const m of toccati) {
+    const prima = saldiDi(prevAll, m);
+    const dopo  = saldiDi(out, m);
+    // Mese appena creato: non c'è un "prima", quindi nessuna differenza da
+    // riportare in avanti (i suoi saldi sono già il riporto del mese prima).
+    if (!prima || !dopo) continue;
+
+    const delta = {};
+    let qualcosaDaPropagare = false;
+    for (const conto of new Set([...Object.keys(prima), ...Object.keys(dopo)])) {
+      const d = round2((parseFloat(dopo[conto]) || 0) - (parseFloat(prima[conto]) || 0));
+      if (Math.abs(d) > 0.001) { delta[conto] = d; qualcosaDaPropagare = true; }
+    }
+    if (!qualcosaDaPropagare) continue;
+
+    for (const succ of mesi) {
+      if (succ <= m || toccati.includes(succ)) continue;
+      const saldiSucc = { ...(out[succ].saldi || {}) };
+      for (const [conto, d] of Object.entries(delta)) {
+        if (saldiSucc[conto] === undefined) continue; // conto non usato in quel mese
+        saldiSucc[conto] = round2((parseFloat(saldiSucc[conto]) || 0) + d);
+      }
+      out[succ] = { ...out[succ], saldi: saldiSucc };
+    }
+  }
+  return out;
+}
