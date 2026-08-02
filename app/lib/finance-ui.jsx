@@ -26,6 +26,31 @@ export const MESI_BREVI = ["gen","feb","mar","apr","mag","giu","lug","ago","set"
 // costi dell'auto. Le prime due voci compongono il "totale auto" nel Recap.
 export const SOTTOCAT_TRASPORTI = ["Amministrativo auto","Rifornimento + manutenzione","Bolt/Uber"];
 export const SOTTOCAT_AUTO = ["Amministrativo auto","Rifornimento + manutenzione"];
+// Utenze: separare le bollette serve a rispondere a "sto consumando di più?",
+// domanda che sul totale Utenze non si può fare (luce che sale e gas che
+// scende si annullano a vicenda).
+export const SOTTOCAT_UTENZE = ["Luce","Gas","Internet / Wifi","Acqua e condominio"];
+// Mappa categoria -> sottocategorie disponibili: così aggiungere una categoria
+// con sottocategorie non richiede di toccare form, CSV e recap uno per uno.
+export const SOTTOCATEGORIE = {
+  "Trasporti": SOTTOCAT_TRASPORTI,
+  "Utenze":    SOTTOCAT_UTENZE,
+};
+// Unità di misura del consumo, per sottocategoria. Registrare il consumo
+// accanto all'importo è l'unico modo per distinguere "ho consumato di più" da
+// "hanno alzato la tariffa": il rapporto importo/consumo è il costo unitario,
+// e quello si muove solo se cambia il prezzo.
+// Il valore qui è solo il default: sul singolo movimento resta modificabile,
+// perché fornitori diversi fatturano il gas in m³ o in kWh.
+// Gas in kWh e non in m³: E.ON Romania fattura in kWh, convertendo i metri
+// cubi letti al contatore con il potere calorifico (Pcs ~10,6 kWh/m³). Chi
+// avesse un fornitore che fattura in m³ può cambiare unità sul movimento.
+export const UNITA_CONSUMO = {
+  "Luce":              "kWh",
+  "Gas":               "kWh",
+  "Acqua e condominio": "m³",
+};
+export const UNITA_DISPONIBILI = ["kWh", "m³", "GB", "litri"];
 
 export const MESI_LUNGHI = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
 

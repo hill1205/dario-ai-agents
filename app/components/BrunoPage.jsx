@@ -7,12 +7,15 @@ import {
   DateRangePicker, VistaToggle, fmt, round2,
   getMonthLabel, getCurrentMonth, lastMonths, localISODate,
   CashFlowMiniChart, CategoryBars, costoCambio,
-  SOTTOCAT_TRASPORTI, SOTTOCAT_AUTO, propagaSaldiAiMesiSuccessivi,
+  SOTTOCAT_TRASPORTI, SOTTOCAT_AUTO, SOTTOCAT_UTENZE, SOTTOCATEGORIE,
+  UNITA_CONSUMO, UNITA_DISPONIBILI, propagaSaldiAiMesiSuccessivi,
 } from "../lib/finance-ui";
 import { useUndoStack, UndoButton } from "../lib/undo";
 import {
   applicaRicorrenze, debitoResiduo, ratePagate, prossimaScadenza, occorrenze,
   pianoRate, rateTotaliDi, importoRata, totaleRate, maxirataInfo,
+  importoCerto, storicoRicorrenza, daConfermare, mediaStorico, importoAtteso,
+  riepilogoAnnuale,
 } from "../lib/ricorrenze";
 
 // Revolut è diviso in due saldi (EUR/RON) perché Dario spende in RON da
@@ -327,6 +330,31 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
   },{});
   const totTrasporti = Object.values(trasportiBySub).reduce((s,v)=>s+v,0);
   const totAuto = SOTTOCAT_AUTO.reduce((s,k)=>s+(trasportiBySub[k]||0),0);
+  // Stesso dettaglio per le Utenze: sul totale bolletta luce che sale e gas
+  // che scende si annullano, quindi separarle è l'unico modo per accorgersi
+  // di un consumo che cresce.
+  const utenzeBySub = monthData.uscite.filter(e=>isReal(e)&&e.categoria==="Utenze").reduce((acc,e)=>{
+    const k = e.sottocategoria || "Senza sottocategoria";
+    acc[k]=(acc[k]||0)+toEur(e); return acc;
+  },{});
+  const totUtenze = Object.values(utenzeBySub).reduce((s,v)=>s+v,0);
+  // Stesse sottocategorie nel mese precedente: serve la freccia "+12% sulla
+  // luce" accanto alla cifra, che è la domanda vera ("sto consumando di più?").
+  const mesePrecedente = (()=>{ const [y,m]=month.split("-").map(Number); const d=new Date(y,m-2); return `${d.getFullYear()}-${pad2(d.getMonth()+1)}`; })();
+  const utenzeBySubPrec = (allData[mesePrecedente]?.uscite||[]).filter(e=>isReal(e)&&e.categoria==="Utenze").reduce((acc,e)=>{
+    const k = e.sottocategoria || "Senza sottocategoria";
+    acc[k]=(acc[k]||0)+toEur(e); return acc;
+  },{});
+  // Consumi del mese per sottocategoria (kWh, m³), con l'unità: accanto alla
+  // spesa dicono se è aumentato il consumo o solo la tariffa.
+  const consumiBySub = monthData.uscite.filter(e=>isReal(e)&&e.categoria==="Utenze"&&parseFloat(e.consumo)>0).reduce((acc,e)=>{
+    const k = e.sottocategoria || "Senza sottocategoria";
+    acc[k] = acc[k] || { consumo:0, unita:e.unita||"", importoNativo:0, quotaFissa:0 };
+    acc[k].consumo += parseFloat(e.consumo)||0;
+    acc[k].importoNativo += parseFloat(e.importo)||0;
+    acc[k].quotaFissa += parseFloat(e.quotaFissa)||0;
+    return acc;
+  },{});
   const totPatrimonio = Object.entries(monthData.saldi||{}).reduce((s,[id,v])=>{
     const val = parseFloat(v)||0;
     const isRon = CONTI_BY_ID[id]?.currency === "RON";
@@ -364,6 +392,88 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
   const oggiStr = localISODate();
   const finanziamenti = ricorrenze.filter(r=>r.tipo==="finanziamento");
   const abbonamenti   = ricorrenze.filter(r=>r.tipo==="abbonamento");
+  // Spese fisse: affitto e bollette. Importo diverso ogni mese, quindi l'app
+  // non le registra da sola — ricorda che sono dovute e ti fa scrivere solo
+  // la cifra (vedi importoCerto in lib/ricorrenze.js).
+  const speseFisse    = ricorrenze.filter(r=>r.tipo==="spesa");
+
+  // Importo atteso di una spesa fissa, nelle due valute che servono davvero.
+  // Due casi opposti e altrettanto reali:
+  //   affitto  -> fisso 450€, ma pagato in RON: cambia il RON, non l'euro
+  //   bollette -> fisse in RON (l'importo lo fa il consumo), variabili in euro
+  // `importoValuta` sulla ricorrenza dice in quale delle due è scritto
+  // l'importo atteso; l'altra si ricava al cambio del giorno.
+  const attesoInfo = (r, storico) => {
+    const dich = parseFloat(r.importo)||0;
+    const ccyConto = contoCurrency(r.conto);
+    if (dich > 0) {
+      const inEuro = (r.importoValuta || ccyConto) === "€";
+      return {
+        eur:    inEuro ? dich : dich/rate,
+        nativo: (ccyConto==="RON" && inEuro) ? dich*rate : dich,
+        valuta: inEuro ? "€" : ccyConto,
+        stimato: false,
+      };
+    }
+    // Senza importo dichiarato si usa la media dello storico, che è sempre
+    // nella valuta del conto (è quello che è stato realmente addebitato).
+    const media = mediaStorico(storico);
+    return { eur: toEurVal(media, r.conto), nativo: media, valuta: ccyConto, stimato: true };
+  };
+
+  // Storico e statistiche per ricorrenza, calcolati una volta sola.
+  const statsRicorrenza = (r) => {
+    const storico = storicoRicorrenza(allData, r.id);
+    const media   = mediaStorico(storico);
+    const ultimo  = storico.at(-1) || null;
+    const penultimo = storico.length>1 ? storico.at(-2) : null;
+    const deltaPct = (ultimo && penultimo && penultimo.importo>0)
+      ? Math.round(((ultimo.importo - penultimo.importo)/penultimo.importo)*100) : null;
+    // Stesso mese dell'anno precedente: sulle bollette è il confronto che
+    // conta davvero, perché il consumo è stagionale (il gas di gennaio non si
+    // paragona a quello di luglio).
+    const annoScorso = ultimo ? storico.find(s=>s.ym === `${Number(ultimo.ym.slice(0,4))-1}-${ultimo.ym.slice(5,7)}`) : null;
+    const deltaAnnoPct = (ultimo && annoScorso && annoScorso.importo>0)
+      ? Math.round(((ultimo.importo - annoScorso.importo)/annoScorso.importo)*100) : null;
+    // Le percentuali sopra sono nella valuta del conto: su una bolletta in RON
+    // misurano il consumo, senza il rumore del cambio. In euro serve invece il
+    // valore, perché è quello che pesa sul budget.
+    const isRon    = contoCurrency(r.conto)==="RON";
+    const mediaEur = toEurVal(media, r.conto);
+    const ultimoEur = ultimo ? toEurVal(ultimo.importo, r.conto) : null;
+    return { storico, media, mediaEur, ultimo, ultimoEur, penultimo, deltaPct, annoScorso, deltaAnnoPct, isRon };
+  };
+
+  // Promemoria: scadenze passate delle spese fisse senza un movimento
+  // corrispondente. È la lista "quanto hai pagato questo mese?".
+  const promemoriaSpese = speseFisse.flatMap(r=>{
+    const storico = storicoRicorrenza(allData, r.id);
+    const registrate = new Set(storico.map(s=>s.ym));
+    return daConfermare(r, oggiStr, registrate, { saltati: allData.ricorrenzeSaltate||[] })
+      .map(occ=>({ r, occ, atteso: attesoInfo(r, storico) }));
+  });
+
+  // Apre il form uscita già compilato: resta da scrivere solo l'importo.
+  const openRegistraSpesa = (r, occ) => {
+    setForm({
+      descrizione: r.nome,
+      importo: "",
+      categoria: r.categoria || "Utenze",
+      sottocategoria: r.sottocategoria || "",
+      conto: r.conto,
+      data: occ.data,
+      ricorrenzaId: r.id,
+      viaggio: "", _viaggioManual: true,
+    });
+    setCustomCat("");
+    setModal({ tipo:"uscita", mode:"add" });
+  };
+  // "Questo mese non l'ho pagata": toglie il promemoria senza inventare una
+  // spesa, riusando la stessa lista dei saltati degli addebiti automatici.
+  const saltaPromemoria = (r, occ) => {
+    const id = `ric-${r.id}-${occ.ym}`;
+    saveData({ ...allData, ricorrenzeSaltate: [...new Set([...(allData.ricorrenzeSaltate||[]), id])] }, { etichetta:"Salta promemoria spesa" });
+  };
 
   // Debito residuo totale in EUR: le rate sono nella valuta del conto che le
   // paga, quindi vanno convertite prima di sommarle (stessa regola dei saldi).
@@ -374,7 +484,11 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
   const impegnoMensileEur = ricorrenze.reduce((s,r)=>{
     if (r.attiva===false || r.chiusa) return s;
     const p = prossimaScadenza(r, oggiStr);
-    return p ? s + toEurVal(p.importo || r.importo, r.conto) : s;
+    if (!p) return s;
+    // Le spese fisse entrano con l'importo atteso, che può essere dichiarato
+    // in euro anche se il conto è in RON (l'affitto): attesoInfo lo sa.
+    if (!importoCerto(r)) return s + attesoInfo(r, storicoRicorrenza(allData, r.id)).eur;
+    return s + toEurVal(p.importo || r.importo, r.conto);
   }, 0);
 
   // Maxirata: finestra per chiudere il finanziamento a metà piano. Si avvisa da
@@ -390,7 +504,10 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
   const ricorrenzeResiduaMese = isCurrentMonthView
     ? ricorrenze.filter(r=>r.attiva!==false && !r.chiusa).reduce((s,r)=>{
         const p = prossimaScadenza(r, oggiStr);
-        return (p && p.ym===month) ? s + toEurVal(p.importo || r.importo, r.conto) : s;
+        if (!p || p.ym!==month) return s;
+        return s + (importoCerto(r)
+          ? toEurVal(p.importo || r.importo, r.conto)
+          : attesoInfo(r, storicoRicorrenza(allData, r.id)).eur);
       },0)
     : 0;
 
@@ -404,7 +521,11 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
       if (r.attiva===false || r.chiusa) continue;
       const p = prossimaScadenza(r, oggiStr);
       if (!p || p.data > limiteStr) continue;
-      const imp = parseFloat(p.importo || r.importo)||0;
+      // Confronto col saldo del conto: serve l'importo nella valuta del conto,
+      // che per una spesa dichiarata in euro va riconvertito (attesoInfo.nativo).
+      const imp = importoCerto(r)
+        ? (parseFloat(p.importo || r.importo)||0)
+        : attesoInfo(r, storicoRicorrenza(allData, r.id)).nativo;
       perConto[r.conto] = perConto[r.conto] || { totale:0, voci:[], data:p.data };
       perConto[r.conto].totale += imp;
       perConto[r.conto].voci.push(`${r.nome} ${fmt(imp)}${contoCurrency(r.conto)==="RON"?" RON":"€"} il ${p.data.slice(8)}/${p.data.slice(5,7)}`);
@@ -454,6 +575,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
   const openRicAdd = (tipo) => {
     setRicForm({
       tipo, nome:"", ente:"", conto: CONTI[0].id, importo:"",
+      sottocategoria: "",
       giorno: tipo==="finanziamento" ? 15 : new Date().getDate(),
       dataInizio: localISODate(), rateTotali: "",
       periodi: [], maxirata: null,
@@ -464,7 +586,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
       // residuo si calcolano dalle date, quindi saltarli non falsa nulla.
       registraArretrati: false,
       importoFinanziato:"", taeg:"",
-      categoria: tipo==="finanziamento" ? "Finanziamenti" : "Abbonamenti",
+      categoria: tipo==="finanziamento" ? "Finanziamenti" : tipo==="spesa" ? "Utenze" : "Abbonamenti",
       attiva:true,
     });
     setRicModal({ mode:"add", tipo });
@@ -489,8 +611,10 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
 
   const saveRicorrenza = () => {
     if (!ricForm.nome?.trim() || !ricForm.dataInizio) return;
-    // Con gli scaglioni l'importo base può restare vuoto: lo prende dal primo periodo.
-    if (!(parseFloat(ricForm.importo)>0) && !periodiPuliti.length) return;
+    // Con gli scaglioni l'importo base può restare vuoto: lo prende dal primo
+    // periodo. Per le spese fisse può restare vuoto sempre: l'importo atteso è
+    // facoltativo e in mancanza si usa la media dello storico.
+    if (ricForm.tipo!=="spesa" && !(parseFloat(ricForm.importo)>0) && !periodiPuliti.length) return;
     const g = parseInt(ricForm.giorno,10);
     if (!(g>=1 && g<=31)) return;
     const maxi = (parseFloat(ricForm.maxirataImporto)>0 && ricForm.maxirataEntro)
@@ -514,7 +638,12 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
       maxirata: maxi,
       importoFinanziato: parseFloat(ricForm.importoFinanziato) || 0,
       taeg: parseFloat(ricForm.taeg) || 0,
-      categoria: ricForm.categoria || (ricForm.tipo==="finanziamento" ? "Finanziamenti" : "Abbonamenti"),
+      categoria: ricForm.categoria || (ricForm.tipo==="finanziamento" ? "Finanziamenti" : ricForm.tipo==="spesa" ? "Utenze" : "Abbonamenti"),
+      // Sottocategoria (luce/gas/wifi): viaggia sulla ricorrenza e finisce
+      // precompilata sul movimento quando confermi l'importo.
+      sottocategoria: SOTTOCATEGORIE[ricForm.categoria]?.includes(ricForm.sottocategoria) ? ricForm.sottocategoria : "",
+      // In quale valuta è scritto l'importo atteso (vedi attesoInfo).
+      importoValuta: ricForm.tipo==="spesa" ? (ricForm.importoValuta || contoCurrency(ricForm.conto)) : undefined,
       attiva: ricForm.attiva !== false,
       chiusa: ricForm.chiusa || null,
       creata: ricForm.creata || new Date().toISOString(),
@@ -710,9 +839,28 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
     // si salva come undefined (JSON lo scarta) invece di stringa vuota.
     delete item._viaggioManual;
     if (!item.viaggio) delete item.viaggio;
-    // La sottocategoria ha senso solo dentro Trasporti: se la categoria è
-    // cambiata (o la sottocategoria non è stata scelta) non va salvata.
-    if (cat!=="Trasporti" || !item.sottocategoria) delete item.sottocategoria;
+    // La sottocategoria vale solo per le categorie che ne hanno (Trasporti,
+    // Utenze): se la categoria è cambiata, o la sottocategoria non appartiene
+    // a quella categoria, non va salvata.
+    if (!SOTTOCATEGORIE[cat]?.includes(item.sottocategoria)) delete item.sottocategoria;
+    // Consumo della bolletta (kWh, m³): tenuto insieme all'importo perché da
+    // soli non rispondono alla domanda vera — è il loro rapporto (costo
+    // unitario) a dire se è cambiato il consumo o la tariffa.
+    const cons = parseFloat(item.consumo);
+    if (cons > 0 && item.sottocategoria) {
+      item.consumo = round2(cons);
+      item.unita = item.unita || UNITA_CONSUMO[item.sottocategoria] || "";
+      // Quota fissa (canoni/servizi indipendenti dal consumo, es. "Protect
+      // 360 Light" 13,20 lei sulle bollette luce): senza toglierla il costo
+      // unitario cresce nei mesi di basso consumo anche a tariffa invariata.
+      const qf = parseFloat(item.quotaFissa);
+      if (qf > 0 && qf < parseFloat(item.importo)) item.quotaFissa = round2(qf); else delete item.quotaFissa;
+      // Periodo fatturato: le bollette non seguono il mese solare (quella del
+      // gas di luglio copre 16/06-11/07). Senza le date, confrontare due
+      // bollette di durata diversa dice poco; con le date si ricava il
+      // consumo giornaliero, che invece è confrontabile.
+      if (!item.periodoDa || !item.periodoA || item.periodoA < item.periodoDa) { delete item.periodoDa; delete item.periodoA; }
+    } else { delete item.consumo; delete item.unita; delete item.periodoDa; delete item.periodoA; delete item.quotaFissa; }
     // "Di cui commissioni": quota informativa GIÀ inclusa nell'importo
     // (es. pagamento in HUF con carta €: importo = totale addebitato,
     // commissioni = la parte presa dalla banca per il cambio). Non tocca
@@ -998,7 +1146,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
   // sempre a quello che l'utente sta guardando. Generato lato client con
   // un Blob, senza passare dal server.
   const exportCSV = (items, tipo) => {
-    const header = ["Data","Descrizione","Categoria","Sottocategoria","Conto","Importo","Valuta","Viaggio","Di cui commissioni"];
+    const header = ["Data","Descrizione","Categoria","Sottocategoria","Conto","Importo","Valuta","Viaggio","Di cui commissioni","Consumo","Unità","Tariffa (netto quote fisse)","Quota fissa","Periodo da","Periodo a"];
     const rows = items.map(e => [
       e.data || "",
       (e.descrizione||"").replace(/"/g,'""'),
@@ -1009,6 +1157,12 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
       contoCurrency(e.conto)==="RON"?"RON":"EUR",
       (viaggioById[e.viaggio]?.nome || "").replace(/"/g,'""'),
       e.commissioni || "",
+      e.consumo || "",
+      e.unita || "",
+      (parseFloat(e.consumo)>0 ? ((parseFloat(e.importo)-(parseFloat(e.quotaFissa)||0))/parseFloat(e.consumo)).toFixed(4) : ""),
+      e.quotaFissa || "",
+      e.periodoDa || "",
+      e.periodoA || "",
     ]);
     const csv = [header, ...rows].map(r => r.map(v => `"${v}"`).join(";")).join("\n");
     const blob = new Blob(["﻿"+csv], { type:"text/csv;charset=utf-8;" });
@@ -1090,6 +1244,21 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
             <button onClick={()=>setAutoInfo(null)} style={{marginLeft:8,background:"none",border:"none",color:"#10B981",textDecoration:"underline",cursor:"pointer",fontSize:fs-4,padding:0}}>ok</button>
           </div>
         )}
+        {/* Spese fisse da confermare: l'app sa che sono dovute ma non quanto,
+            quindi chiede invece di inventare una cifra. */}
+        {promemoriaSpese.map(({r,occ,atteso})=>(
+          <div key={`${r.id}-${occ.ym}`} style={{marginTop:8,padding:"8px 10px",borderRadius:8,border:"1px solid #06B6D440",background:"#06B6D40D",color:"#06B6D4",fontSize:fs-4,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+            <span>
+              🧾 <b>{r.nome}</b> era dovuta il {occ.data.slice(8)}/{occ.data.slice(5,7)}
+              {atteso.eur>0 && <> — di solito ~<b>{fmt(atteso.nativo)}{contoCurrency(r.conto)==="RON"?" RON":"€"}</b>
+                {contoCurrency(r.conto)==="RON" && <> (≈{fmt(atteso.eur)}€)</>}</>}. Quanto hai pagato?
+            </span>
+            <span style={{ display:"flex", gap:6 }}>
+              <button onClick={()=>openRegistraSpesa(r, occ)} style={{ padding:"4px 12px", borderRadius:6, border:"none", background:"#06B6D4", color:"#fff", cursor:"pointer", fontSize:11, fontWeight:700 }}>Registra</button>
+              <button onClick={()=>saltaPromemoria(r, occ)} style={{ padding:"4px 10px", borderRadius:6, border:"1px solid #06B6D440", background:"transparent", color:"#06B6D4", cursor:"pointer", fontSize:11 }}>Non pagata</button>
+            </span>
+          </div>
+        ))}
         {/* Maxirata: si avvisa da 120 giorni prima della scadenza della
             finestra di richiesta — abbastanza per decidere e mettere da parte
             i soldi, non così presto da diventare rumore di fondo. */}
@@ -1250,7 +1419,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                   <div key={e.id} style={{ display:"grid", gridTemplateColumns:"1fr auto auto auto", gap:0, borderTop:i===0?"none":"1px solid var(--c-border)", background:flaggedIds.has(e.id)?"#F59E0B1F":(i%2===0?"var(--c-panel)":"var(--c-panel2)"), boxShadow:flaggedIds.has(e.id)?"inset 3px 0 0 #F59E0B":"none" }}>
                     <Cell style={{ flexDirection:"column", alignItems:"flex-start", gap:2 }}>
                       <span style={{ color:"var(--c-text)" }}>{flaggedIds.has(e.id)?"⚠️ ":""}{e.descrizione}</span>
-                      <span style={{ fontSize:fs-4, color:"var(--c-text-faint)" }}>{e.data?`${e.data}`:""}{e.data?" · ":""}{e.categoria}{e.sottocategoria?<span style={{color:"#F97316"}}> › {e.sottocategoria}</span>:""}{e.conto?` · ${CONTI_BY_ID[e.conto]?.label||e.conto}`:""}{e.viaggio&&viaggioById[e.viaggio]?<span style={{color:"#F59E0B"}}> · ✈️ {viaggioById[e.viaggio].nome}</span>:""}{parseFloat(e.commissioni)>0?<span style={{color:"#06B6D4"}}> · di cui {fmt(e.commissioni)}{contoCurrency(e.conto)==="RON"?" RON":"€"} commissioni</span>:""}{e.noSaldo?<span style={{color:"#94A3B8"}} title="Rata/canone arretrato registrato come storico: il saldo del conto non è stato toccato, perché lo avevi già scritto a mano dalla banca"> · 📎 storico, saldo non toccato</span>:""}</span>
+                      <span style={{ fontSize:fs-4, color:"var(--c-text-faint)" }}>{e.data?`${e.data}`:""}{e.data?" · ":""}{e.categoria}{e.sottocategoria?<span style={{color:"#F97316"}}> › {e.sottocategoria}</span>:""}{e.conto?` · ${CONTI_BY_ID[e.conto]?.label||e.conto}`:""}{e.viaggio&&viaggioById[e.viaggio]?<span style={{color:"#F59E0B"}}> · ✈️ {viaggioById[e.viaggio].nome}</span>:""}{parseFloat(e.commissioni)>0?<span style={{color:"#06B6D4"}}> · di cui {fmt(e.commissioni)}{contoCurrency(e.conto)==="RON"?" RON":"€"} commissioni</span>:""}{e.noSaldo?<span style={{color:"#94A3B8"}} title="Rata/canone arretrato registrato come storico: il saldo del conto non è stato toccato, perché lo avevi già scritto a mano dalla banca"> · 📎 storico, saldo non toccato</span>:""}{parseFloat(e.consumo)>0?<span style={{color:"#06B6D4"}} title="Consumo del periodo e tariffa al netto delle quote fisse: è la tariffa che dice se è aumentato il prezzo"> · ⚡ {fmt(e.consumo)} {e.unita} · {((parseFloat(e.importo)-(parseFloat(e.quotaFissa)||0))/parseFloat(e.consumo)).toFixed(3)}{contoCurrency(e.conto)==="RON"?" RON":"€"}/{e.unita}{parseFloat(e.periodoDa)!==undefined&&e.periodoDa?` · ${e.periodoDa.slice(8)}/${e.periodoDa.slice(5,7)}→${e.periodoA.slice(8)}/${e.periodoA.slice(5,7)}`:""}</span>:""}</span>
                     </Cell>
                     {/* Le conversioni non sono spese vere: mostrate in viola con ↔
                         invece del rosso -, così la lista non le fa sembrare uscite. */}
@@ -1417,7 +1586,8 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
               const rataOra = prossima?.importo || parseFloat(r.importo) || 0;
               const pausa   = r.attiva===false && !r.chiusa;
               const pct     = rateTot ? Math.round((pagate/rateTot)*100) : null;
-              const colore  = r.chiusa ? "#10B981" : pausa ? "var(--c-text-faint)" : r.tipo==="finanziamento" ? "#EF4444" : "#3B82F6";
+              const colore  = r.chiusa ? "#10B981" : pausa ? "var(--c-text-faint)"
+                : r.tipo==="finanziamento" ? "#EF4444" : r.tipo==="spesa" ? "#06B6D4" : "#3B82F6";
               return (
                 <div style={{ background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10, padding:"12px 14px", opacity:(pausa||r.chiusa)?0.65:1 }}>
                   <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:10, flexWrap:"wrap" }}>
@@ -1434,7 +1604,20 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                       </div>
                     </div>
                     <div style={{ textAlign:"right" }}>
-                      <div style={{ fontSize:fs+1, fontWeight:800, color:colore }}>-{fmt(rataOra)}{ccy(r)}</div>
+                      {(()=>{
+                        if (importoCerto(r)) return (
+                          <div style={{ fontSize:fs+1, fontWeight:800, color:colore }}>-{fmt(rataOra)}{ccy(r)}</div>
+                        );
+                        const a = attesoInfo(r, storicoRicorrenza(allData, r.id));
+                        return (
+                          <>
+                            <div style={{ fontSize:fs+1, fontWeight:800, color:colore }}>~{fmt(a.nativo)}{ccy(r)}</div>
+                            {contoCurrency(r.conto)==="RON" && a.eur>0 && (
+                              <div style={{ fontSize:fs-5, color:"var(--c-text-faint)" }}>≈ {fmt(a.eur)}€{a.valuta==="€"?" (fisso in €)":""}</div>
+                            )}
+                          </>
+                        );
+                      })()}
                       {prossima && <div style={{ fontSize:fs-5, color:"var(--c-text-faintest)", marginTop:2 }}>prossimo: {prossima.data.slice(8)}/{prossima.data.slice(5,7)}</div>}
                     </div>
                   </div>
@@ -1470,6 +1653,94 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                       )}
                     </div>
                   )}
+
+                  {/* Andamento: le ultime rilevazioni con importo e mese
+                      sempre scritti (non solo la forma della barra), più i
+                      confronti che rispondono a "sto pagando di più?". */}
+                  {!importoCerto(r) && (()=>{
+                    const st = statsRicorrenza(r);
+                    if (!st.storico.length) return (
+                      <div style={{ fontSize:fs-5, color:"var(--c-text-faintest)", marginTop:8 }}>
+                        Nessun pagamento registrato ancora: al prossimo {r.giorno} del mese te lo chiedo io.
+                      </div>
+                    );
+                    const ultimi = st.storico.slice(-12);
+                    const max = Math.max(...ultimi.map(x=>x.importo), 1);
+                    return (
+                      <div style={{ marginTop:10 }}>
+                        <div style={{ fontSize:fs-5, color:"var(--c-text-faint)", marginBottom:6 }}>
+                          Ultimo: <b style={{ color:"var(--c-text)" }}>{fmt(st.ultimo.importo)}{ccy(r)}</b>
+                          {st.isRon && <b style={{ color:"var(--c-text)" }}> ≈ {fmt(st.ultimoEur)}€</b>} ({getMonthLabel(st.ultimo.ym)})
+                          {st.deltaPct!=null && <span style={{ marginLeft:6, fontWeight:700, color: st.deltaPct<=0?"#10B981":"#EF4444" }}>{st.deltaPct>=0?"+":""}{st.deltaPct}% sul mese prima</span>}
+                          {st.deltaAnnoPct!=null && <span style={{ marginLeft:6, fontWeight:700, color: st.deltaAnnoPct<=0?"#10B981":"#EF4444" }}>· {st.deltaAnnoPct>=0?"+":""}{st.deltaAnnoPct}% su un anno fa</span>}
+                          <span style={{ marginLeft:6, color:"var(--c-text-faintest)" }}>· media {fmt(st.media)}{ccy(r)}{st.isRon?` ≈ ${fmt(st.mediaEur)}€`:""}</span>
+                        </div>
+                        {st.isRon && (
+                          <div style={{ fontSize:fs-6, color:"var(--c-text-faintest)", marginBottom:6 }}>
+                            Le percentuali sono calcolate in RON (il consumo vero, senza il rumore del cambio); gli euro sono al cambio di oggi ÷{rate.toFixed(2)}.
+                          </div>
+                        )}
+                        {/* Costo unitario: il numero che separa "consumo di
+                            più" da "hanno alzato la tariffa". */}
+                        {(()=>{
+                          const conConsumo = st.storico.filter(x=>x.consumo>0);
+                          if (conConsumo.length<2) return null;
+                          // Tariffa al netto della quota fissa: vedi costoUnitario().
+                          const cu = (x)=>(x.importo-(x.quotaFissa||0))/x.consumo;
+                          const ult = conConsumo.at(-1), pen = conConsumo.at(-2);
+                          const dTariffa = Math.round(((cu(ult)-cu(pen))/cu(pen))*100);
+                          const dConsumo = Math.round(((ult.consumo-pen.consumo)/pen.consumo)*100);
+                          const u = ult.unita || "";
+                          return (
+                            <div style={{ fontSize:fs-5, color:"var(--c-text-faint)", marginBottom:6, padding:"6px 8px", background:"var(--c-panel2)", borderRadius:6 }}>
+                              Consumo <b style={{ color:"var(--c-text)" }}>{fmt(ult.consumo)} {u}</b>
+                              <span style={{ marginLeft:6, fontWeight:700, color:dConsumo<=0?"#10B981":"#EF4444" }}>{dConsumo>=0?"+":""}{dConsumo}%</span>
+                              <span style={{ marginLeft:10 }}>Tariffa <b style={{ color:"var(--c-text)" }}>{cu(ult).toFixed(3)} {ccy(r)==="€"?"€":"RON"}/{u}</b></span>
+                              <span style={{ marginLeft:6, fontWeight:700, color:dTariffa<=0?"#10B981":"#EF4444" }}>{dTariffa>=0?"+":""}{dTariffa}%</span>
+                              <span style={{ display:"block", color:"var(--c-text-faintest)", marginTop:2 }}>
+                                {Math.abs(dConsumo)>Math.abs(dTariffa) ? "La differenza viene soprattutto dal consumo." : Math.abs(dTariffa)>Math.abs(dConsumo) ? "La differenza viene soprattutto dalla tariffa." : "Consumo e tariffa si muovono insieme."}
+                              </span>
+                            </div>
+                          );
+                        })()}
+                        <div style={{ display:"flex", alignItems:"flex-end", gap:4, height:56 }}>
+                          {ultimi.map(x=>(
+                            <div key={x.ym} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:2, minWidth:0 }}>
+                              <span style={{ fontSize:fs-6, color:"var(--c-text-faint)", whiteSpace:"nowrap" }}>{fmt(x.importo)}</span>
+                              <div title={`${x.data}: ${fmt(x.importo)}${ccy(r)}${st.isRon?` ≈ ${fmt(toEurVal(x.importo, r.conto))}€`:""}`}
+                                style={{ width:"100%", height:Math.max(4, Math.round((x.importo/max)*26)), background: x.importo>st.media?"#EF4444":"#06B6D4", borderRadius:3 }}/>
+                              <span style={{ fontSize:fs-6, color:"var(--c-text-faintest)", whiteSpace:"nowrap" }}>{MESI_BREVI[Number(x.ym.slice(5,7))-1]}</span>
+                            </div>
+                          ))}
+                        </div>
+                        {/* Riepilogo per anno: spesa e consumo totali. Da qui
+                            si vede l'andamento pluriennale, che sul singolo
+                            mese è invisibile. */}
+                        {(()=>{
+                          const anni = riepilogoAnnuale(st.storico);
+                          if (anni.length<1) return null;
+                          const isRon = contoCurrency(r.conto)==="RON";
+                          return (
+                            <div style={{ marginTop:10, borderTop:"1px solid var(--c-border)", paddingTop:8 }}>
+                              <div style={{ fontSize:fs-5, fontWeight:700, color:"var(--c-text-dim)", marginBottom:4 }}>Per anno</div>
+                              {anni.map(a=>(
+                                <div key={a.anno} style={{ display:"flex", justifyContent:"space-between", fontSize:fs-5, color:"var(--c-text-faint)", marginBottom:2, gap:8, flexWrap:"wrap" }}>
+                                  <span><b style={{ color:"var(--c-text)" }}>{a.anno}</b> <span style={{ color:"var(--c-text-faintest)" }}>({a.n} bollette)</span></span>
+                                  <span>
+                                    <b style={{ color:"var(--c-text)" }}>{fmt(a.spesa)}{ccy(r)}</b>
+                                    {isRon && <span style={{ color:"var(--c-text-faintest)" }}> ≈ {fmt(toEurVal(a.spesa, r.conto))}€</span>}
+                                    {a.consumo>0 && <> · {fmt(a.consumo)} {a.unita}</>}
+                                    {a.costoUnitario!=null && <span style={{ color:"var(--c-text-faintest)" }}> · {a.costoUnitario.toFixed(3)}/{a.unita}</span>}
+                                    {a.consumoGiornaliero!=null && <span style={{ color:"var(--c-text-faintest)" }}> · {a.consumoGiornaliero} {a.unita}/g</span>}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    );
+                  })()}
 
                   <div style={{ display:"flex", gap:6, marginTop:10, flexWrap:"wrap" }}>
                     <button onClick={()=>openRicEdit(r)} style={{ padding:"4px 10px", borderRadius:6, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-dim)", cursor:"pointer", fontSize:11 }}>✏️ Modifica</button>
@@ -1517,6 +1788,19 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                     {finanziamenti.length===0
                       ? <div style={{ padding:16, textAlign:"center", color:"var(--c-text-faintest)", fontSize:fs-3, background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10 }}>Nessun finanziamento. Aggiungi quello dell'auto: rata, giorno di addebito e numero di rate.</div>
                       : finanziamenti.map(r=><Riga key={r.id} r={r}/>)}
+                  </div>
+                </div>
+
+                {/* Spese fisse a importo variabile */}
+                <div>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+                    <div style={{ fontSize:fs-3, fontWeight:700, color:"#06B6D4", textTransform:"uppercase", letterSpacing:"0.08em" }}>🧾 Spese fisse (importo variabile)</div>
+                    <button onClick={()=>openRicAdd("spesa")} style={{ padding:"5px 12px", borderRadius:7, border:"none", background:"#06B6D4", color:"#fff", cursor:"pointer", fontSize:11, fontWeight:600 }}>+ Spesa fissa</button>
+                  </div>
+                  <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                    {speseFisse.length===0
+                      ? <div style={{ padding:16, textAlign:"center", color:"var(--c-text-faintest)", fontSize:fs-3, background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10 }}>Affitto, luce, gas, wifi: quelle che paghi ogni mese ma con una cifra diversa. Non le registro da solo — te le ricordo alla scadenza e tu scrivi quanto hai pagato.</div>
+                      : speseFisse.map(r=><Riga key={r.id} r={r}/>)}
                   </div>
                 </div>
 
@@ -1785,6 +2069,39 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                     ))}
                   </div>
                 )}
+                {/* Dettaglio Utenze: ogni bolletta col confronto sul mese
+                    precedente, perché la cifra da sola non dice se hai
+                    consumato di più o se è cambiata la tariffa. */}
+                {totUtenze>0 && (
+                  <div style={{ marginTop:14, padding:"10px 12px", background:"var(--c-bg)", border:"1px solid var(--c-border)", borderRadius:8 }}>
+                    <div style={{ fontSize:fs-3, fontWeight:700, color:"var(--c-text-dim)", marginBottom:8 }}>
+                      💡 Dettaglio Utenze — totale: <span style={{ color:"#06B6D4" }}>{fmt(totUtenze)}€</span> <span style={{ fontWeight:400, color:"var(--c-text-faintest)" }}>(confronto con {getMonthLabel(mesePrecedente)})</span>
+                    </div>
+                    {Object.entries(utenzeBySub).sort((a,b)=>b[1]-a[1]).map(([sc,val])=>{
+                      const prec = utenzeBySubPrec[sc];
+                      const delta = (prec!=null && prec>0) ? Math.round(((val-prec)/prec)*100) : null;
+                      const icona = sc==="Luce"?"💡 ":sc==="Gas"?"🔥 ":sc==="Internet / Wifi"?"📶 ":sc==="Acqua e condominio"?"🚰 ":"· ";
+                      const cons = consumiBySub[sc];
+                      return (
+                        <div key={sc} style={{ marginBottom:6 }}>
+                          <div style={{ display:"flex", justifyContent:"space-between", fontSize:fs-3 }}>
+                            <span style={{ color:"var(--c-text)" }}>{icona}{sc}</span>
+                            <span>
+                              {prec!=null && <span style={{ color:"var(--c-text-faintest)", marginRight:8 }}>era {fmt(prec)}€</span>}
+                              <span style={{ color:"var(--c-text-dim)", fontWeight:600 }}>{fmt(val)}€</span>
+                              {delta!=null && <span style={{ marginLeft:6, fontWeight:700, color: delta<=0?"#10B981":"#EF4444" }}>{delta>=0?"+":""}{delta}%</span>}
+                            </span>
+                          </div>
+                          {cons && cons.consumo>0 && (
+                            <div style={{ fontSize:fs-5, color:"var(--c-text-faintest)", marginTop:1 }}>
+                              ⚡ {fmt(cons.consumo)} {cons.unita} consumati · {((cons.importoNativo-cons.quotaFissa)/cons.consumo).toFixed(3)}/{cons.unita}{cons.quotaFissa>0?` (netto ${fmt(cons.quotaFissa)} di quote fisse)`:""}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               <div>
@@ -1826,21 +2143,73 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                     </div>
                     <input type="text" value={customCat} onChange={e=>{ const val=e.target.value; setCustomCat(val); setForm(p=>({...p, viaggio: p._viaggioManual ? p.viaggio : autoViaggioFor(p.data, val.trim()||p.categoria) })); }} placeholder="Oppure categoria personalizzata..."
                       style={{ width:"100%", padding:"7px 10px", borderRadius:7, border:`1px solid ${customCat?"#EF4444":"var(--c-border)"}`, background:"var(--c-bg)", color:"var(--c-text)", fontSize:12, outline:"none" }}/>
-                    {/* Sottocategoria: solo per Trasporti — distingue i costi
-                        auto (amministrativo, carburante/manutenzione) dalle
-                        corse Bolt/Uber. Facoltativa per non bloccare
+                    {/* Sottocategoria: per Trasporti distingue i costi auto
+                        dalle corse Bolt/Uber; per Utenze separa luce, gas e
+                        wifi, altrimenti sul totale bolletta non si capisce
+                        cosa sia salito. Facoltativa, per non rallentare
                         l'inserimento veloce. */}
-                    {form.categoria==="Trasporti" && !customCat && (
+                    {SOTTOCATEGORIE[form.categoria] && !customCat && (
                       <div style={{ marginTop:8 }}>
-                        <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:6 }}>Sottocategoria 🚗</div>
+                        <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:6 }}>Sottocategoria {form.categoria==="Utenze"?"💡":"🚗"}</div>
                         <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-                          {SOTTOCAT_TRASPORTI.map(sc=>(
-                            <button key={sc} onClick={()=>setForm(p=>({...p,sottocategoria:p.sottocategoria===sc?"":sc}))}
+                          {SOTTOCATEGORIE[form.categoria].map(sc=>(
+                            <button key={sc} onClick={()=>setForm(p=>({...p,sottocategoria:p.sottocategoria===sc?"":sc, unita: p.sottocategoria===sc?"":(UNITA_CONSUMO[sc]||"")}))}
                               style={{ padding:"4px 10px", borderRadius:6, border:`1px solid ${form.sottocategoria===sc?"#F97316":"var(--c-border)"}`, background:form.sottocategoria===sc?"#F9731620":"transparent", color:form.sottocategoria===sc?"#F97316":"var(--c-text-faint)", cursor:"pointer", fontSize:11 }}>
                               {sc}
                             </button>
                           ))}
                         </div>
+                        {/* Consumo: solo dove esiste un contatore. Facoltativo,
+                            ma se lo compili sblocca il costo unitario e lo
+                            storico dei consumi anno per anno. */}
+                        {UNITA_CONSUMO[form.sottocategoria] && (
+                          <div style={{ marginTop:8 }}>
+                            <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:4 }}>Consumo del periodo (facoltativo)</div>
+                            <div style={{ display:"flex", gap:6 }}>
+                              <input type="number" step="0.01" value={form.consumo||""} onChange={e=>setForm(p=>({...p,consumo:e.target.value}))}
+                                placeholder={form.sottocategoria==="Luce"?"es. 320":"es. 45"}
+                                style={{ flex:2, padding:"7px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:12, outline:"none" }}/>
+                              <select value={form.unita||UNITA_CONSUMO[form.sottocategoria]} onChange={e=>setForm(p=>({...p,unita:e.target.value}))}
+                                style={{ flex:1, padding:"7px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:12, outline:"none" }}>
+                                {[...new Set([UNITA_CONSUMO[form.sottocategoria], ...UNITA_DISPONIBILI])].map(u=><option key={u} value={u}>{u}</option>)}
+                              </select>
+                            </div>
+                            {/* Periodo fatturato: quello del gas E.ON va dal 16
+                                del mese all'11 del successivo, quindi il mese
+                                solare non basta a confrontare due bollette. */}
+                            <div style={{ marginTop:6 }}>
+                              <div style={{ fontSize:10, color:"var(--c-text-faintest)", marginBottom:3 }}>
+                                Quota fissa inclusa {contoCurrency(form.conto)==="RON"?"RON":"€"} — canoni che non dipendono dal consumo (es. Protect 360: 13,20 lei)
+                              </div>
+                              <input type="number" step="0.01" value={form.quotaFissa||""} onChange={e=>setForm(p=>({...p,quotaFissa:e.target.value}))} placeholder="13,20"
+                                style={{ width:"100%", padding:"7px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:12, outline:"none" }}/>
+                            </div>
+                            <div style={{ display:"flex", gap:6, marginTop:6, alignItems:"center" }}>
+                              <span style={{ fontSize:10, color:"var(--c-text-faintest)", whiteSpace:"nowrap" }}>Periodo</span>
+                              <input type="date" value={form.periodoDa||""} onChange={e=>setForm(p=>({...p,periodoDa:e.target.value}))}
+                                style={{ flex:1, padding:"6px 8px", borderRadius:6, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:11, outline:"none" }}/>
+                              <span style={{ fontSize:10, color:"var(--c-text-faintest)" }}>→</span>
+                              <input type="date" value={form.periodoA||""} onChange={e=>setForm(p=>({...p,periodoA:e.target.value}))}
+                                style={{ flex:1, padding:"6px 8px", borderRadius:6, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:11, outline:"none" }}/>
+                            </div>
+                            {parseFloat(form.consumo)>0 && parseFloat(form.importo)>0 && (()=>{
+                              const u = form.unita||UNITA_CONSUMO[form.sottocategoria];
+                              const valuta = contoCurrency(form.conto)==="RON"?"RON":"€";
+                              const gg = (form.periodoDa && form.periodoA && form.periodoA>=form.periodoDa)
+                                ? Math.round((new Date(form.periodoA)-new Date(form.periodoDa))/86400000)+1 : null;
+                              const qf = parseFloat(form.quotaFissa)||0;
+                              const cu = (parseFloat(form.importo)-qf)/parseFloat(form.consumo);
+                              return (
+                                <div style={{ fontSize:10, color:"var(--c-text-faintest)", marginTop:4 }}>
+                                  Tariffa: <b style={{ color:"var(--c-text)" }}>{cu.toFixed(3)} {valuta}/{u}</b>
+                                  {contoCurrency(form.conto)==="RON" && <> ≈ {(cu/rate).toFixed(3)} €/{u}</>}
+                                  {qf>0 && <span style={{ color:"var(--c-text-faintest)" }}> (al netto di {fmt(qf)} {valuta} di quota fissa)</span>}
+                                  {gg && <> · {gg} giorni · <b style={{ color:"var(--c-text)" }}>{(parseFloat(form.consumo)/gg).toFixed(2)} {u}/giorno</b></>}
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        )}
                       </div>
                     )}
                   </>
@@ -2064,6 +2433,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
       {/* Modal Finanziamento / Abbonamento */}
       {ricModal && (()=>{
         const isFin = ricForm.tipo==="finanziamento";
+        const isSpesa = ricForm.tipo==="spesa";
         const ccy = contoCurrency(ricForm.conto);
         // Anteprima: quante rate risulterebbero già pagate e quando finisce.
         const anteprima = (ricForm.dataInizio && ricForm.giorno && (parseFloat(ricForm.importo)>0 || periodiPuliti.length))
@@ -2092,22 +2462,24 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
         <div style={{ position:"fixed", inset:0, background:"#00000090", zIndex:999, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }} onClick={closeRicModal}>
           <div style={{ background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:16, padding:24, width:"100%", maxWidth:420, maxHeight:"90vh", overflowY:"auto" }} onClick={e=>e.stopPropagation()}>
             <div style={{ fontSize:15, fontWeight:700, color:"var(--c-text-strong)", marginBottom:6 }}>
-              {ricModal.mode==="add" ? "Nuovo" : "Modifica"} {isFin ? "finanziamento 🏦" : "abbonamento 🔁"}
+              {ricModal.mode==="add" ? (isSpesa?"Nuova":"Nuovo") : "Modifica"} {isFin ? "finanziamento 🏦" : isSpesa ? "spesa fissa 🧾" : "abbonamento 🔁"}
             </div>
             <div style={{ fontSize:11, color:"var(--c-text-faint)", marginBottom:20 }}>
-              L'addebito verrà registrato da solo fra le Uscite ogni mese, nel giorno indicato, scalando il conto scelto.
+              {isSpesa
+                ? "L'importo cambia ogni mese, quindi non la registro da solo: alla scadenza te la ricordo con il form già pronto e tu scrivi solo la cifra pagata."
+                : "L'addebito verrà registrato da solo fra le Uscite ogni mese, nel giorno indicato, scalando il conto scelto."}
             </div>
             <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
               <div>
                 <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:4 }}>Nome *</div>
                 <input type="text" value={ricForm.nome||""} onChange={e=>setRicForm(p=>({...p,nome:e.target.value}))}
-                  placeholder={isFin?"es. Auto BMW":"es. Claude, CapCut, ricarica cellulare"}
+                  placeholder={isFin?"es. Auto BMW":isSpesa?"es. Affitto, Bolletta luce":"es. Claude, CapCut, ricarica cellulare"}
                   style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:13, outline:"none" }}/>
               </div>
               <div>
-                <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:4 }}>{isFin?"Ente erogante":"Fornitore"}</div>
+                <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:4 }}>{isFin?"Ente erogante":isSpesa?"Fornitore / proprietario":"Fornitore"}</div>
                 <input type="text" value={ricForm.ente||""} onChange={e=>setRicForm(p=>({...p,ente:e.target.value}))}
-                  placeholder={isFin?"es. BdM Banca":"es. Anthropic"}
+                  placeholder={isFin?"es. BdM Banca":isSpesa?"es. Enel, Digi, proprietario":"es. Anthropic"}
                   style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:13, outline:"none" }}/>
               </div>
               <div>
@@ -2119,8 +2491,8 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
               </div>
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
                 <div>
-                  <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:4 }}>{isFin?"Rata":"Canone"} {ccy} *</div>
-                  <input type="number" step="0.01" value={ricForm.importo||""} onChange={e=>setRicForm(p=>({...p,importo:e.target.value}))} placeholder="317,52"
+                  <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:4 }}>{isFin?"Rata":isSpesa?"Importo atteso":"Canone"} {ccy} {isSpesa?"":"*"}</div>
+                  <input type="number" step="0.01" value={ricForm.importo||""} onChange={e=>setRicForm(p=>({...p,importo:e.target.value}))} placeholder={isSpesa?"450":"317,52"}
                     style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:13, outline:"none" }}/>
                 </div>
                 <div>
@@ -2129,6 +2501,38 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                     style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:13, outline:"none" }}/>
                 </div>
               </div>
+              {/* Valuta dell'importo atteso: su un conto in RON i due casi
+                  sono opposti — l'affitto è fisso in euro e variabile in RON,
+                  la bolletta è il contrario. Senza questa scelta uno dei due
+                  verrebbe convertito al contrario. */}
+              {isSpesa && contoCurrency(ricForm.conto)==="RON" && (
+                <div>
+                  <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:6 }}>L'importo atteso qui sopra è in...</div>
+                  <div style={{ display:"flex", gap:6 }}>
+                    {[["RON","RON — es. bolletta (varia il consumo)"],["€","€ — es. affitto (varia solo il cambio)"]].map(([v,label])=>{
+                      const sel = (ricForm.importoValuta || "RON") === v;
+                      return (
+                        <button key={v} onClick={()=>setRicForm(p=>({...p,importoValuta:v}))}
+                          style={{ flex:1, padding:"6px 10px", borderRadius:6, border:`1px solid ${sel?"#06B6D4":"var(--c-border)"}`, background:sel?"#06B6D420":"transparent", color:sel?"#06B6D4":"var(--c-text-faint)", cursor:"pointer", fontSize:10, textAlign:"left" }}>
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {parseFloat(ricForm.importo)>0 && (
+                    <div style={{ fontSize:10, color:"var(--c-text-faintest)", marginTop:6 }}>
+                      {(ricForm.importoValuta||"RON")==="€"
+                        ? <>Al cambio di oggi sono circa <b style={{color:"var(--c-text)"}}>{fmt(parseFloat(ricForm.importo)*rate)} RON</b>.</>
+                        : <>Al cambio di oggi sono circa <b style={{color:"var(--c-text)"}}>{fmt(parseFloat(ricForm.importo)/rate)}€</b>.</>}
+                    </div>
+                  )}
+                </div>
+              )}
+              {isSpesa && (
+                <div style={{ fontSize:10, color:"var(--c-text-faintest)", marginTop:-6 }}>
+                  L'importo atteso serve solo per la proiezione di fine mese e per avvisarti se il conto non basta — non verrà mai registrato al posto della cifra vera. Se lo lasci vuoto uso la media degli ultimi 6 pagamenti.
+                </div>
+              )}
               {parseInt(ricForm.giorno,10)>28 && (
                 <div style={{ fontSize:10, color:"var(--c-text-faintest)", marginTop:-6 }}>
                   Nei mesi più corti l'addebito slitta all'ultimo giorno disponibile (a febbraio il 28).
@@ -2148,7 +2552,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                   esistiti (saldi a zero, dentro solo la rata) e falsa cash flow
                   e confronto anno-su-anno. Il conteggio rate e il debito
                   residuo si calcolano dalle date, quindi non serve. */}
-              {ricModal.mode==="add" && anteprima?.storiche>0 && (
+              {!isSpesa && ricModal.mode==="add" && anteprima?.storiche>0 && (
                 <div style={{ border:`1px solid ${ricForm.registraArretrati?"#F59E0B60":"var(--c-border)"}`, borderRadius:8, padding:"10px 12px", background:ricForm.registraArretrati?"#F59E0B0D":"transparent" }}>
                   <label style={{ display:"flex", alignItems:"flex-start", gap:8, cursor:"pointer" }}>
                     <input type="checkbox" checked={!!ricForm.registraArretrati} onChange={e=>setRicForm(p=>({...p,registraArretrati:e.target.checked}))} style={{ marginTop:2 }}/>
@@ -2256,12 +2660,33 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
               )}
               <div>
                 <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:4 }}>Categoria dell'uscita</div>
-                <select value={ricForm.categoria||""} onChange={e=>setRicForm(p=>({...p,categoria:e.target.value}))}
+                <select value={ricForm.categoria||""} onChange={e=>setRicForm(p=>({...p,categoria:e.target.value,sottocategoria:""}))}
                   style={{ width:"100%", padding:"8px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:13, outline:"none" }}>
                   {[...new Set([...CAT_USCITE_FISSE, ricForm.categoria].filter(Boolean))].map(c=><option key={c} value={c}>{c}</option>)}
                 </select>
+                {/* Sottocategoria sulla ricorrenza: così ogni bolletta finisce
+                    già taggata luce/gas/wifi quando confermi l'importo, e il
+                    Recap può separarle senza che tu debba ricordartene. */}
+                {SOTTOCATEGORIE[ricForm.categoria] && (
+                  <div style={{ marginTop:8 }}>
+                    <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:6 }}>Sottocategoria {ricForm.categoria==="Utenze"?"💡":"🚗"}</div>
+                    <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                      {SOTTOCATEGORIE[ricForm.categoria].map(sc=>(
+                        <button key={sc} onClick={()=>setRicForm(p=>({...p,sottocategoria:p.sottocategoria===sc?"":sc}))}
+                          style={{ padding:"4px 10px", borderRadius:6, border:`1px solid ${ricForm.sottocategoria===sc?"#F97316":"var(--c-border)"}`, background:ricForm.sottocategoria===sc?"#F9731620":"transparent", color:ricForm.sottocategoria===sc?"#F97316":"var(--c-text-faint)", cursor:"pointer", fontSize:11 }}>
+                          {sc}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
-              {anteprima && (
+              {isSpesa && (
+                <div style={{ background:"var(--c-bg)", border:"1px solid var(--c-border)", borderRadius:8, padding:"8px 10px", fontSize:12, color:"var(--c-text-dim)" }}>
+                  Ogni {ricForm.giorno||"—"} del mese ti comparirà il promemoria in cima a Finanze, con il tasto <b style={{ color:"var(--c-text)" }}>Registra</b>: form già compilato, ti resta da scrivere l'importo. Nessun movimento nasce senza la tua conferma.
+                </div>
+              )}
+              {!isSpesa && anteprima && (
                 <div style={{ background:"var(--c-bg)", border:"1px solid var(--c-border)", borderRadius:8, padding:"8px 10px", fontSize:12, color:"var(--c-text-dim)" }}>
                   {(ricModal.mode==="add" && !ricForm.registraArretrati && anteprima.storiche>0)
                     ? <>Rate già maturate: <b style={{ color:"var(--c-text)" }}>{anteprima.passate}</b> — gli arretrati non verranno registrati fra le uscite (vedi sotto), si parte da {getMonthLabel(getCurrentMonth())}.</>
@@ -2284,7 +2709,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
             </div>
             <div style={{ display:"flex", gap:8, marginTop:20 }}>
               <button onClick={closeRicModal} style={{ flex:1, padding:10, borderRadius:8, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-faint)", cursor:"pointer", fontSize:13 }}>Annulla</button>
-              <button onClick={saveRicorrenza} style={{ flex:2, padding:10, borderRadius:8, border:"none", background:isFin?"#EF4444":"#3B82F6", color:"#fff", cursor:"pointer", fontSize:13, fontWeight:700 }}>Salva</button>
+              <button onClick={saveRicorrenza} style={{ flex:2, padding:10, borderRadius:8, border:"none", background:isFin?"#EF4444":isSpesa?"#06B6D4":"#3B82F6", color:"#fff", cursor:"pointer", fontSize:13, fontWeight:700 }}>Salva</button>
             </div>
           </div>
         </div>

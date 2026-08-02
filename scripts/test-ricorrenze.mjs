@@ -6,6 +6,8 @@ import {
   occorrenze, dataOccorrenza, ratePagate, debitoResiduo,
   prossimaScadenza, impegnoMensile, applicaRicorrenze, idMovimento,
   pianoRate, rateTotaliDi, importoRata, totaleRate, maxirataInfo,
+  importoCerto, storicoRicorrenza, daConfermare, mediaStorico, importoAtteso,
+  riepilogoAnnuale, costoUnitario, annoCompetenza,
 } from "../app/lib/ricorrenze.js";
 
 let ok = 0, ko = 0;
@@ -165,6 +167,132 @@ eq("senza periodi si usa importo+rateTotali", pianoRate(auto), [{ rate: 60, impo
 eq("rateTotaliDi su rata unica", rateTotaliDi(auto), 60);
 eq("abbonamento resta senza fine", rateTotaliDi(claude), 0);
 eq("importoRata abbonamento", importoRata(claude, 999), 20);
+
+// ---------------------------------------------------------------------------
+// Spese fisse a importo variabile (affitto in RON, bollette).
+// Il punto: l'app NON deve mai registrarle da sola, perché non conosce
+// l'importo. Se un giorno un refactor le facesse rientrare nella generazione
+// automatica, i saldi si riempirebbero di cifre inventate — questi test sono
+// la rete di sicurezza contro quello.
+// ---------------------------------------------------------------------------
+console.log("\n— Spese fisse: mai generate in automatico —");
+const affitto = {
+  id: "affitto", tipo: "spesa", nome: "Affitto", ente: "Proprietario",
+  conto: "revolut_ron", importo: 450, giorno: 5, dataInizio: "2026-01-05",
+  categoria: "Affitto", attiva: true,
+};
+eq("finanziamento ha importo certo", importoCerto(auto), true);
+eq("abbonamento ha importo certo", importoCerto(claude), true);
+eq("spesa NON ha importo certo", importoCerto(affitto), false);
+const rSpesa = applicaRicorrenze(allData, [affitto], OGGI, { emptyMonth: EMPTY, carried });
+eq("nessun movimento generato", rSpesa.creati.length, 0);
+eq("saldi intatti", rSpesa.next["2026-08"].saldi.revolut_eur, 1000);
+
+console.log("\n— Promemoria da confermare —");
+// Nessun pagamento registrato: si chiedono solo le ultime 2 scadenze, non
+// tutte quelle da gennaio (un promemoria di 7 mesi fa non è azionabile).
+// Nota: al 02/08 l'affitto del 5 agosto NON è ancora dovuto, quindi le ultime
+// due scadenze passate sono giugno e luglio.
+eq("solo le ultime 2 scadenze passate", daConfermare(affitto, OGGI, new Set()).map(o => o.ym), ["2026-06", "2026-07"]);
+eq("scadenza futura non chiesta", daConfermare(affitto, OGGI, new Set()).some(o => o.ym === "2026-08"), false);
+eq("quella di luglio già registrata sparisce", daConfermare(affitto, OGGI, new Set(["2026-07"])).map(o => o.ym), ["2026-06"]);
+eq("saltata a mano non ricompare", daConfermare(affitto, OGGI, new Set(), { saltati: ["ric-affitto-2026-06"] }).map(o => o.ym), ["2026-07"]);
+// Dopo il giorno 5 la scadenza del mese corrente entra fra quelle da confermare.
+eq("il 10/08 chiede anche agosto", daConfermare(affitto, "2026-08-10", new Set()).map(o => o.ym), ["2026-07", "2026-08"]);
+eq("in pausa nessun promemoria", daConfermare({ ...affitto, attiva: false }, OGGI, new Set()).length, 0);
+
+console.log("\n— Storico e media (la domanda \"sto pagando di più?\") —");
+const conStorico = {
+  "2026-05": { ...EMPTY, uscite: [{ id: "a1", ricorrenzaId: "affitto", importo: 2210, data: "2026-05-05" }] },
+  "2026-06": { ...EMPTY, uscite: [{ id: "a2", ricorrenzaId: "affitto", importo: 2265, data: "2026-06-05" }] },
+  "2026-07": { ...EMPTY, uscite: [{ id: "a3", ricorrenzaId: "affitto", importo: 2350, data: "2026-07-05" }, { id: "x", importo: 99, data: "2026-07-06" }] },
+  viaggi: [],
+};
+const st = storicoRicorrenza(conStorico, "affitto");
+eq("prende solo i movimenti della ricorrenza", st.length, 3);
+eq("ordinati per data", st.map(x => x.ym), ["2026-05", "2026-06", "2026-07"]);
+eq("media dei pagamenti", mediaStorico(st), round((2210 + 2265 + 2350) / 3));
+eq("importo atteso: vince quello dichiarato", importoAtteso(affitto, st), 450);
+eq("senza dichiarato usa la media", importoAtteso({ ...affitto, importo: 0 }, st), round((2210 + 2265 + 2350) / 3));
+eq("senza storico né dichiarato è 0", importoAtteso({ ...affitto, importo: 0 }, []), 0);
+eq("i mesi già pagati non sono più da confermare", daConfermare(affitto, OGGI, new Set(st.map(x => x.ym))).length, 0);
+
+console.log("\n— Le spese entrano comunque nell'impegno mensile —");
+// Servono nella proiezione di fine mese: sapere che il 5 arriva l'affitto è
+// utile anche se l'importo esatto lo saprai solo dopo.
+eq("affitto contato con l'importo atteso", impegnoMensile([affitto], OGGI), 450);
+
+// ---------------------------------------------------------------------------
+// Consumi delle bollette. Numeri veri dalla bolletta E.ON 10734627272:
+// gas, periodo 16/06-11/07/2026, 53,055 kWh (= 5 m³ × Pcs 10,611), 38,15 lei.
+// ---------------------------------------------------------------------------
+console.log("\n— Consumi bollette (dati reali E.ON) —");
+const bollette = {
+  "2026-06": { ...EMPTY, uscite: [{ id: "g1", ricorrenzaId: "gas", importo: 41.2, data: "2026-06-15", consumo: 60, unita: "kWh", periodoDa: "2026-05-16", periodoA: "2026-06-15" }] },
+  "2026-07": { ...EMPTY, uscite: [{ id: "g2", ricorrenzaId: "gas", importo: 38.15, data: "2026-07-17", consumo: 53.055, unita: "kWh", periodoDa: "2026-06-16", periodoA: "2026-07-11" }] },
+};
+const stGas = storicoRicorrenza(bollette, "gas");
+eq("consumo letto dallo storico", stGas.at(-1).consumo, 53.055);
+eq("unità letta dallo storico", stGas.at(-1).unita, "kWh");
+eq("periodo fatturato letto", [stGas.at(-1).periodoDa, stGas.at(-1).periodoA], ["2026-06-16", "2026-07-11"]);
+
+const annuale = riepilogoAnnuale(stGas);
+eq("un solo anno", annuale.length, 1);
+eq("spesa annua", annuale[0].spesa, round(41.2 + 38.15));
+eq("consumo annuo", annuale[0].consumo, round(60 + 53.055));
+// 31 giorni (16/05-15/06) + 26 giorni (16/06-11/07) = 57
+eq("giorni sommati dai periodi", annuale[0].giorni, 57);
+eq("costo unitario medio", annuale[0].costoUnitario, Math.round(((41.2 + 38.15) / (60 + 53.055)) * 10000) / 10000);
+eq("consumo giornaliero", annuale[0].consumoGiornaliero, round((60 + 53.055) / 57));
+
+// Il punto di tutto l'esercizio: distinguere consumo e tariffa. Fra le due
+// bollette la spesa scende del 7%, ma non perché costi meno il gas.
+const cu = (x) => x.importo / x.consumo;
+eq("tariffa quasi identica fra le due bollette", Math.abs(cu(stGas[1]) - cu(stGas[0])) < 0.035, true);
+eq("il consumo invece è sceso", stGas[1].consumo < stGas[0].consumo, true);
+
+console.log("\n— Bollette senza consumo registrato —");
+const senzaConsumo = { "2026-07": { ...EMPTY, uscite: [{ id: "l1", ricorrenzaId: "luce", importo: 151.89, data: "2026-07-17" }] } };
+const stLuce = storicoRicorrenza(senzaConsumo, "luce");
+eq("consumo assente vale 0", stLuce[0].consumo, 0);
+eq("riepilogo comunque valido", riepilogoAnnuale(stLuce)[0].spesa, 151.89);
+eq("niente costo unitario senza consumo", riepilogoAnnuale(stLuce)[0].costoUnitario, null);
+eq("niente consumo giornaliero senza periodo", riepilogoAnnuale(stLuce)[0].consumoGiornaliero, null);
+
+// ---------------------------------------------------------------------------
+// Bollette luce reali (PPC/Enel, cod client C000719950):
+//   26EI09438288 — maggio 2026: 114 kWh, 166,92 lei, 31 giorni
+//   26EI11974830 — giugno 2026: 103 kWh, 151,89 lei, 30 giorni
+// Entrambe includono "Protect 360 Light" a 13,20 lei con IVA, che NON dipende
+// dal consumo. La fattura dichiara "Preț final facturat 1,35 lei/kWh": è quel
+// numero che il costo unitario deve riprodurre, e ci riesce solo togliendo la
+// quota fissa. Senza toglierla si otterrebbe 1,46 e 1,47, cioè una tariffa
+// che sembra salire mentre in realtà è ferma.
+// ---------------------------------------------------------------------------
+console.log("\n— Bollette luce reali: la quota fissa falsa la tariffa —");
+const luceMag = { ym: "2026-06", data: "2026-06-20", importo: 166.92, consumo: 114, unita: "kWh", quotaFissa: 13.20, periodoDa: "2026-05-01", periodoA: "2026-05-31" };
+const luceGiu = { ym: "2026-07", data: "2026-07-17", importo: 151.89, consumo: 103, unita: "kWh", quotaFissa: 13.20, periodoDa: "2026-06-01", periodoA: "2026-06-30" };
+eq("tariffa maggio = 1,35 come in fattura", Math.round(costoUnitario(luceMag) * 100) / 100, 1.35);
+eq("tariffa giugno = 1,35 come in fattura", Math.round(costoUnitario(luceGiu) * 100) / 100, 1.35);
+// Il calcolo ingenuo (totale/kWh) direbbe che la tariffa è cambiata: non è vero.
+const ingenuo = (x) => Math.round((x.importo / x.consumo) * 100) / 100;
+eq("senza quota fissa sembrerebbe 1,46", ingenuo(luceMag), 1.46);
+eq("senza quota fissa sembrerebbe 1,47", ingenuo(luceGiu), 1.47);
+eq("con la quota fissa la tariffa risulta stabile", Math.abs(costoUnitario(luceGiu) - costoUnitario(luceMag)) < 0.01, true);
+eq("niente tariffa senza consumo", costoUnitario({ importo: 100, consumo: 0 }), null);
+
+console.log("\n— Anno di competenza: il consumo non segue il pagamento —");
+// Bolletta di dicembre pagata a gennaio: il consumo è del 2026, non del 2027.
+const dic = { ym: "2027-01", data: "2027-01-15", importo: 200, consumo: 150, unita: "kWh", periodoDa: "2026-12-01", periodoA: "2026-12-31" };
+eq("competenza dal periodo, non dal pagamento", annoCompetenza(dic), "2026");
+eq("senza periodo si ripiega sul mese del movimento", annoCompetenza({ ym: "2027-01" }), "2027");
+const perAnno = riepilogoAnnuale([luceMag, luceGiu, dic]);
+eq("un solo anno di competenza", perAnno.map(a => a.anno), ["2026"]);
+eq("consumo annuo completo", perAnno[0].consumo, 114 + 103 + 150);
+eq("quote fisse sommate", perAnno[0].quotaFissa, round(13.2 * 2));
+eq("tariffa media annua al netto delle quote fisse",
+  perAnno[0].costoUnitario,
+  Math.round(((166.92 + 151.89 + 200 - 26.4) / (114 + 103 + 150)) * 10000) / 10000);
 
 function round(n) { return Math.round(n * 100) / 100; }
 

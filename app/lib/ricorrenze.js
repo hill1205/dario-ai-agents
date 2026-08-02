@@ -14,7 +14,18 @@
 // generazione dieci volte, o aprire l'app da telefono e computer insieme, non
 // può creare doppioni.
 
-export const TIPI_RICORRENZA = ["finanziamento", "abbonamento"];
+export const TIPI_RICORRENZA = ["finanziamento", "abbonamento", "spesa"];
+
+// I tre tipi non sono un'etichetta estetica: cambiano cosa l'app può fare da
+// sola.
+//   finanziamento / abbonamento -> importo certo, quindi si addebita da solo
+//   spesa (affitto in RON, bollette) -> importo che cambia ogni mese, quindi
+//     l'app NON può registrarlo: inventerebbe un numero e falserebbe i saldi.
+//     Di queste si tiene un "importo atteso" per proiezioni e alert, e alla
+//     scadenza si mostra un promemoria con il form già pronto da confermare.
+export function importoCerto(ric) {
+  return ric?.tipo !== "spesa";
+}
 
 // Una ricorrenza:
 // {
@@ -118,6 +129,112 @@ export function idMovimento(ric, ym) {
   return `ric-${ric.id}-${ym}`;
 }
 
+// --- Spese a importo variabile ----------------------------------------------
+// Tutti i movimenti già registrati per una ricorrenza, presi da tutti i mesi.
+// È questo che permette l'andamento storico ("la luce di ottobre vs quella di
+// settembre"): il legame è il campo `ricorrenzaId` sul movimento.
+export function storicoRicorrenza(allData, ricId) {
+  const out = [];
+  for (const [ym, md] of Object.entries(allData || {})) {
+    if (!/^\d{4}-\d{2}$/.test(ym)) continue;
+    for (const e of (md?.uscite || [])) {
+      if (e.ricorrenzaId === ricId) out.push({
+        ym, data: e.data || `${ym}-01`, importo: parseFloat(e.importo) || 0, id: e.id,
+        // Consumo della bolletta, se registrato: permette il costo unitario
+        // (importo/consumo) e il consumo giornaliero, gli unici due numeri
+        // confrontabili fra bollette di periodi diversi.
+        consumo: parseFloat(e.consumo) || 0, unita: e.unita || "",
+        periodoDa: e.periodoDa || "", periodoA: e.periodoA || "",
+        // Quota fissa della bolletta (canoni e servizi che non dipendono dal
+        // consumo): va tolta prima di dividere per i kWh, altrimenti il costo
+        // unitario sale nei mesi in cui consumi meno anche a tariffa ferma.
+        quotaFissa: parseFloat(e.quotaFissa) || 0,
+      });
+    }
+  }
+  return out.sort((a, b) => a.data.localeCompare(b.data));
+}
+
+// Scadenze già passate per cui non risulta ancora registrato nulla: è la lista
+// dei promemoria "hai pagato l'affitto? scrivi quanto". Si guarda solo agli
+// ultimi `mesiIndietro` mesi — un promemoria di otto mesi fa non è più
+// azionabile, è solo rumore.
+export function daConfermare(ric, oggi, registrateYm, { mesiIndietro = 2, saltati = [] } = {}) {
+  if (!ric || importoCerto(ric) || ric.attiva === false || ric.chiusa) return [];
+  const skip = new Set(saltati);
+  const registrate = registrateYm instanceof Set ? registrateYm : new Set(registrateYm || []);
+  const tutte = occorrenze(ric, oggi);
+  return tutte
+    .slice(-mesiIndietro)
+    .filter(o => !registrate.has(o.ym) && !skip.has(idMovimento(ric, o.ym)));
+}
+
+// Riepilogo per anno: quanto hai speso e quanto hai consumato, con il costo
+// unitario medio. È la vista che risponde a "come è andata la luce negli
+// anni": il costo unitario separa l'aumento di tariffa dall'aumento di
+// consumo, che sul totale annuo si confondono.
+// Costo unitario reale: (importo - quota fissa) / consumo. È il numero che
+// combacia con il "prezzo finale fatturato" stampato in bolletta.
+export function costoUnitario(mov) {
+  const consumo = parseFloat(mov?.consumo) || 0;
+  if (consumo <= 0) return null;
+  const importo = parseFloat(mov.importo) || 0;
+  const fissa = parseFloat(mov.quotaFissa) || 0;
+  return round4((importo - fissa) / consumo);
+}
+
+// Anno di competenza: quello del PERIODO fatturato, non del pagamento. La
+// bolletta di giugno si paga a luglio, e quella di dicembre a gennaio: senza
+// questa correzione il consumo di dicembre finirebbe nel totale dell'anno
+// dopo. Se il periodo non è stato indicato si ripiega sul mese del movimento.
+export function annoCompetenza(mov) {
+  return (mov?.periodoDa || mov?.ym || "").slice(0, 4);
+}
+
+export function riepilogoAnnuale(storico) {
+  const anni = {};
+  for (const x of (storico || [])) {
+    const anno = annoCompetenza(x);
+    anni[anno] = anni[anno] || { anno, spesa: 0, consumo: 0, quotaFissa: 0, unita: x.unita || "", n: 0, giorni: 0 };
+    anni[anno].spesa += x.importo;
+    anni[anno].consumo += x.consumo || 0;
+    anni[anno].quotaFissa += x.quotaFissa || 0;
+    anni[anno].n += 1;
+    if (x.periodoDa && x.periodoA) {
+      anni[anno].giorni += Math.round((new Date(x.periodoA + "T00:00:00") - new Date(x.periodoDa + "T00:00:00")) / 86400000) + 1;
+    }
+    if (!anni[anno].unita && x.unita) anni[anno].unita = x.unita;
+  }
+  return Object.values(anni)
+    .map(a => ({
+      ...a,
+      spesa: round2(a.spesa),
+      consumo: round2(a.consumo),
+      quotaFissa: round2(a.quotaFissa),
+      // Tariffa vera dell'anno: al netto delle quote fisse.
+      costoUnitario: a.consumo > 0 ? round4((a.spesa - a.quotaFissa) / a.consumo) : null,
+      consumoGiornaliero: a.giorni > 0 ? round2(a.consumo / a.giorni) : null,
+    }))
+    .sort((a, b) => a.anno.localeCompare(b.anno));
+}
+
+function round4(n) { return Math.round((parseFloat(n) || 0) * 10000) / 10000; }
+
+// Media degli ultimi N importi registrati: è l'"importo atteso" migliore per
+// una bolletta, meglio di un valore fisso scritto una volta e mai aggiornato.
+export function mediaStorico(storico, n = 6) {
+  const ultimi = (storico || []).slice(-n);
+  if (!ultimi.length) return 0;
+  return round2(ultimi.reduce((s, x) => s + x.importo, 0) / ultimi.length);
+}
+
+// Importo che ci si aspetta per la prossima scadenza: quello dichiarato, o in
+// mancanza la media dello storico.
+export function importoAtteso(ric, storico) {
+  const dichiarato = parseFloat(ric?.importo) || 0;
+  return dichiarato > 0 ? dichiarato : mediaStorico(storico);
+}
+
 export function descrizioneMovimento(ric, occ) {
   const rateTotali = rateTotaliDi(ric);
   if (ric.tipo === "finanziamento") {
@@ -125,6 +242,7 @@ export function descrizioneMovimento(ric, occ) {
       ? `${ric.nome} — rata ${occ.indice}/${rateTotali}`
       : `${ric.nome} — rata ${occ.indice}`;
   }
+  if (ric.tipo === "spesa") return ric.nome;
   return `${ric.nome} — abbonamento`;
 }
 
@@ -231,6 +349,9 @@ export function applicaRicorrenze(allData, ricorrenze, oggi, { emptyMonth, carri
 
   for (const ric of attive) {
     if (!ric.conto) continue;
+    // Le spese a importo variabile non si generano mai da sole: vedi
+    // importoCerto(). Restano come promemoria da confermare a mano.
+    if (!importoCerto(ric)) continue;
     if (!(parseFloat(ric.importo) > 0) && !pianoRate(ric).some(p => p.importo > 0)) continue;
     for (const occ of occorrenze(ric, oggi)) {
       const movId = idMovimento(ric, occ.ym);
