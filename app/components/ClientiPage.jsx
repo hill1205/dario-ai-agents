@@ -1,6 +1,7 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { localISODate } from "../lib/finance-ui";
+import { useUndoStack, UndoButton } from "../lib/undo";
 
 const FASI = [
   { id:"attivo",   label:"Attivo ✅", color:"#10B981" },
@@ -122,6 +123,14 @@ export default function ClientiPage({ fontSize=14, theme="dark" }) {
   const fs = fontSize;
   const themeVars = THEME_VARS[theme] || THEME_VARS.dark;
   const [clients, setClients]       = useState([]);
+  // Cronologia Annulla (app/lib/undo.js). Qui, a differenza di Finanze, ogni
+  // cliente e' una pagina Notion salvata singolarmente: lo snapshot tiene la
+  // versione precedente del SINGOLO cliente modificato, e annullare significa
+  // rimandare a Notion quella versione. Le eliminazioni non sono annullabili
+  // (la pagina Notion non esiste piu' e non si puo' ricreare con lo stesso id).
+  const clientsRef = useRef([]);
+  const { snapshot, undo, voci: undoVoci } = useUndoStack("clienti");
+  useEffect(()=>{ clientsRef.current = clients; },[clients]);
   const [loading, setLoading]       = useState(true);
   const [modal, setModal]           = useState(null);
   const [form, setForm]             = useState(EMPTY_FORM);
@@ -149,7 +158,12 @@ export default function ClientiPage({ fontSize=14, theme="dark" }) {
   };
   useEffect(()=>{ loadClients(); },[]);
 
-  const saveClient = async (client, updateState=true)=>{
+  const saveClient = async (client, updateState=true, opts={})=>{
+    // Versione precedente dello stesso cliente, presa prima di sovrascriverlo.
+    if (updateState && !opts.skipSnapshot) {
+      const precedente = clientsRef.current.find(c=>c.id===client.id);
+      if (precedente) snapshot(precedente, `Cliente: ${precedente.nome||"senza nome"}`);
+    }
     if (updateState) { setSaveStatus("saving"); setClients(prev=>prev.map(c=>c.id===client.id?client:c)); }
     try {
       const res = await fetch("/api/clients-data",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(client)});
@@ -160,6 +174,18 @@ export default function ClientiPage({ fontSize=14, theme="dark" }) {
         setTimeout(()=>setSaveStatus(null),2000);
       }
     } catch { if (updateState) setSaveStatus("error"); }
+  };
+
+  const handleUndo = () => {
+    const voce = undo();
+    if (!voce?.stato?.id) return;
+    // Se nel frattempo il cliente e' stato eliminato non c'e' niente da
+    // ripristinare: meglio dirlo che fallire in silenzio.
+    if (!clientsRef.current.some(c=>c.id===voce.stato.id)) {
+      alert("Questo cliente e' stato eliminato: la modifica non puo' essere annullata.");
+      return;
+    }
+    saveClient(voce.stato, true, { skipSnapshot:true });
   };
 
   const toggleFattura = (client, mese)=>{
@@ -220,6 +246,7 @@ export default function ClientiPage({ fontSize=14, theme="dark" }) {
             {saveStatus==="saving" && <span style={{fontSize:11,color:"#F59E0B"}}>☁️ Salvando...</span>}
             {saveStatus==="saved"  && <span style={{fontSize:11,color:"#10B981"}}>✅ Salvato</span>}
             {saveStatus==="error"  && <span style={{fontSize:11,color:"#EF4444"}}>❌ Errore</span>}
+            <UndoButton voci={undoVoci} onUndo={handleUndo} accent="#8B5CF6" compact/>
           </div>
           <button onClick={()=>openAdd()} style={{padding:"7px 16px",borderRadius:8,border:"none",background:"#10B981",color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700}}>+ Cliente</button>
         </div>

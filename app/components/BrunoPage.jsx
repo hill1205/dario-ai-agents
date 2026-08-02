@@ -9,6 +9,7 @@ import {
   CashFlowMiniChart, CategoryBars, costoCambio,
   SOTTOCAT_TRASPORTI, SOTTOCAT_AUTO,
 } from "../lib/finance-ui";
+import { useUndoStack, UndoButton } from "../lib/undo";
 
 // Revolut è diviso in due saldi (EUR/RON) perché Dario spende in RON da
 // quel conto: stessa idea di UniCredit Romania su IAGREXPage, con
@@ -192,12 +193,21 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
 
   const monthData = allData[month] || { ...EMPTY_MONTH, ...getCarriedFinancials(allData, month) };
 
-  const saveData = useCallback(async (newAllData) => {
+  // Cronologia Annulla: prima di ogni salvataggio si mette da parte lo stato
+  // precedente, così un importo corretto per sbaglio si può ripristinare.
+  const { snapshot, undo, voci: undoVoci } = useUndoStack("finanze");
+  const allDataRef = useRef(allData);
+  useEffect(()=>{ allDataRef.current = allData; },[allData]);
+
+  const saveData = useCallback(async (newAllData, opts={}) => {
     if (!loadOk) {
       setSaveStatus("blocked");
       setTimeout(()=>setSaveStatus(null), 3500);
       return;
     }
+    // Lo snapshot va preso PRIMA di sostituire lo stato, e non quando è la
+    // funzione Annulla stessa a salvare (altrimenti si annullerebbe l'annulla).
+    if (!opts.skipSnapshot) snapshot(allDataRef.current, opts.etichetta || "Modifica finanze");
     setAllData(newAllData);
     setSaveStatus("saving");
     try {
@@ -209,7 +219,15 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
       setSaveStatus(res.ok ? "saved" : "error");
     } catch { setSaveStatus("error"); }
     setTimeout(()=>setSaveStatus(null), 2500);
-  }, [loadOk]);
+  }, [loadOk, snapshot]);
+
+  // Ripristina lo stato precedente e lo risalva su ClickUp: senza il salvataggio
+  // l'annullamento vivrebbe solo a schermo e tornerebbe indietro al reload.
+  const handleUndo = () => {
+    const voce = undo();
+    if (!voce) return;
+    saveData(voce.stato, { skipSnapshot:true });
+  };
 
   const updateMonth = (updated) => {
     saveData({ ...allData, [month]: updated });
@@ -768,6 +786,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
             {saveStatus==="saved"   && <span style={{ fontSize:11, color:"#10B981" }}>✅ Salvato</span>}
             {saveStatus==="error"   && <span style={{ fontSize:11, color:"#EF4444" }}>❌ Errore</span>}
             {saveStatus==="blocked" && <span style={{ fontSize:11, color:"#EF4444" }}>🚫 Salvataggio bloccato: dati non caricati</span>}
+            <UndoButton voci={undoVoci} onUndo={handleUndo} accent="#8B5CF6" compact/>
           </div>
           {/* Month selector */}
           <div style={{ display:"flex", alignItems:"center", gap:8 }}>

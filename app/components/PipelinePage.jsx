@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { localISODate } from "../lib/finance-ui";
+import { useUndoStack, UndoButton } from "../lib/undo";
 
 const LEAD_STAGES = [
   { id:"da_contattare",    label:"Da Contattare",   color:"var(--c-text-faint)" },
@@ -480,6 +481,12 @@ export default function PipelinePage({ fontSize=14, theme="dark", onGoToIagrex }
   const fs = fontSize;
   const themeVars = THEME_VARS[theme] || THEME_VARS.dark;
   const [entries, setEntries]       = useState([]);
+  // Stato precedente sempre a portata di mano per la cronologia Annulla
+  // (vedi app/lib/undo.js): il ref non e' soggetto alla chiusura delle
+  // callback memoizzate, quindi contiene davvero l'ultimo valore salvato.
+  const entriesRef = useRef([]);
+  const { snapshot, undo, voci: undoVoci } = useUndoStack("pipeline");
+  useEffect(()=>{ entriesRef.current = entries; },[entries]);
   const [view, setView]             = useState("kanban");
   const [filter, setFilter]         = useState("tutti");
   const [modal, setModal]           = useState(null);
@@ -543,7 +550,10 @@ export default function PipelinePage({ fontSize=14, theme="dark", onGoToIagrex }
   // o Notion fallivano, la modifica sembrava salvata ma andava persa in
   // silenzio. Ora tutti i salvataggi passano da qui e aggiornano l'indicatore
   // saveStatus (saving/saved/error) già mostrato in header.
-  const postEntries = useCallback(async (updated)=>{
+  const postEntries = useCallback(async (updated, opts={})=>{
+    // Cronologia Annulla: tutte le scritture della pipeline passano da qui
+    // (drag&drop, tentativi, form), quindi basta un solo punto di snapshot.
+    if (!opts.skipSnapshot) snapshot(entriesRef.current, opts.etichetta || "Modifica pipeline");
     setSaveStatus("saving");
     let ok = false;
     try { const res=await fetch("/api/pipeline-data",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({entries:updated})}); ok = res.ok; } catch { ok = false; }
@@ -551,12 +561,18 @@ export default function PipelinePage({ fontSize=14, theme="dark", onGoToIagrex }
     // "Salvato" sparisce da solo; "Errore" resta visibile finché un nuovo
     // salvataggio non va a buon fine, così un fallimento non passa inosservato.
     if (ok) setTimeout(()=>setSaveStatus(s=>s==="saved"?null:s),2500);
-  },[]);
+  },[snapshot]);
 
-  const saveData = useCallback(async (updated)=>{
+  const saveData = useCallback(async (updated, opts={})=>{
     setEntries(updated); lsSet(updated);
-    await postEntries(updated);
+    await postEntries(updated, opts);
   },[postEntries]);
+
+  const handleUndo = () => {
+    const voce = undo();
+    if (!voce || !Array.isArray(voce.stato)) return;
+    saveData(voce.stato, { skipSnapshot:true });
+  };
 
   const handleDropToStage = useCallback((entryId, newStage)=>{
     setEntries(prev=>{
@@ -812,6 +828,7 @@ export default function PipelinePage({ fontSize=14, theme="dark", onGoToIagrex }
             {saveStatus==="saving" && <span style={{fontSize:11,color:"#F59E0B"}}>☁️ Salvando...</span>}
             {saveStatus==="saved"  && <span style={{fontSize:11,color:"#10B981"}}>✅ Salvato</span>}
             {saveStatus==="error"  && <span style={{fontSize:11,color:"#EF4444",fontWeight:700}}>❌ Non salvato su Notion — riprova</span>}
+            <UndoButton voci={undoVoci} onUndo={handleUndo} accent="#8B5CF6" compact/>
           </div>
           <div style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap"}}>
             {["tutti","lead","cliente"].map(fi=>(

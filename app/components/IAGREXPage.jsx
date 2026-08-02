@@ -9,6 +9,7 @@ import {
   CashFlowMiniChart, CategoryBars, costoCambio,
   SOTTOCAT_TRASPORTI, SOTTOCAT_AUTO,
 } from "../lib/finance-ui";
+import { useUndoStack, UndoButton } from "../lib/undo";
 
 const CAT_ENTRATE = ["Retainer","One-time","Consulenza","Bonus","Conversione","Altro"];
 const CAT_USCITE  = ["Keez / Commercialista","Software & Tools","Marketing","Hosting","Personale IAGREX","Tasse & Contributi","Trasporti","Conversione","Altro"];
@@ -145,7 +146,13 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
 
   const monthData = allData[month] || { ...EMPTY_MONTH, saldi: getCarriedSaldi(allData, month) };
 
-  const saveData = useCallback(async (newAllData) => {
+  // Cronologia Annulla (vedi app/lib/undo.js): stato precedente messo da parte
+  // prima di ogni salvataggio.
+  const { snapshot, undo, voci: undoVoci } = useUndoStack("iagrex");
+  const allDataRef = useRef(allData);
+  useEffect(()=>{ allDataRef.current = allData; },[allData]);
+
+  const saveData = useCallback(async (newAllData, opts={}) => {
     if (!loadOk) {
       // Non abbiamo mai confermato di aver letto lo storico reale:
       // rifiutiamo il salvataggio per non rischiare di sovrascrivere
@@ -154,6 +161,7 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
       setTimeout(()=>setSaveStatus(null),3500);
       return;
     }
+    if (!opts.skipSnapshot) snapshot(allDataRef.current, opts.etichetta || "Modifica IAGREX");
     setAllData(newAllData);
     setSaveStatus("saving");
     try {
@@ -165,7 +173,13 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
       setSaveStatus(res.ok?"saved":"error");
     } catch { setSaveStatus("error"); }
     setTimeout(()=>setSaveStatus(null),2500);
-  },[loadOk]);
+  },[loadOk, snapshot]);
+
+  const handleUndo = () => {
+    const voce = undo();
+    if (!voce) return;
+    saveData(voce.stato, { skipSnapshot:true });
+  };
 
   const updateMonth = (updated) => saveData({...allData,[month]:updated});
 
@@ -553,6 +567,7 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
             {saveStatus==="saved"   && <span style={{fontSize:11,color:"#10B981"}}>✅ Salvato</span>}
             {saveStatus==="error"   && <span style={{fontSize:11,color:"#EF4444"}}>❌ Errore</span>}
             {saveStatus==="blocked" && <span style={{fontSize:11,color:"#EF4444"}}>🚫 Salvataggio bloccato: dati non caricati</span>}
+            <UndoButton voci={undoVoci} onUndo={handleUndo} accent="#8B5CF6" compact/>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
             <button onClick={prevMonth} style={{width:28,height:28,borderRadius:6,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-dim)",cursor:"pointer",fontSize:14}}>‹</button>
