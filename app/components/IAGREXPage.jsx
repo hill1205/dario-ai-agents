@@ -45,6 +45,8 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
   const [month, setMonth]         = useState(getCurrentMonth());
   const [tab, setTab]             = useState("entrate");
   const [filtroConto, setFiltroConto] = useState("");
+  // Filtro conto delle Entrate, separato da quello delle Uscite.
+  const [filtroContoEntrate, setFiltroContoEntrate] = useState("");
   const [filtroDataDa, setFiltroDataDa] = useState("");
   const [filtroDataA, setFiltroDataA]   = useState("");
   // Vista lista entrate/uscite: "categoria" raggruppa per categoria,
@@ -194,6 +196,15 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
   // conversione gonfierebbe artificialmente il progresso verso 1.000.000€
   // (o le uscite del mese) pur non essendo un vero incasso/costo.
   const isReal = (e) => !e.isConversione;
+
+  // Quando la lista e' filtrata su un conto in RON, accanto al totale in €
+  // (che dipende dal cambio) serve la somma in RON: e' quella che deve
+  // combaciare con il saldo nell'app della banca. Stringa vuota altrimenti.
+  const suffissoRon = (items, contoId) => {
+    if (!contoId || CONTI_IAGREX_BY_ID[contoId]?.currency !== "RON") return "";
+    const tot = items.filter(isReal).reduce((s,e)=>s+(parseFloat(e.importo)||0),0);
+    return ` · ${fmt(tot)} RON`;
+  };
 
   // YTD progress — converte anche le entrate storiche in RON prima di
   // sommarle, altrimenti il progresso verso 1.000.000€ mischierebbe RON e EUR.
@@ -624,22 +635,29 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
           {tab==="entrate" && (
             <div>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,gap:8,flexWrap:"wrap"}}>
-                <div style={{fontSize:fs-2,color:"var(--c-text-dim)"}}>Totale: <span style={{color:"#10B981",fontWeight:700}}>+{fmt(monthData.entrate.filter(e=>isReal(e)&&inDateRange(e)).reduce((s,e)=>s+toEur(e),0))}€</span></div>
+                <div style={{fontSize:fs-2,color:"var(--c-text-dim)"}}>Totale: <span style={{color:"#10B981",fontWeight:700}}>+{fmt(monthData.entrate.filter(e=>isReal(e)&&(!filtroContoEntrate||e.conto===filtroContoEntrate)&&inDateRange(e)).reduce((s,e)=>s+toEur(e),0))}€{suffissoRon(monthData.entrate.filter(e=>(!filtroContoEntrate||e.conto===filtroContoEntrate)&&inDateRange(e)), filtroContoEntrate)}</span></div>
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
                   <VistaToggle vista={vistaEntrate} onChange={setVistaEntrate} accent="#10B981"/>
                   <button onClick={()=>openAdd("entrata")} style={{padding:"6px 14px",borderRadius:7,border:"none",background:"#10B981",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:600,whiteSpace:"nowrap"}}>+ Aggiungi</button>
                 </div>
               </div>
               <div style={{display:"flex",flexDirection:isMobile?"column":"row",alignItems:isMobile?"stretch":"center",gap:6,marginBottom:12,padding:"8px 10px",background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:8}}>
+                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <span style={{fontSize:11,color:"var(--c-text-faint)",whiteSpace:"nowrap"}}>🏦 Conto</span>
+                  <select value={filtroContoEntrate} onChange={e=>setFiltroContoEntrate(e.target.value)} style={{flex:isMobile?1:"none",minWidth:0,padding:"6px 8px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:12}}>
+                    <option value="">Tutti i conti</option>
+                    {CONTI_IAGREX.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
+                  </select>
+                </div>
                 <DateRangePicker da={filtroDataDa} a={filtroDataA} onChange={(d,a)=>{setFiltroDataDa(d);setFiltroDataA(a);}} accent="#10B981"/>
-                <button onClick={()=>exportCSV(monthData.entrate.filter(e=>isReal(e)&&inDateRange(e)),"entrate")} title="Esporta le entrate filtrate in CSV"
+                <button onClick={()=>exportCSV(monthData.entrate.filter(e=>isReal(e)&&(!filtroContoEntrate||e.conto===filtroContoEntrate)&&inDateRange(e)),"entrate")} title="Esporta le entrate filtrate in CSV"
                   style={{flexShrink:0,padding:"6px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-dim)",cursor:"pointer",fontSize:11,whiteSpace:"nowrap"}}>📥 CSV</button>
               </div>
               {(() => {
-                const filtered = monthData.entrate.filter(inDateRange);
+                const filtered = monthData.entrate.filter(e=>(!filtroContoEntrate||e.conto===filtroContoEntrate)&&inDateRange(e));
                 if (filtered.length===0) return (
                   <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,padding:20,textAlign:"center",color:"var(--c-text-faintest)",fontSize:fs-2}}>
-                    {monthData.entrate.length===0?"Nessuna entrata — aggiungi la prima":"Nessuna entrata nel periodo selezionato"}
+                    {monthData.entrate.length===0?"Nessuna entrata — aggiungi la prima":"Nessuna entrata nel periodo/conto selezionato"}
                   </div>
                 );
                 const Row = (e,i) => (
@@ -657,7 +675,7 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
                   <div key={key} style={{marginBottom:12}}>
                     <div style={{fontSize:fs-3,fontWeight:700,color:"var(--c-text-dim)",marginBottom:6,display:"flex",justifyContent:"space-between"}}>
                       <span>{formatDayLabel(data)}</span>
-                      <span style={{color:"#10B981"}}>+{fmt(items.filter(isReal).reduce((s,e)=>s+toEur(e),0))}€</span>
+                      <span style={{color:"#10B981"}}>+{fmt(items.filter(isReal).reduce((s,e)=>s+toEur(e),0))}€{suffissoRon(items, filtroContoEntrate)}</span>
                     </div>
                     <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,overflow:"hidden"}}>
                       {items.map(Row)}
@@ -669,7 +687,7 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
                   <div key={cat} style={{marginBottom:12}}>
                     <div style={{fontSize:fs-3,fontWeight:700,color:"var(--c-text-dim)",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6,display:"flex",justifyContent:"space-between"}}>
                       <span>{cat}</span>
-                      <span style={{color:"#10B981"}}>+{fmt(items.filter(isReal).reduce((s,e)=>s+toEur(e),0))}€</span>
+                      <span style={{color:"#10B981"}}>+{fmt(items.filter(isReal).reduce((s,e)=>s+toEur(e),0))}€{suffissoRon(items, filtroContoEntrate)}</span>
                     </div>
                     <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,overflow:"hidden"}}>
                       {items.map(Row)}
@@ -683,7 +701,7 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
           {tab==="uscite" && (
             <div>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,gap:8,flexWrap:"wrap"}}>
-                <div style={{fontSize:fs-2,color:"var(--c-text-dim)"}}>Totale: <span style={{color:"#EF4444",fontWeight:700}}>-{fmt(monthData.uscite.filter(e=>isReal(e)&&(!filtroConto||e.conto===filtroConto)&&inDateRange(e)).reduce((s,e)=>s+toEur(e),0))}€</span></div>
+                <div style={{fontSize:fs-2,color:"var(--c-text-dim)"}}>Totale: <span style={{color:"#EF4444",fontWeight:700}}>-{fmt(monthData.uscite.filter(e=>isReal(e)&&(!filtroConto||e.conto===filtroConto)&&inDateRange(e)).reduce((s,e)=>s+toEur(e),0))}€{suffissoRon(monthData.uscite.filter(e=>(!filtroConto||e.conto===filtroConto)&&inDateRange(e)), filtroConto)}</span></div>
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
                   <VistaToggle vista={vistaUscite} onChange={setVistaUscite} accent="#EF4444"/>
                   <button onClick={()=>openAdd("uscita")} style={{padding:"6px 14px",borderRadius:7,border:"none",background:"#EF4444",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:600,whiteSpace:"nowrap"}}>+ Aggiungi</button>
@@ -722,7 +740,7 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
                   <div key={key} style={{marginBottom:12}}>
                     <div style={{fontSize:fs-3,fontWeight:700,color:"var(--c-text-dim)",marginBottom:6,display:"flex",justifyContent:"space-between"}}>
                       <span>{formatDayLabel(data)}</span>
-                      <span style={{color:"#EF4444"}}>-{fmt(items.filter(isReal).reduce((s,e)=>s+toEur(e),0))}€</span>
+                      <span style={{color:"#EF4444"}}>-{fmt(items.filter(isReal).reduce((s,e)=>s+toEur(e),0))}€{suffissoRon(items, filtroConto)}</span>
                     </div>
                     <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,overflow:"hidden"}}>
                       {items.map(Row)}
@@ -734,7 +752,7 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
                   <div key={cat} style={{marginBottom:12}}>
                     <div style={{fontSize:fs-3,fontWeight:700,color:"var(--c-text-dim)",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6,display:"flex",justifyContent:"space-between"}}>
                       <span>{cat}</span>
-                      <span style={{color:"#EF4444"}}>-{fmt(items.filter(isReal).reduce((s,e)=>s+toEur(e),0))}€</span>
+                      <span style={{color:"#EF4444"}}>-{fmt(items.filter(isReal).reduce((s,e)=>s+toEur(e),0))}€{suffissoRon(items, filtroConto)}</span>
                     </div>
                     <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,overflow:"hidden"}}>
                       {items.map(Row)}
