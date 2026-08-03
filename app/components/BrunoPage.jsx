@@ -1835,12 +1835,21 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
               const pct     = rateTot ? Math.round((pagate/rateTot)*100) : null;
               const colore  = r.chiusa ? "#10B981" : pausa ? "var(--c-text-faint)"
                 : r.tipo==="finanziamento" ? "#EF4444" : r.tipo==="spesa" ? "#06B6D4" : "#3B82F6";
+              // Pagata nel mese che stai guardando? Il legame è il movimento
+              // con ricorrenzaId: la card diventa verde e si vede a colpo
+              // d'occhio cosa resta da pagare senza aprire nulla.
+              const pagamentoMese = storicoRicorrenza(allData, r.id).find(s=>s.ym===month);
               return (
-                <div style={{ background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10, padding:"12px 14px", opacity:(pausa||r.chiusa)?0.65:1 }}>
+                <div style={{ background: pagamentoMese ? "#10B9810F" : "var(--c-panel)", border:`1px solid ${pagamentoMese ? "#10B98150" : "var(--c-border)"}`, borderRadius:10, padding:"12px 14px", opacity:(pausa||r.chiusa)?0.65:1 }}>
                   <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:10, flexWrap:"wrap" }}>
                     <div style={{ minWidth:0 }}>
                       <div style={{ fontSize:fs-1, fontWeight:700, color:"var(--c-text-strong)" }}>
                         {r.nome}
+                        {pagamentoMese && (
+                          <span style={{ marginLeft:8, fontSize:fs-4, color:"#10B981", fontWeight:600 }}>
+                            ✅ pagata {pagamentoMese.data.slice(8)}/{pagamentoMese.data.slice(5,7)} · {fmt(pagamentoMese.importo)}{ccy(r)}
+                          </span>
+                        )}
                         {r.chiusa && <span style={{ marginLeft:8, fontSize:fs-4, color:"#10B981", fontWeight:600 }}>✅ estinto {r.chiusa.data}</span>}
                         {pausa && <span style={{ marginLeft:8, fontSize:fs-4, color:"var(--c-text-faint)", fontWeight:600 }}>⏸ in pausa</span>}
                       </div>
@@ -2574,6 +2583,53 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                 <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:6 }}>Categoria</div>
                 {modal.tipo==="uscita" ? (
                   <>
+                    {/* Collegare l'uscita alla sua spesa fissa. Senza questo
+                        legame (il campo ricorrenzaId) un affitto pagato a mano
+                        resta una spesa qualunque: la card continua a risultare
+                        da pagare e il pagamento non entra nello storico.
+                        Si mostrano solo le spese fisse non ancora registrate
+                        nel mese della data scelta — le altre sarebbero un
+                        doppione. */}
+                    {(()=>{
+                      const ymForm = (form.data||"").slice(0,7);
+                      const collegata = form.ricorrenzaId ? ricorrenze.find(r=>r.id===form.ricorrenzaId) : null;
+                      if (collegata) return (
+                        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8, marginBottom:10, padding:"8px 10px", borderRadius:8, border:"1px solid #10B98150", background:"#10B9811A" }}>
+                          <span style={{ fontSize:12, color:"#10B981" }}>
+                            🧾 Pagamento di <b>{collegata.nome}</b>{ymForm && <> · {getMonthLabel(ymForm)}</>}
+                          </span>
+                          <button onClick={()=>setForm(p=>({...p, ricorrenzaId:undefined}))}
+                            style={{ border:"none", background:"transparent", color:"#10B981", cursor:"pointer", fontSize:11, textDecoration:"underline", padding:0 }}>scollega</button>
+                        </div>
+                      );
+                      const daPagare = speseFisse.filter(r=>{
+                        if (r.attiva===false || r.chiusa) return false;
+                        return !storicoRicorrenza(allData, r.id).some(s=>s.ym===ymForm);
+                      });
+                      if (!daPagare.length) return null;
+                      return (
+                        <div style={{ marginBottom:10 }}>
+                          <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:6 }}>Stai pagando una spesa fissa? 🧾</div>
+                          <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                            {daPagare.map(r=>(
+                              <button key={r.id} onClick={()=>{
+                                  setCustomCat("");
+                                  setForm(p=>({ ...p,
+                                    ricorrenzaId: r.id,
+                                    descrizione: p.descrizione?.trim() ? p.descrizione : r.nome,
+                                    categoria: r.categoria || p.categoria,
+                                    sottocategoria: r.sottocategoria || "",
+                                    conto: r.conto || p.conto,
+                                  }));
+                                }}
+                                style={{ padding:"5px 12px", borderRadius:16, border:"1px solid #06B6D450", background:"#06B6D414", color:"#06B6D4", cursor:"pointer", fontSize:11 }}>
+                                {r.nome}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
                     <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:8 }}>
                       {CAT_USCITE_FISSE.map(c=>(
                         <button key={c} onClick={()=>{setForm(p=>({...p,categoria:c, viaggio: p._viaggioManual ? p.viaggio : autoViaggioFor(p.data, c)}));setCustomCat("");}}
