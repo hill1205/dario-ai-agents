@@ -33,10 +33,14 @@ export const MESI_BREVI = ["gen","feb","mar","apr","mag","giu","lug","ago","set"
 // Le etichette stanno in auto.js (modulo puro, eseguibile da node per i test)
 // e vengono ri-esportate qui, dove le cercano le pagine.
 export { SOTTOCAT_CARBURANTE, SOTTOCAT_MANUTENZIONE, SOTTOCAT_AUTO_LEGACY } from "./auto.js";
-export const SOTTOCAT_TRASPORTI = ["Amministrativo auto","Carburante","Manutenzione auto","Bolt/Uber"];
+// "Parcheggi" è una voce a sé e non finisce in Amministrativo: il bollo lo
+// paghi una volta l'anno e non dipende da come guidi, il parcheggio è una
+// spesa ricorrente e comprimibile. Mescolarli nasconderebbe quanto pesa
+// davvero lasciare l'auto al centro commerciale.
+export const SOTTOCAT_TRASPORTI = ["Amministrativo auto","Carburante","Manutenzione auto","Parcheggi","Bolt/Uber"];
 // Include anche il vecchio nome unico, altrimenti il "totale auto" dei mesi
 // passati perderebbe di colpo tutti i rifornimenti già registrati.
-export const SOTTOCAT_AUTO = ["Amministrativo auto","Carburante","Manutenzione auto","Rifornimento + manutenzione"];
+export const SOTTOCAT_AUTO = ["Amministrativo auto","Carburante","Manutenzione auto","Parcheggi","Rifornimento + manutenzione"];
 // Utenze: separare le bollette serve a rispondere a "sto consumando di più?",
 // domanda che sul totale Utenze non si può fare (luce che sale e gas che
 // scende si annullano a vicenda).
