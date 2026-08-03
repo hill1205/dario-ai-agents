@@ -880,6 +880,15 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
   // ("l'ultima volta erano 10.240"), così un numero digitato male si vede
   // subito invece di scoprirlo dopo, quando ha già falsato due tratti.
   const ultimaLettura = letture(rifs).filter(r=>r.odometroValido).at(-1) || null;
+  // Le due valute affiancate. I rifornimenti si fanno in Romania (RON) e in
+  // Ungheria (€): un totale in una sola valuta costringe a fare il cambio a
+  // mente per confrontarlo con l'estratto conto o col prezzo al distributore.
+  const eurRon = (eur) => `${fmt(eur)}€ · ${fmt(eur*rate)} RON`;
+  const eurRon3 = (eur) => `${eur.toFixed(3)}€ · ${(eur*rate).toFixed(2)} RON`;
+  const ronEur = (nativo, contoId) =>
+    contoCurrency(contoId)==="RON"
+      ? `${fmt(nativo)} RON · ${fmt(nativo/rate)}€`
+      : `${fmt(nativo)}€ · ${fmt(nativo*rate)} RON`;
 
   // --- Riga di un movimento ---------------------------------------------
   // Una riga sola, usata da entrate e uscite. Le informazioni sono su tre
@@ -2050,11 +2059,13 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
               { label:"Km percorsi", val: kmMese!=null?`${fmt(kmMese)} km`:"—", color:"#3B82F6",
                 sub: kmMese==null ? "servono due letture del contachilometri" : (autoMese.kmParziali?"parziale: manca la lettura del mese scorso":null) },
               { label:"Carburante", val: autoMese.spesaEur>0?`${fmt(autoMese.spesaEur)}€`:"—", color:"#F97316",
-                sub: autoMese.rifornimenti>0?`${autoMese.rifornimenti} rifornimenti · ${fmt(autoMese.litri)} litri`:null },
+                sub: autoMese.rifornimenti>0?`${fmt(autoMese.spesaEur*rate)} RON · ${autoMese.rifornimenti} rifornimenti · ${fmt(autoMese.litri)} litri`:null },
               { label:"Consumo", val: autoMese.kmPerLitro!=null?`${autoMese.kmPerLitro} km/l`:"—", color:"#10B981",
                 sub: autoMese.kmPerLitro!=null?`${autoMese.litriPer100km} l/100km`:"serve un pieno prima e uno dopo" },
               { label:"Costo al km", val: autoMese.costoEurPerKm!=null?`${autoMese.costoEurPerKm.toFixed(3)}€`:"—", color:"#8B5CF6",
-                sub: autoManutenzione>0?`+ ${fmt(autoManutenzione)}€ di manutenzione`:"solo carburante" },
+                sub: autoMese.costoEurPerKm!=null
+                  ? `${(autoMese.costoEurPerKm*rate).toFixed(2)} RON/km${autoManutenzione>0?` · + ${eurRon(autoManutenzione)} manutenzione`:""}`
+                  : (autoManutenzione>0?`+ ${eurRon(autoManutenzione)} di manutenzione`:"solo carburante") },
             ];
             return (
               <div>
@@ -2086,7 +2097,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
 
                 {autoMedia && (
                   <div style={{ marginTop:10, fontSize:fs-3, color:"var(--c-text-muted)" }}>
-                    Media di sempre: <b style={{ color:"var(--c-text)" }}>{autoMedia.kmPerLitro} km/l</b> su {fmt(autoMedia.km)} km misurati con {fmt(autoMedia.litri)} litri.
+                    Media di sempre: <b style={{ color:"var(--c-text)" }}>{autoMedia.kmPerLitro} km/l</b> su {fmt(autoMedia.km)} km misurati con {fmt(autoMedia.litri)} litri (cambio {rate.toFixed(2)} RON/€).
                     {" "}<span style={{ color:"var(--c-text-faintest)" }}>Il consumo si calcola solo fra due pieni: i rifornimenti parziali in mezzo vengono sommati al tratto, non contati a parte.</span>
                   </div>
                 )}
@@ -2105,9 +2116,10 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                             <span style={{ color:"var(--c-text-muted)" }}>
                               {s.km!=null?<b style={{ color:"#3B82F6" }}>{fmt(s.km)} km</b>:<span style={{ color:"var(--c-text-faintest)" }}>km n/d</span>}
                               {" · "}<b style={{ color:"#F97316" }}>{fmt(s.spesaEur)}€</b>
+                              <span style={{ color:"var(--c-text-faintest)" }}> ({fmt(s.spesaEur*rate)} RON)</span>
                               {" · "}{fmt(s.litri)} l
                               {s.kmPerLitro!=null && <> · <b style={{ color:"#10B981" }}>{s.kmPerLitro} km/l</b></>}
-                              {s.costoEurPerKm!=null && <> · {s.costoEurPerKm.toFixed(3)} €/km</>}
+                              {s.costoEurPerKm!=null && <> · {eurRon3(s.costoEurPerKm)}/km</>}
                             </span>
                           </div>
                           <div style={{ height:6, borderRadius:3, background:"var(--c-panel2)", marginTop:4, overflow:"hidden" }}>
@@ -2134,7 +2146,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                           {s.parzialiInMezzo>0 && <span style={{ color:"var(--c-text-faintest)" }}> · {s.parzialiInMezzo} parziali inclusi</span>}
                         </span>
                         <span style={{ color:"var(--c-text)" }}>
-                          <b>{fmt(s.km)} km</b> · {fmt(s.litri)} l · <b style={{ color:"#10B981" }}>{s.kmPerLitro} km/l</b> · {s.costoEurPerKm.toFixed(3)} €/km
+                          <b>{fmt(s.km)} km</b> · {fmt(s.litri)} l · <b style={{ color:"#10B981" }}>{s.kmPerLitro} km/l</b> · {eurRon3(s.costoEurPerKm)}/km
                         </span>
                       </div>
                     ))}
@@ -2164,9 +2176,13 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                               {r.pieno ? <span style={{ color:"#10B981" }}> · pieno</span> : <span style={{ color:"var(--c-text-faintest)" }}> · parziale</span>}
                               {r.odometro>0 && <span style={{ color:"var(--c-text-faintest)" }}> · {fmt(r.odometro)} km</span>}
                             </span>
-                            <span style={{ color:"var(--c-text)" }}>
-                              {fmt(r.importo)} {valuta}{r.litri>0 && <> · {fmt(r.litri)} l</>}
-                              {pl!=null && <span style={{ color:"var(--c-text-faintest)" }}> · {pl.toFixed(3)} {valuta}/l</span>}
+                            <span style={{ color:"var(--c-text)", textAlign:"right" }}>
+                              {ronEur(r.importo, r.conto)}{r.litri>0 && <> · {fmt(r.litri)} l</>}
+                              {/* Il prezzo al litro resta nella valuta pagata:
+                                  è quello che leggi sul cartellone e l'unico
+                                  confrontabile fra due distributori dello
+                                  stesso Paese. */}
+                              {pl!=null && <span style={{ color:"var(--c-text-faintest)" }}> · {pl.toFixed(2)} {valuta}/l</span>}
                             </span>
                           </div>
                         );
