@@ -23,9 +23,20 @@ export const MESI_BREVI = ["gen","feb","mar","apr","mag","giu","lug","ago","set"
 // Sottocategorie della categoria "Trasporti", condivise tra Finanze personali
 // e IAGREX: servono a distinguere i costi dell'AUTO (pratiche amministrative,
 // carburante e manutenzione) dalle corse Bolt/Uber, che sono trasporti ma non
-// costi dell'auto. Le prime due voci compongono il "totale auto" nel Recap.
-export const SOTTOCAT_TRASPORTI = ["Amministrativo auto","Rifornimento + manutenzione","Bolt/Uber"];
-export const SOTTOCAT_AUTO = ["Amministrativo auto","Rifornimento + manutenzione"];
+// costi dell'auto. Le voci auto compongono il "totale auto" nel Recap.
+//
+// Dal 2026-08-03 carburante e manutenzione sono due voci separate: finché
+// stavano insieme, un tagliando da 400€ finiva nello stesso totale dei pieni e
+// il costo al chilometro del carburante era illeggibile (una gomma nuova
+// sembrava benzina). Il gasolio è un costo proporzionale ai km, il tagliando
+// no: sommarli risponde a "quanto mi costa l'auto", ma non a "quanto consuma".
+// Le etichette stanno in auto.js (modulo puro, eseguibile da node per i test)
+// e vengono ri-esportate qui, dove le cercano le pagine.
+export { SOTTOCAT_CARBURANTE, SOTTOCAT_MANUTENZIONE, SOTTOCAT_AUTO_LEGACY } from "./auto.js";
+export const SOTTOCAT_TRASPORTI = ["Amministrativo auto","Carburante","Manutenzione auto","Bolt/Uber"];
+// Include anche il vecchio nome unico, altrimenti il "totale auto" dei mesi
+// passati perderebbe di colpo tutti i rifornimenti già registrati.
+export const SOTTOCAT_AUTO = ["Amministrativo auto","Carburante","Manutenzione auto","Rifornimento + manutenzione"];
 // Utenze: separare le bollette serve a rispondere a "sto consumando di più?",
 // domanda che sul totale Utenze non si può fare (luce che sale e gas che
 // scende si annullano a vicenda).

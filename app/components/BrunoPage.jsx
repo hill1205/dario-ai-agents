@@ -10,6 +10,11 @@ import {
   SOTTOCAT_TRASPORTI, SOTTOCAT_AUTO, SOTTOCAT_UTENZE, SOTTOCATEGORIE,
   UNITA_CONSUMO, UNITA_DISPONIBILI, propagaSaldiAiMesiSuccessivi,
 } from "../lib/finance-ui";
+import {
+  SOTTOCAT_CARBURANTE, SOTTOCAT_MANUTENZIONE, SOTTOCAT_AUTO_LEGACY,
+  rifornimenti, prezzoAlLitro, letture, anomalie, segmentiConsumo,
+  consumoMedio, statsMese, statsPerMese, speseManutenzione,
+} from "../lib/auto";
 import { useUndoStack, UndoButton } from "../lib/undo";
 import {
   applicaRicorrenze, debitoResiduo, ratePagate, prossimaScadenza, occorrenze,
@@ -820,6 +825,31 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
     if (filtroViaggio===vid) setFiltroViaggio("");
   };
 
+  // --- Auto: chilometri, consumo, costo al km -------------------------
+  // I rifornimenti si pescano da TUTTI i mesi, non solo da quello aperto: il
+  // consumo si misura fra due pieni, e due pieni consecutivi cadono spesso in
+  // mesi diversi (l'ultimo di luglio e il primo di agosto). Filtrando per mese
+  // il primo tratto di ogni mese sparirebbe.
+  const tutteLeUscite = (() => {
+    const out = [];
+    for (const [ym, md] of Object.entries(allData)) {
+      if (!/^\d{4}-\d{2}$/.test(ym)) continue;
+      for (const e of (md.uscite||[])) if (isReal(e)) out.push(e);
+    }
+    return out;
+  })();
+  const rifs = rifornimenti(tutteLeUscite, toEur);
+  const autoMese = statsMese(rifs, month);
+  const autoStorico = statsPerMese(rifs, 12);
+  const autoSegmenti = segmentiConsumo(rifs).slice().reverse();
+  const autoMedia = consumoMedio(segmentiConsumo(rifs));
+  const autoAnomalie = anomalie(rifs);
+  const autoManutenzione = speseManutenzione(tutteLeUscite, month, toEur);
+  // Ultima lettura buona dell'odometro: serve nel form come riferimento
+  // ("l'ultima volta erano 10.240"), così un numero digitato male si vede
+  // subito invece di scoprirlo dopo, quando ha già falsato due tratti.
+  const ultimaLettura = letture(rifs).filter(r=>r.odometroValido).at(-1) || null;
+
   // MODAL HANDLERS
   const openAdd = (tipo) => {
     const oggi = localISODate();
@@ -853,7 +883,27 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
     // La sottocategoria vale solo per le categorie che ne hanno (Trasporti,
     // Utenze): se la categoria è cambiata, o la sottocategoria non appartiene
     // a quella categoria, non va salvata.
-    if (!SOTTOCATEGORIE[cat]?.includes(item.sottocategoria)) delete item.sottocategoria;
+    // La vecchia "Rifornimento + manutenzione" resta ammessa in salvataggio
+    // anche se non è più fra i pulsanti: senza questa riga, aprire e salvare
+    // un movimento di luglio per cambiargli l'importo gli cancellerebbe la
+    // sottocategoria, e quel movimento uscirebbe dai totali auto.
+    const scAmmesse = [...(SOTTOCATEGORIE[cat] || []), ...(cat === "Trasporti" ? [SOTTOCAT_AUTO_LEGACY] : [])];
+    if (!scAmmesse.includes(item.sottocategoria)) delete item.sottocategoria;
+    // Rifornimento: litri, odometro e "pieno". I litri da soli danno il prezzo
+    // al litro; con l'odometro danno i km percorsi; con "pieno" danno il
+    // consumo reale. Sono tre livelli: quello che compili, funziona — quello
+    // che salti non rompe il resto.
+    const litri = parseFloat(item.litri);
+    const odo   = parseFloat(item.odometro);
+    if (item.sottocategoria === SOTTOCAT_CARBURANTE || (item.sottocategoria === SOTTOCAT_AUTO_LEGACY && litri > 0)) {
+      if (litri > 0) item.litri = round2(litri); else delete item.litri;
+      // L'odometro è un intero: i decimali del contachilometri parziale (trip)
+      // non c'entrano, e mescolare i due azzererebbe i tratti.
+      if (odo > 0) item.odometro = Math.round(odo); else delete item.odometro;
+      // "pieno" si salva solo se vero: un false su ogni rifornimento sarebbe
+      // rumore nel JSON, e l'assenza significa già "parziale".
+      if (item.pieno) item.pieno = true; else delete item.pieno;
+    } else { delete item.litri; delete item.odometro; delete item.pieno; }
     // Consumo della bolletta (kWh, m³): tenuto insieme all'importo perché da
     // soli non rispondono alla domanda vera — è il loro rapporto (costo
     // unitario) a dire se è cambiato il consumo o la tariffa.
@@ -1157,7 +1207,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
   // sempre a quello che l'utente sta guardando. Generato lato client con
   // un Blob, senza passare dal server.
   const exportCSV = (items, tipo) => {
-    const header = ["Data","Descrizione","Categoria","Sottocategoria","Conto","Importo","Valuta","Viaggio","Di cui commissioni","Consumo","Unità","Tariffa (netto quote fisse)","Quota fissa","Periodo da","Periodo a"];
+    const header = ["Data","Descrizione","Categoria","Sottocategoria","Conto","Importo","Valuta","Viaggio","Di cui commissioni","Consumo","Unità","Tariffa (netto quote fisse)","Quota fissa","Periodo da","Periodo a","Litri","Km (odometro)","Pieno","Prezzo al litro"];
     const rows = items.map(e => [
       e.data || "",
       (e.descrizione||"").replace(/"/g,'""'),
@@ -1174,6 +1224,13 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
       e.quotaFissa || "",
       e.periodoDa || "",
       e.periodoA || "",
+      e.litri || "",
+      e.odometro || "",
+      e.pieno ? "sì" : (e.litri ? "no" : ""),
+      // Prezzo al litro nella valuta del conto: è il dato che si confronta
+      // fra un distributore e l'altro, e in euro non sarebbe confrontabile
+      // fra Romania e Ungheria.
+      (parseFloat(e.litri)>0 ? (parseFloat(e.importo)/parseFloat(e.litri)).toFixed(3) : ""),
     ]);
     const csv = [header, ...rows].map(r => r.map(v => `"${v}"`).join(";")).join("\n");
     const blob = new Blob(["﻿"+csv], { type:"text/csv;charset=utf-8;" });
@@ -1315,7 +1372,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
       {/* Tabs */}
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", borderBottom:"1px solid var(--c-border)", flexShrink:0, background:"var(--c-bg)" }}>
         <div style={{ display:"flex", flexWrap:"wrap" }}>
-          {[["entrate","💚 Entrate"],["uscite","🔴 Uscite"],["saldi","🏦 Saldi & Obiettivi"],["ricorrenti","🔁 Rate & Abbonamenti"],["viaggi","✈️ Viaggi"],["recap","📊 Recap"]].map(([t,label])=>(
+          {[["entrate","💚 Entrate"],["uscite","🔴 Uscite"],["saldi","🏦 Saldi & Obiettivi"],["ricorrenti","🔁 Rate & Abbonamenti"],["auto","🚗 Auto"],["viaggi","✈️ Viaggi"],["recap","📊 Recap"]].map(([t,label])=>(
             <button key={t} onClick={()=>setTab(t)} style={{ padding:"10px 16px", border:"none", background:"transparent", cursor:"pointer", fontSize:fs-2, fontWeight:tab===t?700:400, color:tab===t?"var(--c-text-strong)":"var(--c-text-faint)", borderBottom:tab===t?"2px solid #F59E0B":"2px solid transparent" }}>{label}</button>
           ))}
         </div>
@@ -1438,7 +1495,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                   <div key={e.id} style={{ display:"grid", gridTemplateColumns:"1fr auto auto auto", gap:0, borderTop:i===0?"none":"1px solid var(--c-border)", background:flaggedIds.has(e.id)?"#F59E0B1F":(i%2===0?"var(--c-panel)":"var(--c-panel2)"), boxShadow:flaggedIds.has(e.id)?"inset 3px 0 0 #F59E0B":"none" }}>
                     <Cell style={{ flexDirection:"column", alignItems:"flex-start", gap:2 }}>
                       <span style={{ color:"var(--c-text)" }}>{flaggedIds.has(e.id)?"⚠️ ":""}{e.descrizione}</span>
-                      <span style={{ fontSize:fs-4, color:"var(--c-text-faint)" }}>{e.data?`${e.data}`:""}{e.data?" · ":""}{e.categoria}{e.sottocategoria?<span style={{color:"#F97316"}}> › {e.sottocategoria}</span>:""}{e.conto?` · ${CONTI_BY_ID[e.conto]?.label||e.conto}`:""}{e.viaggio&&viaggioById[e.viaggio]?<span style={{color:"#F59E0B"}}> · ✈️ {viaggioById[e.viaggio].nome}</span>:""}{parseFloat(e.commissioni)>0?<span style={{color:"#06B6D4"}}> · di cui {fmt(e.commissioni)}{contoCurrency(e.conto)==="RON"?" RON":"€"} commissioni</span>:""}{e.noSaldo?<span style={{color:"#94A3B8"}} title="Rata/canone arretrato registrato come storico: il saldo del conto non è stato toccato, perché lo avevi già scritto a mano dalla banca"> · 📎 storico, saldo non toccato</span>:""}{parseFloat(e.consumo)>0?<span style={{color:"#06B6D4"}} title="Consumo del periodo e tariffa al netto delle quote fisse: è la tariffa che dice se è aumentato il prezzo"> · ⚡ {fmt(e.consumo)} {e.unita} · {((parseFloat(e.importo)-(parseFloat(e.quotaFissa)||0))/parseFloat(e.consumo)).toFixed(3)}{contoCurrency(e.conto)==="RON"?" RON":"€"}/{e.unita}{parseFloat(e.periodoDa)!==undefined&&e.periodoDa?` · ${e.periodoDa.slice(8)}/${e.periodoDa.slice(5,7)}→${e.periodoA.slice(8)}/${e.periodoA.slice(5,7)}`:""}</span>:""}</span>
+                      <span style={{ fontSize:fs-4, color:"var(--c-text-faint)" }}>{e.data?`${e.data}`:""}{e.data?" · ":""}{e.categoria}{e.sottocategoria?<span style={{color:"#F97316"}}> › {e.sottocategoria}</span>:""}{e.conto?` · ${CONTI_BY_ID[e.conto]?.label||e.conto}`:""}{e.viaggio&&viaggioById[e.viaggio]?<span style={{color:"#F59E0B"}}> · ✈️ {viaggioById[e.viaggio].nome}</span>:""}{parseFloat(e.commissioni)>0?<span style={{color:"#06B6D4"}}> · di cui {fmt(e.commissioni)}{contoCurrency(e.conto)==="RON"?" RON":"€"} commissioni</span>:""}{e.noSaldo?<span style={{color:"#94A3B8"}} title="Rata/canone arretrato registrato come storico: il saldo del conto non è stato toccato, perché lo avevi già scritto a mano dalla banca"> · 📎 storico, saldo non toccato</span>:""}{parseFloat(e.consumo)>0?<span style={{color:"#06B6D4"}} title="Consumo del periodo e tariffa al netto delle quote fisse: è la tariffa che dice se è aumentato il prezzo"> · ⚡ {fmt(e.consumo)} {e.unita} · {((parseFloat(e.importo)-(parseFloat(e.quotaFissa)||0))/parseFloat(e.consumo)).toFixed(3)}{contoCurrency(e.conto)==="RON"?" RON":"€"}/{e.unita}{parseFloat(e.periodoDa)!==undefined&&e.periodoDa?` · ${e.periodoDa.slice(8)}/${e.periodoDa.slice(5,7)}→${e.periodoA.slice(8)}/${e.periodoA.slice(5,7)}`:""}</span>:""}{parseFloat(e.litri)>0?<span style={{color:"#10B981"}} title="Rifornimento: litri, prezzo al litro nella valuta pagata e lettura del contachilometri"> · ⛽ {fmt(e.litri)} l · {(parseFloat(e.importo)/parseFloat(e.litri)).toFixed(3)}{contoCurrency(e.conto)==="RON"?" RON":"€"}/l{parseFloat(e.odometro)>0?` · ${fmt(e.odometro)} km`:""}{e.pieno?" · pieno":""}</span>:""}</span>
                     </Cell>
                     {/* Le conversioni non sono spese vere: mostrate in viola con ↔
                         invece del rosso -, così la lista non le fa sembrare uscite. */}
@@ -1846,6 +1903,146 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
             );
           })()}
 
+          {/* AUTO: quanto cammina e quanto beve.
+              Tre numeri diversi che è facile confondere:
+              - km/litro  -> quanto consuma il motore (solo fra due pieni)
+              - €/km      -> quanto ti costa guidare (spesa del mese / km)
+              - €/litro   -> quanto costa il gasolio al distributore
+              Il primo dipende da te e dall'auto, il terzo solo dal mercato. */}
+          {tab==="auto" && (()=>{
+            const kmMese = autoMese.km;
+            const cards = [
+              { label:"Km percorsi", val: kmMese!=null?`${fmt(kmMese)} km`:"—", color:"#3B82F6",
+                sub: kmMese==null ? "servono due letture del contachilometri" : (autoMese.kmParziali?"parziale: manca la lettura del mese scorso":null) },
+              { label:"Carburante", val: autoMese.spesaEur>0?`${fmt(autoMese.spesaEur)}€`:"—", color:"#F97316",
+                sub: autoMese.rifornimenti>0?`${autoMese.rifornimenti} rifornimenti · ${fmt(autoMese.litri)} litri`:null },
+              { label:"Consumo", val: autoMese.kmPerLitro!=null?`${autoMese.kmPerLitro} km/l`:"—", color:"#10B981",
+                sub: autoMese.kmPerLitro!=null?`${autoMese.litriPer100km} l/100km`:"serve un pieno prima e uno dopo" },
+              { label:"Costo al km", val: autoMese.costoEurPerKm!=null?`${autoMese.costoEurPerKm.toFixed(3)}€`:"—", color:"#8B5CF6",
+                sub: autoManutenzione>0?`+ ${fmt(autoManutenzione)}€ di manutenzione`:"solo carburante" },
+            ];
+            return (
+              <div>
+                <div style={{ fontSize:fs-1, fontWeight:700, color:"var(--c-text-strong)", marginBottom:12 }}>
+                  🚗 Auto — {getMonthLabel(month)}
+                </div>
+
+                {/* Una lettura più bassa della precedente è quasi sempre una
+                    cifra saltata scrivendo. Non la correggiamo da soli: la
+                    escludiamo e lo diciamo, perché una lettura sbagliata
+                    falsa i due tratti che le stanno intorno, non solo sé. */}
+                {autoAnomalie.length>0 && (
+                  <div style={{ marginBottom:12, padding:"8px 10px", borderRadius:8, border:"1px solid #EF444440", background:"#EF44440D", color:"#EF4444", fontSize:fs-3 }}>
+                    ⚠️ {autoAnomalie.length} letture del contachilometri più basse della precedente (
+                    {autoAnomalie.map(a=>`${a.data}: ${a.odometro} km`).join(", ")}
+                    ). Le ho escluse dai calcoli: correggile dal movimento per recuperare quei tratti.
+                  </div>
+                )}
+
+                <div style={{ display:"grid", gridTemplateColumns:isMobile?"repeat(2,1fr)":"repeat(4,1fr)", gap:8 }}>
+                  {cards.map(c=>(
+                    <div key={c.label} style={{ background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10, padding:"10px 12px", minWidth:0 }}>
+                      <div style={{ fontSize:fs-4, color:"var(--c-text-dim)" }}>{c.label}</div>
+                      <div style={{ fontSize:fs+5, fontWeight:700, color:c.color, wordBreak:"break-word" }}>{c.val}</div>
+                      {c.sub && <div style={{ fontSize:fs-5, color:"var(--c-text-faintest)", marginTop:2 }}>{c.sub}</div>}
+                    </div>
+                  ))}
+                </div>
+
+                {autoMedia && (
+                  <div style={{ marginTop:10, fontSize:fs-3, color:"var(--c-text-muted)" }}>
+                    Media di sempre: <b style={{ color:"var(--c-text)" }}>{autoMedia.kmPerLitro} km/l</b> su {fmt(autoMedia.km)} km misurati con {fmt(autoMedia.litri)} litri.
+                    {" "}<span style={{ color:"var(--c-text-faintest)" }}>Il consumo si calcola solo fra due pieni: i rifornimenti parziali in mezzo vengono sommati al tratto, non contati a parte.</span>
+                  </div>
+                )}
+
+                {/* Storico mese per mese. Barre con il valore SEMPRE scritto
+                    accanto: una barra senza numero dice solo "più/meno". */}
+                {autoStorico.length>0 && (()=>{
+                  const maxKm = Math.max(...autoStorico.map(s=>s.km||0), 1);
+                  return (
+                    <div style={{ marginTop:16, background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10, padding:"12px 14px" }}>
+                      <div style={{ fontSize:fs-2, fontWeight:700, color:"var(--c-text-strong)", marginBottom:10 }}>Mese per mese</div>
+                      {autoStorico.map(s=>(
+                        <div key={s.ym} style={{ marginBottom:10 }}>
+                          <div style={{ display:"flex", justifyContent:"space-between", flexWrap:"wrap", gap:6, fontSize:fs-3, color:"var(--c-text)" }}>
+                            <span style={{ fontWeight:600 }}>{getMonthLabel(s.ym)}</span>
+                            <span style={{ color:"var(--c-text-muted)" }}>
+                              {s.km!=null?<b style={{ color:"#3B82F6" }}>{fmt(s.km)} km</b>:<span style={{ color:"var(--c-text-faintest)" }}>km n/d</span>}
+                              {" · "}<b style={{ color:"#F97316" }}>{fmt(s.spesaEur)}€</b>
+                              {" · "}{fmt(s.litri)} l
+                              {s.kmPerLitro!=null && <> · <b style={{ color:"#10B981" }}>{s.kmPerLitro} km/l</b></>}
+                              {s.costoEurPerKm!=null && <> · {s.costoEurPerKm.toFixed(3)} €/km</>}
+                            </span>
+                          </div>
+                          <div style={{ height:6, borderRadius:3, background:"var(--c-panel2)", marginTop:4, overflow:"hidden" }}>
+                            <div style={{ width:`${Math.round(((s.km||0)/maxKm)*100)}%`, height:"100%", background:"#3B82F6", borderRadius:3 }}/>
+                          </div>
+                          {s.kmParziali && <div style={{ fontSize:fs-5, color:"var(--c-text-faintest)", marginTop:2 }}>km parziali: manca la lettura del mese precedente</div>}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+
+                {/* Tratti misurati: è il dettaglio che spiega la media. Un
+                    tratto autostradale e uno in città danno numeri diversi, e
+                    vederli separati evita di dare la colpa all'auto. */}
+                {autoSegmenti.length>0 && (
+                  <div style={{ marginTop:16, background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10, padding:"12px 14px" }}>
+                    <div style={{ fontSize:fs-2, fontWeight:700, color:"var(--c-text-strong)", marginBottom:10 }}>Tratti misurati (da pieno a pieno)</div>
+                    {autoSegmenti.map((s,i)=>(
+                      <div key={i} style={{ display:"flex", justifyContent:"space-between", flexWrap:"wrap", gap:6, padding:"6px 0", borderBottom:i<autoSegmenti.length-1?"1px solid var(--c-border)":"none", fontSize:fs-3 }}>
+                        <span style={{ color:"var(--c-text-muted)" }}>
+                          {fmtShortDate(s.daData)} → {fmtShortDate(s.aData)}
+                          <span style={{ color:"var(--c-text-faintest)" }}> · {fmt(s.daOdometro)} → {fmt(s.aOdometro)} km</span>
+                          {s.parzialiInMezzo>0 && <span style={{ color:"var(--c-text-faintest)" }}> · {s.parzialiInMezzo} parziali inclusi</span>}
+                        </span>
+                        <span style={{ color:"var(--c-text)" }}>
+                          <b>{fmt(s.km)} km</b> · {fmt(s.litri)} l · <b style={{ color:"#10B981" }}>{s.kmPerLitro} km/l</b> · {s.costoEurPerKm.toFixed(3)} €/km
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Rifornimenti del mese: qui il prezzo resta nella valuta in
+                    cui hai pagato. Convertirlo in euro mescolerebbe il prezzo
+                    del distributore col cambio del giorno. */}
+                {(()=>{
+                  const delMese = rifs.filter(r=>(r.data||"").slice(0,7)===month).slice().reverse();
+                  if (!delMese.length) return (
+                    <div style={{ marginTop:16, fontSize:fs-3, color:"var(--c-text-faintest)" }}>
+                      Nessun rifornimento registrato in {getMonthLabel(month)}. Si aggiungono come una normale uscita: categoria Trasporti › Carburante, poi litri e chilometri del cruscotto.
+                    </div>
+                  );
+                  return (
+                    <div style={{ marginTop:16, background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10, padding:"12px 14px" }}>
+                      <div style={{ fontSize:fs-2, fontWeight:700, color:"var(--c-text-strong)", marginBottom:10 }}>Rifornimenti di {getMonthLabel(month)}</div>
+                      {delMese.map((r,i)=>{
+                        const pl = prezzoAlLitro(r);
+                        const valuta = contoCurrency(r.conto)==="RON"?"RON":"€";
+                        return (
+                          <div key={r.id||i} style={{ display:"flex", justifyContent:"space-between", flexWrap:"wrap", gap:6, padding:"6px 0", borderBottom:i<delMese.length-1?"1px solid var(--c-border)":"none", fontSize:fs-3 }}>
+                            <span style={{ color:"var(--c-text-muted)" }}>
+                              {fmtShortDate(r.data)}
+                              {r.pieno ? <span style={{ color:"#10B981" }}> · pieno</span> : <span style={{ color:"var(--c-text-faintest)" }}> · parziale</span>}
+                              {r.odometro>0 && <span style={{ color:"var(--c-text-faintest)" }}> · {fmt(r.odometro)} km</span>}
+                            </span>
+                            <span style={{ color:"var(--c-text)" }}>
+                              {fmt(r.importo)} {valuta}{r.litri>0 && <> · {fmt(r.litri)} l</>}
+                              {pl!=null && <span style={{ color:"var(--c-text-faintest)" }}> · {pl.toFixed(3)} {valuta}/l</span>}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+              </div>
+            );
+          })()}
+
           {/* VIAGGI: budget separato per ogni trasferta */}
           {tab==="viaggi" && (()=>{
             const vSel = viaggioSel ? viaggioById[viaggioSel] : null;
@@ -2231,6 +2428,53 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                                   {contoCurrency(form.conto)==="RON" && <> ≈ {(cu/rate).toFixed(3)} €/{u}</>}
                                   {qf>0 && <span style={{ color:"var(--c-text-faintest)" }}> (al netto di {fmt(qf)} {valuta} di quota fissa)</span>}
                                   {gg && <> · {gg} giorni · <b style={{ color:"var(--c-text)" }}>{(parseFloat(form.consumo)/gg).toFixed(2)} {u}/giorno</b></>}
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        )}
+                        {/* Rifornimento: litri, odometro, pieno. Tre campi che
+                            l'app non può ricavare da sola — nessuno sa quanti
+                            km hai fatto se non lo scrivi tu. In compenso sono
+                            indipendenti: solo i litri danno già il prezzo al
+                            litro, con l'odometro arrivano i km, con "pieno" il
+                            consumo reale. */}
+                        {(form.sottocategoria===SOTTOCAT_CARBURANTE || form.sottocategoria===SOTTOCAT_AUTO_LEGACY) && (
+                          <div style={{ marginTop:8 }}>
+                            <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:4 }}>Rifornimento ⛽ (facoltativo)</div>
+                            <div style={{ display:"flex", gap:6 }}>
+                              <input type="number" step="0.01" value={form.litri||""} onChange={e=>setForm(p=>({...p,litri:e.target.value}))} placeholder="litri — es. 28,5"
+                                style={{ flex:1, padding:"7px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:12, outline:"none" }}/>
+                              <input type="number" step="1" value={form.odometro||""} onChange={e=>setForm(p=>({...p,odometro:e.target.value}))} placeholder={ultimaLettura?`km — ultima: ${ultimaLettura.odometro}`:"km sul cruscotto"}
+                                style={{ flex:1.3, padding:"7px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:12, outline:"none" }}/>
+                            </div>
+                            {/* Spunta spenta di default: Dario fa spesso da
+                                100-200 lei, e dichiarare pieno un parziale
+                                falserebbe il consumo di tutto il tratto. */}
+                            <button onClick={()=>setForm(p=>({...p,pieno:!p.pieno}))}
+                              style={{ marginTop:6, padding:"5px 10px", borderRadius:6, border:`1px solid ${form.pieno?"#10B981":"var(--c-border)"}`, background:form.pieno?"#10B98120":"transparent", color:form.pieno?"#10B981":"var(--c-text-faint)", cursor:"pointer", fontSize:11 }}>
+                              {form.pieno?"✔ Pieno fatto":"○ Era un pieno completo?"}
+                            </button>
+                            {(()=>{
+                              const l = parseFloat(form.litri)||0;
+                              const imp = parseFloat(form.importo)||0;
+                              const odo = parseFloat(form.odometro)||0;
+                              const valuta = contoCurrency(form.conto)==="RON"?"RON":"€";
+                              const kmFatti = (ultimaLettura && odo>ultimaLettura.odometro) ? odo-ultimaLettura.odometro : null;
+                              const odoIndietro = ultimaLettura && odo>0 && odo<ultimaLettura.odometro;
+                              if (!l && !odo) return null;
+                              return (
+                                <div style={{ fontSize:10, color:"var(--c-text-faintest)", marginTop:5 }}>
+                                  {l>0 && imp>0 && <>Prezzo: <b style={{ color:"var(--c-text)" }}>{(imp/l).toFixed(3)} {valuta}/litro</b>{valuta==="RON" && <> ≈ {(imp/l/rate).toFixed(3)} €/l</>}</>}
+                                  {kmFatti!=null && <>{l>0&&imp>0?" · ":""}<b style={{ color:"var(--c-text)" }}>{kmFatti} km</b> dall'ultimo rifornimento{/* Il km/l si mostra solo se ANCHE il rifornimento
+                                      precedente era un pieno: altrimenti non
+                                      si sa quanto carburante c'era già dentro
+                                      e il numero sarebbe una fantasia. */}
+                                  {l>0 && form.pieno && ultimaLettura.pieno && <> · {(kmFatti/l).toFixed(2)} km/l su questo tratto</>}</>}
+                                  {/* Un odometro più basso del precedente è
+                                      quasi sempre una cifra saltata: meglio
+                                      dirlo ora che scoprirlo nei grafici. */}
+                                  {odoIndietro && <span style={{ color:"#EF4444" }}> · ⚠️ meno dell'ultima lettura ({ultimaLettura.odometro} km): controlla il numero</span>}
                                 </div>
                               );
                             })()}
