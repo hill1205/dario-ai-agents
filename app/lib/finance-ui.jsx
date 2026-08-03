@@ -53,15 +53,23 @@ export const SOTTOCAT_UTENZE = ["Luce","Gas","Internet / Wifi","Acqua e condomin
 // cresce senza che te ne accorga — separarla è l'unico modo per vederla.
 export const SOTTOCAT_CIBO = ["Spesa","Ristorante","Bar","Delivery / Asporto"];
 export const SOTTOCAT_CIBO_FUORI = ["Ristorante","Bar","Delivery / Asporto"];
+// Palestra: separa il costo fisso da quello che decidi mese per mese.
+// L'abbonamento lo paghi comunque, integratori e attrezzatura no — e sono
+// quelli che fanno oscillare il totale.
+// Attenzione a non confondere "Alimentazione" con Cibo: qui vanno proteine e
+// integratori, non la spesa al supermercato, altrimenti le due categorie si
+// rubano voci a vicenda e nessuna delle due torna.
+export const SOTTOCAT_PALESTRA = ["Abbonamento","Alimentazione","Attrezzatura"];
 // Mappa categoria -> sottocategorie disponibili: così aggiungere una categoria
 // con sottocategorie non richiede di toccare form, CSV e recap uno per uno.
 export const SOTTOCATEGORIE = {
   "Trasporti": SOTTOCAT_TRASPORTI,
   "Utenze":    SOTTOCAT_UTENZE,
   "Cibo":      SOTTOCAT_CIBO,
+  "Palestra":  SOTTOCAT_PALESTRA,
 };
 // Emoji del gruppo sottocategorie nel form, per categoria.
-export const ICONA_SOTTOCAT = { "Trasporti":"🚗", "Utenze":"💡", "Cibo":"🍽️" };
+export const ICONA_SOTTOCAT = { "Trasporti":"🚗", "Utenze":"💡", "Cibo":"🍽️", "Palestra":"💪" };
 // Unità di misura del consumo, per sottocategoria. Registrare il consumo
 // accanto all'importo è l'unico modo per distinguere "ho consumato di più" da
 // "hanno alzato la tariffa": il rapporto importo/consumo è il costo unitario,

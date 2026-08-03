@@ -355,6 +355,14 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
   const totCibo = Object.values(ciboBySub).reduce((s,v)=>s+v,0);
   const totCiboFuori = SOTTOCAT_CIBO_FUORI.reduce((s,k)=>s+(ciboBySub[k]||0),0);
   const totCiboSpesa = ciboBySub["Spesa"] || 0;
+  // Palestra: quanto è l'abbonamento (che paghi comunque) e quanto integratori
+  // e attrezzatura, che sono la parte davvero variabile del totale.
+  const palestraBySub = monthData.uscite.filter(e=>isReal(e)&&e.categoria==="Palestra").reduce((acc,e)=>{
+    const k = e.sottocategoria || "Senza sottocategoria";
+    acc[k]=(acc[k]||0)+toEur(e); return acc;
+  },{});
+  const totPalestra = Object.values(palestraBySub).reduce((s,v)=>s+v,0);
+  const totPalestraExtra = totPalestra - (palestraBySub["Abbonamento"] || 0);
   // Stesse sottocategorie nel mese precedente: serve la freccia "+12% sulla
   // luce" accanto alla cifra, che è la domanda vera ("sto consumando di più?").
   const mesePrecedente = (()=>{ const [y,m]=month.split("-").map(Number); const d=new Date(y,m-2); return `${d.getFullYear()}-${pad2(d.getMonth()+1)}`; })();
@@ -2326,6 +2334,22 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                         Mangiare fuori è il <b style={{ color:"var(--c-text-dim)" }}>{Math.round((totCiboFuori/totCibo)*100)}%</b> di quanto spendi in cibo — ogni euro di spesa al supermercato ne ha accanto {(totCiboFuori/totCiboSpesa).toFixed(2)} spesi fuori.
                       </div>
                     )}
+                  </div>
+                )}
+                {/* Dettaglio Palestra: l'abbonamento è un costo fisso, il
+                    resto lo decidi ogni volta. Sul totale i due si confondono
+                    e un mese di integratori sembra un rincaro della palestra. */}
+                {totPalestra>0 && (
+                  <div style={{ marginTop:14, padding:"10px 12px", background:"var(--c-bg)", border:"1px solid var(--c-border)", borderRadius:8 }}>
+                    <div style={{ fontSize:fs-3, fontWeight:700, color:"var(--c-text-dim)", marginBottom:8 }}>
+                      💪 Dettaglio Palestra — oltre l'abbonamento: <span style={{ color:"#10B981" }}>{fmt(totPalestraExtra)}€</span> · totale: {fmt(totPalestra)}€
+                    </div>
+                    {Object.entries(palestraBySub).sort((a,b)=>b[1]-a[1]).map(([sc,val])=>(
+                      <div key={sc} style={{ display:"flex", justifyContent:"space-between", fontSize:fs-3, marginBottom:4 }}>
+                        <span style={{ color:"var(--c-text)" }}>{sc==="Abbonamento"?"🎟️ ":sc==="Alimentazione"?"🥤 ":sc==="Attrezzatura"?"🏋️ ":"· "}{sc}</span>
+                        <span style={{ color:"var(--c-text-dim)", fontWeight:600 }}>{fmt(val)}€</span>
+                      </div>
+                    ))}
                   </div>
                 )}
                 {/* Dettaglio Utenze: ogni bolletta col confronto sul mese
