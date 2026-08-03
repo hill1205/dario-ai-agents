@@ -4,7 +4,7 @@ import {
   MESI_BREVI, MESI_LUNGHI, GIORNI_SETT, THEME_VARS,
   genId, sortByDataDesc, groupByDayDesc, formatDayLabel,
   pad2, ymdStr, fmtShortDate, daysGrid,
-  DateRangePicker, VistaToggle, fmt, round2,
+  DateRangePicker, VistaToggle, FiltroPill, fmt, round2,
   getMonthLabel, getCurrentMonth, lastMonths, localISODate,
   CashFlowMiniChart, CategoryBars, costoCambio,
   SOTTOCAT_TRASPORTI, SOTTOCAT_AUTO, SOTTOCAT_UTENZE, SOTTOCATEGORIE,
@@ -1535,15 +1535,6 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                       color: attiva ? "var(--c-bg)" : "var(--c-text-faint)" }}>
                     {attiva ? attiva[1].split(" ").slice(1).join(" ") : "Altro"} ⌄
                   </button>
-                  {tabMenu && (
-                    <div style={{ position:"absolute", top:"calc(100% + 6px)", left:0, zIndex:20, minWidth:190, background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10, padding:4, boxShadow:"0 8px 24px rgba(0,0,0,.18)" }}>
-                      {altre.map(([t,label])=>(
-                        <button key={t} onClick={()=>{setTab(t);setTabMenu(false);}}
-                          style={{ display:"block", width:"100%", textAlign:"left", padding:"8px 10px", borderRadius:7, border:"none", cursor:"pointer", fontSize:fs-2,
-                            background: tab===t ? "var(--c-panel2)" : "transparent", color:"var(--c-text)" }}>{label}</button>
-                      ))}
-                    </div>
-                  )}
                 </>
               );
             })()}
@@ -1554,6 +1545,19 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
           🔄 {isMobile ? "" : "Conversione"}
         </button>
       </div>
+      {/* Le voci di "Altro" si aprono in una riga sotto la barra, non in un
+          menu sovrapposto: la barra dei chip scorre in orizzontale su mobile,
+          e un menu in posizione assoluta dentro un contenitore che scorre
+          viene tagliato via — è il motivo per cui non si vedeva niente. */}
+      {tabMenu && (
+        <div style={{ display:"flex", gap:6, flexWrap:"wrap", padding:"10px 16px", borderBottom:"1px solid var(--c-border)", background:"var(--c-panel)" }}>
+          {[["ricorrenti","🔁 Rate e abbonamenti"],["viaggi","✈️ Viaggi"],["recap","📊 Recap"]].map(([t,label])=>(
+            <button key={t} onClick={()=>{setTab(t);setTabMenu(false);}}
+              style={{ padding:"6px 14px", borderRadius:16, border:"1px solid var(--c-border)", cursor:"pointer", fontSize:fs-2, whiteSpace:"nowrap",
+                background: tab===t ? "var(--c-panel2)" : "transparent", color:"var(--c-text)" }}>{label}</button>
+          ))}
+        </div>
+      )}
 
       {loading && <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", color:"var(--c-text-faintest)" }}>⏳ Caricamento...</div>}
 
@@ -1570,17 +1574,11 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                   <button onClick={()=>openAdd("entrata")} style={{ padding:"6px 14px", borderRadius:7, border:"none", background:"#10B981", color:"#fff", cursor:"pointer", fontSize:12, fontWeight:600, whiteSpace:"nowrap" }}>+ Aggiungi</button>
                 </div>
               </div>
-              <div style={{ display:"flex", flexDirection:isMobile?"column":"row", alignItems:isMobile?"stretch":"center", gap:6, marginBottom:12, padding:"8px 10px", background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:8 }}>
-                <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                  <span style={{ fontSize:11, color:"var(--c-text-faint)", whiteSpace:"nowrap" }}>🏦 Conto</span>
-                  <select value={filtroContoEntrate} onChange={e=>setFiltroContoEntrate(e.target.value)} style={{ flex:isMobile?1:"none", minWidth:0, padding:"6px 8px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:12 }}>
-                    <option value="">Tutti i conti</option>
-                    {CONTI.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
-                  </select>
-                </div>
+              <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:14, flexWrap:"wrap" }}>
+                <FiltroPill value={filtroContoEntrate} onChange={setFiltroContoEntrate} options={CONTI} placeholder="Tutti i conti" accent="#10B981"/>
                 <DateRangePicker da={filtroDataDa} a={filtroDataA} onChange={(d,a)=>{setFiltroDataDa(d);setFiltroDataA(a);}} accent="#10B981"/>
                 <button onClick={()=>exportCSV(monthData.entrate.filter(e=>isReal(e)&&(!filtroContoEntrate||e.conto===filtroContoEntrate)&&inDateRange(e)),"entrate")} title="Esporta le entrate filtrate in CSV"
-                  style={{ flexShrink:0, padding:"6px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-dim)", cursor:"pointer", fontSize:11, whiteSpace:"nowrap" }}>📥 CSV</button>
+                  style={{ flexShrink:0, padding:"6px 12px", borderRadius:16, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-faintest)", cursor:"pointer", fontSize:12, whiteSpace:"nowrap" }}>CSV</button>
               </div>
               {(() => {
                 const filtered = monthData.entrate.filter(e=>(!filtroContoEntrate||e.conto===filtroContoEntrate)&&inDateRange(e));
@@ -1627,28 +1625,14 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                   <button onClick={()=>openAdd("uscita")} style={{ padding:"6px 14px", borderRadius:7, border:"none", background:"#EF4444", color:"#fff", cursor:"pointer", fontSize:12, fontWeight:600, whiteSpace:"nowrap" }}>+ Aggiungi</button>
                 </div>
               </div>
-              <div style={{ display:"flex", flexDirection:isMobile?"column":"row", alignItems:isMobile?"stretch":"center", gap:6, marginBottom:12, padding:"8px 10px", background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:8 }}>
-                <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                  <span style={{ fontSize:11, color:"var(--c-text-faint)", whiteSpace:"nowrap" }}>🏦 Conto</span>
-                  <select value={filtroConto} onChange={e=>setFiltroConto(e.target.value)} style={{ flex:isMobile?1:"none", minWidth:0, padding:"6px 8px", borderRadius:7, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text)", fontSize:12 }}>
-                    <option value="">Tutti i conti</option>
-                    {CONTI.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
-                  </select>
-                </div>
+              <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:14, flexWrap:"wrap" }}>
+                <FiltroPill value={filtroConto} onChange={setFiltroConto} options={CONTI} placeholder="Tutti i conti" accent="#EF4444"/>
                 {viaggi.length>0 && (
-                  <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                    <span style={{ fontSize:11, color:"var(--c-text-faint)", whiteSpace:"nowrap" }}>✈️ Viaggio</span>
-                    <select value={filtroViaggio} onChange={e=>setFiltroViaggio(e.target.value)} style={{ flex:isMobile?1:"none", minWidth:0, padding:"6px 8px", borderRadius:7, border:`1px solid ${filtroViaggio?"#F59E0B":"var(--c-border)"}`, background:"var(--c-bg)", color:filtroViaggio?"#F59E0B":"var(--c-text)", fontSize:12 }}>
-                      <option value="">Tutti</option>
-                      {viaggiOrdinati.map(v=><option key={v.id} value={v.id}>{v.nome}</option>)}
-                    </select>
-                  </div>
+                  <FiltroPill value={filtroViaggio} onChange={setFiltroViaggio} options={viaggiOrdinati.map(v=>({id:v.id,label:v.nome}))} placeholder="Tutti i viaggi" accent="#F59E0B"/>
                 )}
-                <div style={{ display:"flex", alignItems:"center", gap:6, flex:1 }}>
-                  <DateRangePicker da={filtroDataDa} a={filtroDataA} onChange={(d,a)=>{setFiltroDataDa(d);setFiltroDataA(a);}} accent="#EF4444"/>
-                  <button onClick={()=>exportCSV(monthData.uscite.filter(e=>isReal(e)&&(!filtroConto||e.conto===filtroConto)&&(!filtroViaggio||e.viaggio===filtroViaggio)&&inDateRange(e)),"uscite")} title="Esporta le uscite filtrate in CSV"
-                    style={{ flexShrink:0, padding:"6px 10px", borderRadius:7, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-dim)", cursor:"pointer", fontSize:11, whiteSpace:"nowrap" }}>📥 CSV</button>
-                </div>
+                <DateRangePicker da={filtroDataDa} a={filtroDataA} onChange={(d,a)=>{setFiltroDataDa(d);setFiltroDataA(a);}} accent="#EF4444"/>
+                <button onClick={()=>exportCSV(monthData.uscite.filter(e=>isReal(e)&&(!filtroConto||e.conto===filtroConto)&&(!filtroViaggio||e.viaggio===filtroViaggio)&&inDateRange(e)),"uscite")} title="Esporta le uscite filtrate in CSV"
+                  style={{ flexShrink:0, padding:"6px 12px", borderRadius:16, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-faintest)", cursor:"pointer", fontSize:12, whiteSpace:"nowrap" }}>CSV</button>
               </div>
               {(() => {
                 const filtered = monthData.uscite.filter(e=>(!filtroConto||e.conto===filtroConto)&&(!filtroViaggio||e.viaggio===filtroViaggio)&&inDateRange(e));

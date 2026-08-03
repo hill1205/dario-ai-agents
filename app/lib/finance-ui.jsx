@@ -271,16 +271,41 @@ export function DateRangePicker({ da, a, onChange, accent="#3B82F6" }) {
 
 // Piccolo toggle "Per categoria / Più recenti" riusato da entrate e uscite.
 export function VistaToggle({ vista, onChange, accent }) {
-  const opts = [["categoria","📁 Per categoria"],["recenti","🕒 Più recenti"]];
+  const opts = [["recenti","Per giorno"],["categoria","Per categoria"]];
   return (
-    <div style={{ display:"flex", gap:4 }}>
+    <div style={{ display:"flex", gap:2, background:"var(--c-panel2)", borderRadius:14, padding:2 }}>
       {opts.map(([v,label])=>(
         <button key={v} onClick={()=>onChange(v)}
-          style={{ padding:"5px 10px", borderRadius:6, border:`1px solid ${vista===v?accent:"var(--c-border)"}`, background:vista===v?`${accent}20`:"transparent", color:vista===v?accent:"var(--c-text-faint)", cursor:"pointer", fontSize:11, fontWeight:vista===v?700:400, whiteSpace:"nowrap" }}>
+          style={{ padding:"4px 12px", borderRadius:12, border:"none", cursor:"pointer", fontSize:11, whiteSpace:"nowrap",
+            fontWeight:vista===v?700:400,
+            background:vista===v?"var(--c-panel)":"transparent",
+            color:vista===v?"var(--c-text)":"var(--c-text-faintest)" }}>
           {label}
         </button>
       ))}
     </div>
+  );
+}
+
+// Riga dei filtri: menu a tendina senza cornice, che si accendono solo quando
+// un filtro è davvero attivo. Prima erano select di sistema dentro un
+// riquadro bordato, con l'etichetta ripetuta accanto a ognuno: sei elementi
+// di cornice per due scelte.
+export function FiltroPill({ value, onChange, options, placeholder, accent="#3B82F6" }) {
+  const attivo = !!value;
+  return (
+    <span style={{ position:"relative", display:"inline-flex", alignItems:"center" }}>
+      <select value={value} onChange={e=>onChange(e.target.value)}
+        style={{ appearance:"none", WebkitAppearance:"none", padding:"6px 26px 6px 12px", borderRadius:16, cursor:"pointer",
+          border:`1px solid ${attivo?accent:"var(--c-border)"}`,
+          background: attivo ? `${accent}14` : "transparent",
+          color: attivo ? accent : "var(--c-text-dim)",
+          fontSize:12, maxWidth:180, textOverflow:"ellipsis" }}>
+        <option value="">{placeholder}</option>
+        {options.map(o=><option key={o.id} value={o.id}>{o.label}</option>)}
+      </select>
+      <span style={{ position:"absolute", right:10, pointerEvents:"none", fontSize:9, color: attivo?accent:"var(--c-text-faintest)" }}>▼</span>
+    </span>
   );
 }
 
@@ -364,7 +389,7 @@ export function lastMonths(allData, n, toEur) {
 // (10px le finanze personali, 12px IAGREX): tenerlo configurabile evita di
 // alterare la resa grafica di una delle due ora che il componente è condiviso.
 export function CashFlowMiniChart({ allData, marginTop = 10, toEur }) {
-  // Toggle 6/12 mesi, ricordato tra una visita e l'altra: la scelta è una
+  // Toggle 6/12 mesi, ricordato tra una visita e l'altra: la scelta e' una
   // preferenza di lettura, non un filtro momentaneo. localStorage si legge
   // in useEffect (non nell'initializer) per non creare differenze tra il
   // render server e quello client (hydration mismatch).
@@ -372,74 +397,67 @@ export function CashFlowMiniChart({ allData, marginTop = 10, toEur }) {
   useEffect(()=>{ try { if (parseInt(localStorage.getItem("dario-cashflow-mesi"))===12) setNMesi(12); } catch {} },[]);
   const setMesi = (n)=>{ setNMesi(n); try { localStorage.setItem("dario-cashflow-mesi", String(n)); } catch {} };
   const data = lastMonths(allData, nMesi, toEur);
-  const W = 260, H = 56, gap = nMesi===12 ? 5 : 10;
-  const groupW = (W - gap*(data.length-1)) / data.length;
-  const barW = groupW/2 - 1;
-  const max = Math.max(...data.map(d=>Math.max(d.entrate,d.uscite)), 1);
-  const [hover, setHover] = useState(null); // {x,y,label}
+
+  // Il grafico mostra il NETTO del mese, una colonna per mese: e' la domanda
+  // vera ("questo mese ci ho rimesso o guadagnato?"). Prima c'erano due barre
+  // piu' una linea con scala diversa dalle barre: tre cose sovrapposte che
+  // rispondevano a domande diverse, e nessuna leggibile a colpo d'occhio.
+  // Entrate e uscite del mese restano nel tooltip, dove servono.
+  const netti = data.map(d=>d.entrate-d.uscite);
+  const maxAbs = Math.max(...netti.map(Math.abs), 1);
+  const [hover, setHover] = useState(null);
+  const H = 92, zeroY = H/2;
+
   return (
-    <div style={{marginTop,background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,padding:"12px 14px",position:"relative"}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-        <div style={{fontSize:11,color:"var(--c-text-dim)",textTransform:"uppercase",letterSpacing:"0.06em"}}>Cash flow ultimi {nMesi} mesi</div>
-        <div style={{display:"flex",alignItems:"center",gap:8}}>
-          <div style={{fontSize:10,color:"var(--c-text-faint)"}}><span style={{color:"#10B981"}}>■</span> entrate <span style={{color:"#EF4444",marginLeft:6}}>■</span> uscite <span style={{color:"#3B82F6",marginLeft:6}}>—</span> netto</div>
-          <div style={{display:"flex",border:"1px solid var(--c-border)",borderRadius:6,overflow:"hidden"}}>
-            {[6,12].map(n=>(
-              <button key={n} onClick={()=>setMesi(n)} style={{padding:"2px 8px",border:"none",cursor:"pointer",fontSize:10,fontWeight:nMesi===n?700:400,background:nMesi===n?"var(--c-border)":"transparent",color:nMesi===n?"var(--c-text-strong)":"var(--c-text-faint)"}}>{n}M</button>
-            ))}
-          </div>
+    <div style={{marginTop,position:"relative"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:10}}>
+        <div style={{fontSize:12,color:"var(--c-text-faint)"}}>Saldo degli ultimi {nMesi} mesi</div>
+        <div style={{display:"flex",gap:4}}>
+          {[6,12].map(n=>(
+            <button key={n} onClick={()=>setMesi(n)}
+              style={{padding:"3px 10px",borderRadius:12,border:"none",cursor:"pointer",fontSize:11,
+                fontWeight:nMesi===n?700:400,
+                background:nMesi===n?"var(--c-panel2)":"transparent",
+                color:nMesi===n?"var(--c-text)":"var(--c-text-faintest)"}}>{n} mesi</button>
+          ))}
         </div>
       </div>
       {hover && (
-        <div style={{position:"absolute",left:hover.x,top:hover.y,transform:"translate(-50%,-100%)",background:"#000000E0",color:"#fff",fontSize:11,fontWeight:600,padding:"4px 8px",borderRadius:6,whiteSpace:"nowrap",pointerEvents:"none",zIndex:10,marginTop:-6}}>
+        <div style={{position:"absolute",left:hover.x,top:0,transform:"translate(-50%,-100%)",background:"var(--c-text-strong)",color:"var(--c-bg)",fontSize:11,fontWeight:600,padding:"5px 9px",borderRadius:7,whiteSpace:"nowrap",pointerEvents:"none",zIndex:10}}>
           {hover.label}
         </div>
       )}
-      <svg width="100%" height={H-14} viewBox={`0 0 ${W} ${H-14}`} preserveAspectRatio="none" style={{display:"block"}}>
+      <div style={{display:"flex",alignItems:"stretch",gap:nMesi===12?4:8,height:H,position:"relative"}}>
+        {/* Linea dello zero: senza, una barra rossa corta e una verde corta
+            sembrano la stessa cosa capovolta. */}
+        <div style={{position:"absolute",left:0,right:0,top:zeroY,height:1,background:"var(--c-border)"}}/>
         {data.map((d,i)=>{
-          const gx = i*(groupW+gap);
-          const he = Math.max((d.entrate/max)*(H-24), d.entrate>0?2:0);
-          const hu = Math.max((d.uscite/max)*(H-24), d.uscite>0?2:0);
-          const onMove = (label) => (e) => {
-            const rect = e.currentTarget.closest("svg").parentElement.getBoundingClientRect();
-            setHover({ x: e.clientX - rect.left, y: e.clientY - rect.top, label });
-          };
-          const netto = d.entrate - d.uscite;
-          const nettoStr = `${netto>=0?"+":"−"}${fmt(Math.abs(netto))}€`;
+          const netto = netti[i];
+          const h = Math.max((Math.abs(netto)/maxAbs)*(H/2-14), netto!==0?3:0);
+          const positivo = netto>=0;
+          const colore = positivo ? "#10B981" : "#EF4444";
           return (
-            <g key={d.mese}>
-              <rect x={gx} y={H-24-he} width={barW} height={he} rx={1.5} fill="#10B981" style={{cursor:"pointer"}}
-                onMouseMove={onMove(`${getMonthLabel(d.mese)} — Entrate: ${fmt(d.entrate)}€ · Netto: ${nettoStr}`)}
-                onMouseLeave={()=>setHover(null)}/>
-              <rect x={gx+barW+2} y={H-24-hu} width={barW} height={hu} rx={1.5} fill="#EF4444" style={{cursor:"pointer"}}
-                onMouseMove={onMove(`${getMonthLabel(d.mese)} — Uscite: ${fmt(d.uscite)}€ · Netto: ${nettoStr}`)}
-                onMouseLeave={()=>setHover(null)}/>
-            </g>
+            <div key={d.mese} style={{flex:1,minWidth:0,position:"relative",cursor:"pointer"}}
+              onMouseEnter={ev=>{
+                const r = ev.currentTarget.parentElement.getBoundingClientRect();
+                const b = ev.currentTarget.getBoundingClientRect();
+                setHover({ x: b.left - r.left + b.width/2, label: `${getMonthLabel(d.mese)} — ${fmt(d.entrate)}\u20ac dentro, ${fmt(d.uscite)}\u20ac fuori` });
+              }}
+              onMouseLeave={()=>setHover(null)}>
+              {/* Il valore sta sempre scritto sopra la barra: una barra senza
+                  numero dice solo "piu' o meno", che non basta per decidere. */}
+              <div style={{position:"absolute",left:0,right:0,top:positivo?zeroY-h-16:zeroY+h+3,textAlign:"center",fontSize:nMesi===12?9:11,fontWeight:600,color:colore,whiteSpace:"nowrap"}}>
+                {netto===0 ? "" : `${positivo?"+":"\u2212"}${fmt(Math.abs(netto))}`}
+              </div>
+              <div style={{position:"absolute",left:"12%",right:"12%",borderRadius:4,background:colore,opacity:.9,
+                top: positivo ? zeroY-h : zeroY, height:h}}/>
+            </div>
           );
         })}
-        {(()=>{
-          // Linea del netto (entrate − uscite) con scala propria: il netto può
-          // essere negativo, quindi non condivide la scala delle barre (che
-          // parte da zero). Mostra il TREND del netto, non il valore assoluto —
-          // i numeri esatti sono nel tooltip delle barre.
-          const netti = data.map(d=>d.entrate-d.uscite);
-          const nMin = Math.min(...netti, 0), nMax = Math.max(...netti, 0);
-          const span = (nMax-nMin) || 1;
-          const yOf = v => (H-24) - ((v-nMin)/span)*(H-26) - 1;
-          const pts = netti.map((v,i)=>`${i*(groupW+gap)+groupW/2},${yOf(v)}`).join(" ");
-          return (
-            <g style={{pointerEvents:"none"}}>
-              <polyline points={pts} fill="none" stroke="#3B82F6" strokeWidth="1.5" opacity="0.9"/>
-              {netti.map((v,i)=>(
-                <circle key={i} cx={i*(groupW+gap)+groupW/2} cy={yOf(v)} r="2" fill="#3B82F6"/>
-              ))}
-            </g>
-          );
-        })()}
-      </svg>
-      <div style={{display:"flex",marginTop:4}}>
+      </div>
+      <div style={{display:"flex",gap:nMesi===12?4:8,marginTop:6}}>
         {data.map(d=>(
-          <div key={d.mese} style={{flex:1,textAlign:"center",fontSize:nMesi===12?10:12,fontWeight:500,color:"var(--c-text-faint)",letterSpacing:"0.01em"}}>{d.label}</div>
+          <div key={d.mese} style={{flex:1,minWidth:0,textAlign:"center",fontSize:nMesi===12?10:12,color:"var(--c-text-faintest)"}}>{d.label}</div>
         ))}
       </div>
     </div>
