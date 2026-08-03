@@ -8,7 +8,7 @@ import {
   getMonthLabel, getCurrentMonth, lastMonths, localISODate,
   CashFlowMiniChart, CategoryBars, costoCambio,
   SOTTOCAT_TRASPORTI, SOTTOCAT_AUTO, SOTTOCAT_UTENZE, SOTTOCATEGORIE,
-  SOTTOCAT_CIBO, SOTTOCAT_CIBO_FUORI, ICONA_SOTTOCAT,
+  SOTTOCAT_CIBO, SOTTOCAT_CIBO_FUORI, ICONA_SOTTOCAT, iconaMovimento,
   UNITA_CONSUMO, UNITA_DISPONIBILI, propagaSaldiAiMesiSuccessivi,
 } from "../lib/finance-ui";
 import {
@@ -101,7 +101,18 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
   const themeVars = THEME_VARS[theme] || THEME_VARS.dark;
   const [allData, setAllData]   = useState({});
   const [month, setMonth]       = useState(getCurrentMonth());
-  const [tab, setTab]           = useState("entrate");
+  // Si apre sulle uscite: sono quelle che guardi ogni giorno, le entrate le
+  // controlli una volta al mese quando arriva lo stipendio.
+  const [tab, setTab]           = useState("uscite");
+  // Riga movimenti: le azioni non stanno sempre a schermo.
+  // Su desktop compaiono al passaggio del mouse (hoverRow); su telefono il
+  // mouse non esiste, quindi si tira la riga verso sinistra (swipeRow) e
+  // scoprono modifica ed elimina. Tenerle sempre visibili significava due
+  // bottoni per riga, cioè un centinaio di bottoni colorati in un mese pieno.
+  const [hoverRow, setHoverRow] = useState(null);
+  const [swipeRow, setSwipeRow] = useState(null);
+  const touchStart = useRef(null);
+  const [tabMenu, setTabMenu]   = useState(false);
   const [filtroConto, setFiltroConto] = useState("");
   // Filtro conto delle Entrate, tenuto separato da quello delle Uscite: sono
   // due liste diverse e non ha senso che cambiare conto in una sposti l'altra.
@@ -870,6 +881,74 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
   // subito invece di scoprirlo dopo, quando ha già falsato due tratti.
   const ultimaLettura = letture(rifs).filter(r=>r.odometroValido).at(-1) || null;
 
+  // --- Riga di un movimento ---------------------------------------------
+  // Una riga sola, usata da entrate e uscite. Le informazioni sono su tre
+  // livelli di importanza: l'icona colorata dice la categoria senza leggere,
+  // la descrizione è il testo nero, tutto il resto (conto, viaggio, consumo,
+  // litri) sta su una riga grigia sotto. Prima erano tutte allo stesso peso e
+  // la lista sembrava una tabella di database.
+  const MovRow = ({ e, i, tipo }) => {
+    const { icona, colore } = iconaMovimento(e);
+    const isUscita = tipo === "uscita";
+    const valuta = contoCurrency(e.conto)==="RON" ? " RON" : "€";
+    const aperta = swipeRow === e.id;
+    const mostraAzioni = isMobile ? aperta : hoverRow === e.id;
+    const flagged = flaggedIds.has(e.id);
+    // Dettagli secondari: si aggiungono solo se ci sono davvero, così le righe
+    // semplici restano su due sole righe di testo.
+    const meta = [];
+    if (e.sottocategoria) meta.push(e.sottocategoria); else if (e.categoria) meta.push(e.categoria);
+    if (e.conto) meta.push(CONTI_BY_ID[e.conto]?.label || e.conto);
+    if (parseFloat(e.litri) > 0) meta.push(`${fmt(e.litri)} l · ${(parseFloat(e.importo)/parseFloat(e.litri)).toFixed(2)}${valuta}/l${parseFloat(e.odometro)>0?` · ${fmt(e.odometro)} km`:""}${e.pieno?" · pieno":""}`);
+    if (parseFloat(e.consumo) > 0) meta.push(`${fmt(e.consumo)} ${e.unita} · ${((parseFloat(e.importo)-(parseFloat(e.quotaFissa)||0))/parseFloat(e.consumo)).toFixed(3)}${valuta}/${e.unita}`);
+    if (parseFloat(e.commissioni) > 0) meta.push(`di cui ${fmt(e.commissioni)}${valuta} di commissioni`);
+    if (e.noSaldo) meta.push("storico, saldo non toccato");
+    const azioni = (
+      <div style={{ display:"flex", alignItems:"center", gap:6, flexShrink:0 }}>
+        <button onClick={()=>{ setSwipeRow(null); openEdit(tipo, e); }} aria-label="Modifica"
+          style={{ width:30, height:30, borderRadius:8, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text-dim)", cursor:"pointer", fontSize:12 }}>✏️</button>
+        <button onClick={()=>{ setSwipeRow(null); deleteItem(tipo, e.id); }} aria-label="Elimina"
+          style={{ width:30, height:30, borderRadius:8, border:"1px solid #EF444440", background:"var(--c-bg)", color:"#EF4444", cursor:"pointer", fontSize:14, fontWeight:700 }}>×</button>
+      </div>
+    );
+    return (
+      <div key={e.id} style={{ position:"relative", overflow:"hidden", borderTop:i===0?"none":"1px solid var(--c-border)", background:flagged?"#F59E0B14":"transparent", boxShadow:flagged?"inset 3px 0 0 #F59E0B":"none" }}
+        onMouseEnter={()=>!isMobile&&setHoverRow(e.id)} onMouseLeave={()=>!isMobile&&setHoverRow(null)}
+        onTouchStart={ev=>{ touchStart.current = ev.touches[0].clientX; }}
+        onTouchEnd={ev=>{
+          if (touchStart.current == null) return;
+          const dx = ev.changedTouches[0].clientX - touchStart.current;
+          touchStart.current = null;
+          // 45px: sotto questa soglia è lo scroll verticale che trascina un po'
+          // il dito di lato, non un gesto voluto.
+          if (dx < -45) setSwipeRow(e.id);
+          else if (dx > 45 || aperta) setSwipeRow(null);
+        }}>
+        {isMobile && (
+          <div style={{ position:"absolute", right:10, top:0, bottom:0, display:"flex", alignItems:"center" }}>{azioni}</div>
+        )}
+        <div style={{ display:"flex", alignItems:"center", gap:12, padding:"11px 12px", background:"var(--c-panel)",
+          transform: isMobile && aperta ? "translateX(-84px)" : "none", transition:"transform .18s ease" }}>
+          <span style={{ width:34, height:34, borderRadius:10, flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, background:`${colore}1F` }}>{icona}</span>
+          <span style={{ flex:1, minWidth:0 }}>
+            <span style={{ display:"block", fontSize:fs-1, color:"var(--c-text)", fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+              {flagged?"⚠️ ":""}{e.descrizione}
+            </span>
+            <span style={{ display:"block", fontSize:fs-4, color:"var(--c-text-faint)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+              {meta.join(" · ")}
+              {e.viaggio && viaggioById[e.viaggio] && <span style={{ color:"#F59E0B" }}> · ✈️ {viaggioById[e.viaggio].nome}</span>}
+            </span>
+          </span>
+          {!isMobile && mostraAzioni && azioni}
+          <span style={{ fontSize:fs-1, fontWeight:700, whiteSpace:"nowrap", color: e.isConversione ? "#8B5CF6" : (isUscita ? "var(--c-text-strong)" : "#10B981") }}>
+            {e.isConversione ? "↔ " : (isUscita ? "−" : "+")}{fmt(e.importo)}
+            <span style={{ fontSize:fs-5, color:"var(--c-text-faintest)", fontWeight:400 }}>{valuta==="€"?" €":" RON"}</span>
+          </span>
+        </div>
+      </div>
+    );
+  };
+
   // MODAL HANDLERS
   const openAdd = (tipo) => {
     const oggi = localISODate();
@@ -1303,23 +1382,63 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
             overflow:hidden. Su schermi stretti passiamo a 2x2 e permettiamo
             al numero di andare a capo invece di forzare la card più larga
             della sua colonna. */}
-        <div style={{ display:"grid", gridTemplateColumns:isMobile?"repeat(2,1fr)":"repeat(4,1fr)", gap:8, marginTop:12 }}>
-          {[
-            { label:"Entrate", val:totEntrate, color:"#10B981", prefix:"+" },
-            { label:"Uscite",  val:totUscite,  color:"#EF4444", prefix:"-" },
-            { label:"Saldo netto", val:saldoNetto, color:saldoNetto>=0?"#10B981":"#EF4444", prefix:saldoNetto>=0?"+":"" },
-            // Con dei debiti aperti il patrimonio lordo da solo racconta una
-            // mezza verità: sotto il numero mostriamo il netto (meno il
-            // debito residuo), che è quello che possiedi davvero.
-            { label:"Patrimonio", val:totPatrimonio, color:"#8B5CF6", prefix:"",
-              sub: debitoTotale>0 ? `netto ${fmt(patrimonioNetto)}€ · debiti ${fmt(debitoTotale)}€` : null },
-          ].map(c=>(
-            <div key={c.label} style={{ background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10, padding:"10px 12px", minWidth:0, overflow:"hidden" }}>
-              <div style={{ fontSize:fs-4, color:"var(--c-text-faint)", marginBottom:4, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{c.label}</div>
-              <div style={{ fontSize:isMobile?fs:fs+2, fontWeight:800, color:c.color, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{c.prefix}{fmt(c.val)}€</div>
-              {c.sub && <div style={{ fontSize:fs-5, color:"var(--c-text-faintest)", marginTop:2, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{c.sub}</div>}
-            </div>
-          ))}
+        {/* Intestazione: un numero solo, non quattro card uguali.
+            Le vecchie card mettevano entrate, uscite, saldo e patrimonio sullo
+            stesso piano visivo: quattro numeri grandi che si contendevano
+            l'attenzione, quindi nessuno la otteneva. Qui il saldo del mese è
+            l'unico protagonista, entrate e uscite gli stanno accanto come
+            spiegazione, e la barra racconta dove sono finiti i soldi senza
+            costringere a leggere una lista. */}
+        <div style={{ marginTop:14 }}>
+          <div style={{ fontSize:fs-4, color:"var(--c-text-faint)" }}>{saldoNetto>=0?"Avanzato questo mese":"Rimasto questo mese"}</div>
+          <div style={{ display:"flex", alignItems:"baseline", gap:12, flexWrap:"wrap" }}>
+            <span style={{ fontSize:isMobile?30:38, fontWeight:800, lineHeight:1.15, color:saldoNetto>=0?"#10B981":"#EF4444" }}>
+              {saldoNetto>=0?"+":"−"}{fmt(Math.abs(saldoNetto))}€
+            </span>
+            <span style={{ fontSize:fs-2, color:"var(--c-text-muted)" }}>
+              {fmt(totEntrate)} entrati · {fmt(totUscite)} usciti
+            </span>
+          </div>
+          {/* Barra delle categorie: le prime tre per peso, il resto in grigio.
+              Oltre le tre voci le fette diventano troppo sottili per essere
+              distinguibili, e la barra smette di dire qualcosa. */}
+          {totUscite>0 && (()=>{
+            const voci = Object.entries(usciteByCat).sort((a,b)=>b[1]-a[1]);
+            const primi = voci.slice(0,3);
+            const restoVal = voci.slice(3).reduce((s,[,v])=>s+v,0);
+            const colori = ["#8B5CF6","#10B981","#F97316"];
+            const fette = [...primi.map(([k,v],i)=>({k,v,c:colori[i]})), ...(restoVal>0?[{k:"Altro",v:restoVal,c:"#94A3B8"}]:[])];
+            return (
+              <>
+                <div style={{ display:"flex", height:6, borderRadius:3, overflow:"hidden", margin:"12px 0 8px" }}>
+                  {fette.map(f=><div key={f.k} style={{ width:`${(f.v/totUscite)*100}%`, background:f.c }}/>)}
+                </div>
+                <div style={{ display:"flex", gap:14, flexWrap:"wrap", fontSize:fs-4, color:"var(--c-text-muted)" }}>
+                  {fette.map(f=>(
+                    <span key={f.k}>
+                      <span style={{ display:"inline-block", width:8, height:8, borderRadius:2, background:f.c, marginRight:5 }}/>
+                      {f.k} {fmt(f.v)}
+                    </span>
+                  ))}
+                </div>
+              </>
+            );
+          })()}
+          {/* Le uniche tre cifre che NON si leggono dal mese corrente: quanto
+              possiedi, quanto è già impegnato ogni mese, quanto costa l'auto. */}
+          <div style={{ display:"grid", gridTemplateColumns:isMobile?"repeat(2,1fr)":"repeat(3,1fr)", gap:8, marginTop:14 }}>
+            {[
+              { label:"Patrimonio", val:`${fmt(totPatrimonio)}€`, sub: debitoTotale>0?`netto ${fmt(patrimonioNetto)}€`:null },
+              { label:"Rate e canoni", val:`${fmt(impegnoMensileEur)}€`, sub:"al mese" },
+              { label:"Auto", val:`${fmt(totAuto)}€`, sub: autoMese.spesaEur>0?`${fmt(autoMese.spesaEur)}€ carburante`:"questo mese" },
+            ].map(c=>(
+              <div key={c.label} style={{ background:"var(--c-panel)", borderRadius:12, padding:"10px 12px", minWidth:0, overflow:"hidden" }}>
+                <div style={{ fontSize:fs-4, color:"var(--c-text-faint)", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{c.label}</div>
+                <div style={{ fontSize:fs+2, fontWeight:700, color:"var(--c-text-strong)", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{c.val}</div>
+                {c.sub && <div style={{ fontSize:fs-5, color:"var(--c-text-faintest)", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{c.sub}</div>}
+              </div>
+            ))}
+          </div>
         </div>
 
         <CashFlowMiniChart allData={allData} toEur={toEur}/>
@@ -1390,15 +1509,49 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
       </div>
 
       {/* Tabs */}
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", borderBottom:"1px solid var(--c-border)", flexShrink:0, background:"var(--c-bg)" }}>
-        <div style={{ display:"flex", flexWrap:"wrap" }}>
-          {[["entrate","💚 Entrate"],["uscite","🔴 Uscite"],["saldi","🏦 Saldi & Obiettivi"],["ricorrenti","🔁 Rate & Abbonamenti"],["auto","🚗 Auto"],["viaggi","✈️ Viaggi"],["recap","📊 Recap"]].map(([t,label])=>(
-            <button key={t} onClick={()=>setTab(t)} style={{ padding:"10px 16px", border:"none", background:"transparent", cursor:"pointer", fontSize:fs-2, fontWeight:tab===t?700:400, color:tab===t?"var(--c-text-strong)":"var(--c-text-faint)", borderBottom:tab===t?"2px solid #F59E0B":"2px solid transparent" }}>{label}</button>
+      {/* Sette voci su una riga sono la cosa che fa sembrare piena la pagina
+          prima ancora di leggerla. Le quattro che apri ogni giorno restano
+          fuori; Rate, Viaggi e Recap — che guardi una volta a settimana —
+          stanno sotto "Altro". */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, padding:"10px 16px", borderBottom:"1px solid var(--c-border)", flexShrink:0, background:"var(--c-bg)" }}>
+        <div style={{ display:"flex", gap:6, alignItems:"center", overflowX:"auto", flexWrap:isMobile?"nowrap":"wrap", scrollbarWidth:"none" }}>
+          {[["uscite","Uscite"],["entrate","Entrate"],["saldi","Conti"],["auto","Auto"]].map(([t,label])=>(
+            <button key={t} onClick={()=>{setTab(t);setTabMenu(false);}}
+              style={{ padding:"6px 14px", borderRadius:16, border:"none", cursor:"pointer", fontSize:fs-2, whiteSpace:"nowrap", flexShrink:0,
+                fontWeight:tab===t?700:400,
+                background: tab===t ? "var(--c-text-strong)" : "transparent",
+                color: tab===t ? "var(--c-bg)" : "var(--c-text-faint)" }}>{label}</button>
           ))}
+          <div style={{ position:"relative", flexShrink:0 }}>
+            {(()=>{
+              const altre = [["ricorrenti","🔁 Rate e abbonamenti"],["viaggi","✈️ Viaggi"],["recap","📊 Recap"]];
+              const attiva = altre.find(([t])=>t===tab);
+              return (
+                <>
+                  <button onClick={()=>setTabMenu(v=>!v)}
+                    style={{ padding:"6px 14px", borderRadius:16, border:"none", cursor:"pointer", fontSize:fs-2, whiteSpace:"nowrap",
+                      fontWeight:attiva?700:400,
+                      background: attiva ? "var(--c-text-strong)" : "transparent",
+                      color: attiva ? "var(--c-bg)" : "var(--c-text-faint)" }}>
+                    {attiva ? attiva[1].split(" ").slice(1).join(" ") : "Altro"} ⌄
+                  </button>
+                  {tabMenu && (
+                    <div style={{ position:"absolute", top:"calc(100% + 6px)", left:0, zIndex:20, minWidth:190, background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10, padding:4, boxShadow:"0 8px 24px rgba(0,0,0,.18)" }}>
+                      {altre.map(([t,label])=>(
+                        <button key={t} onClick={()=>{setTab(t);setTabMenu(false);}}
+                          style={{ display:"block", width:"100%", textAlign:"left", padding:"8px 10px", borderRadius:7, border:"none", cursor:"pointer", fontSize:fs-2,
+                            background: tab===t ? "var(--c-panel2)" : "transparent", color:"var(--c-text)" }}>{label}</button>
+                      ))}
+                    </div>
+                  )}
+                </>
+              );
+            })()}
+          </div>
         </div>
         <button onClick={openConversione} title="Registra un cambio valuta tra Revolut EUR e Revolut RON senza contarlo come entrata/uscita reale"
-          style={{ marginRight:12, padding:"6px 12px", borderRadius:7, border:"1px solid #8B5CF650", background:"#8B5CF61A", color:"#8B5CF6", cursor:"pointer", fontSize:12, fontWeight:600, whiteSpace:"nowrap" }}>
-          🔄 Conversione
+          style={{ flexShrink:0, padding:"6px 12px", borderRadius:16, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-dim)", cursor:"pointer", fontSize:fs-3, whiteSpace:"nowrap" }}>
+          🔄 {isMobile ? "" : "Conversione"}
         </button>
       </div>
 
@@ -1436,17 +1589,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                     {monthData.entrate.length===0?"Nessuna entrata — aggiungi la prima":"Nessuna entrata nel periodo/conto selezionato"}
                   </div>
                 );
-                const Row = (e,i) => (
-                  <div key={e.id} style={{ display:"grid", gridTemplateColumns:"1fr auto auto auto", gap:0, borderTop:i===0?"none":"1px solid var(--c-border)", background:flaggedIds.has(e.id)?"#F59E0B1F":(i%2===0?"var(--c-panel)":"var(--c-panel2)"), boxShadow:flaggedIds.has(e.id)?"inset 3px 0 0 #F59E0B":"none" }}>
-                    <Cell style={{ flexDirection:"column", alignItems:"flex-start", gap:2 }}>
-                      <span style={{ color:"var(--c-text)", fontWeight:600 }}>{flaggedIds.has(e.id)?"⚠️ ":""}{e.descrizione}</span>
-                      <span style={{ fontSize:fs-4, color:"var(--c-text-faint)" }}>{e.data?`${e.data} · `:""}{e.categoria}{e.conto?` · ${CONTI_BY_ID[e.conto]?.label||e.conto}`:""}</span>
-                    </Cell>
-                    <Cell style={{ color:e.isConversione?"#8B5CF6":"#10B981", fontWeight:700 }}>{e.isConversione?"↔ ":"+"}{fmt(e.importo)}{contoCurrency(e.conto)==="RON"?" RON":"€"}</Cell>
-                    <Cell><button onClick={()=>openEdit("entrata",e)} style={{ width:24, height:24, borderRadius:5, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-dim)", cursor:"pointer", fontSize:10 }}>✏️</button></Cell>
-                    <Cell><button onClick={()=>deleteItem("entrata",e.id)} style={{ width:24, height:24, borderRadius:5, border:"1px solid #2A1A1A", background:"transparent", color:"#EF4444", cursor:"pointer", fontSize:12, fontWeight:700 }}>×</button></Cell>
-                  </div>
-                );
+                const Row = (e,i) => <MovRow key={e.id} e={e} i={i} tipo="entrata"/>;
                 if (vistaEntrate==="recenti") return groupByDayDesc(filtered).map(({key,data,items})=>(
                   <div key={key} style={{ marginBottom:12 }}>
                     <div style={{ fontSize:fs-3, fontWeight:700, color:"var(--c-text-dim)", marginBottom:6, display:"flex", justifyContent:"space-between" }}>
@@ -1511,19 +1654,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                 const filtered = monthData.uscite.filter(e=>(!filtroConto||e.conto===filtroConto)&&(!filtroViaggio||e.viaggio===filtroViaggio)&&inDateRange(e));
                 if (monthData.uscite.length===0) return <div style={{ padding:20, textAlign:"center", color:"var(--c-text-faintest)", fontSize:fs-2, background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10 }}>Nessuna uscita — aggiungi la prima</div>;
                 if (filtered.length===0) return <div style={{ padding:20, textAlign:"center", color:"var(--c-text-faintest)", fontSize:fs-2, background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10 }}>Nessuna uscita nel periodo/conto/viaggio selezionato</div>;
-                const Row = (e,i) => (
-                  <div key={e.id} style={{ display:"grid", gridTemplateColumns:"1fr auto auto auto", gap:0, borderTop:i===0?"none":"1px solid var(--c-border)", background:flaggedIds.has(e.id)?"#F59E0B1F":(i%2===0?"var(--c-panel)":"var(--c-panel2)"), boxShadow:flaggedIds.has(e.id)?"inset 3px 0 0 #F59E0B":"none" }}>
-                    <Cell style={{ flexDirection:"column", alignItems:"flex-start", gap:2 }}>
-                      <span style={{ color:"var(--c-text)" }}>{flaggedIds.has(e.id)?"⚠️ ":""}{e.descrizione}</span>
-                      <span style={{ fontSize:fs-4, color:"var(--c-text-faint)" }}>{e.data?`${e.data}`:""}{e.data?" · ":""}{e.categoria}{e.sottocategoria?<span style={{color:"#F97316"}}> › {e.sottocategoria}</span>:""}{e.conto?` · ${CONTI_BY_ID[e.conto]?.label||e.conto}`:""}{e.viaggio&&viaggioById[e.viaggio]?<span style={{color:"#F59E0B"}}> · ✈️ {viaggioById[e.viaggio].nome}</span>:""}{parseFloat(e.commissioni)>0?<span style={{color:"#06B6D4"}}> · di cui {fmt(e.commissioni)}{contoCurrency(e.conto)==="RON"?" RON":"€"} commissioni</span>:""}{e.noSaldo?<span style={{color:"#94A3B8"}} title="Rata/canone arretrato registrato come storico: il saldo del conto non è stato toccato, perché lo avevi già scritto a mano dalla banca"> · 📎 storico, saldo non toccato</span>:""}{parseFloat(e.consumo)>0?<span style={{color:"#06B6D4"}} title="Consumo del periodo e tariffa al netto delle quote fisse: è la tariffa che dice se è aumentato il prezzo"> · ⚡ {fmt(e.consumo)} {e.unita} · {((parseFloat(e.importo)-(parseFloat(e.quotaFissa)||0))/parseFloat(e.consumo)).toFixed(3)}{contoCurrency(e.conto)==="RON"?" RON":"€"}/{e.unita}{parseFloat(e.periodoDa)!==undefined&&e.periodoDa?` · ${e.periodoDa.slice(8)}/${e.periodoDa.slice(5,7)}→${e.periodoA.slice(8)}/${e.periodoA.slice(5,7)}`:""}</span>:""}{parseFloat(e.litri)>0?<span style={{color:"#10B981"}} title="Rifornimento: litri, prezzo al litro nella valuta pagata e lettura del contachilometri"> · ⛽ {fmt(e.litri)} l · {(parseFloat(e.importo)/parseFloat(e.litri)).toFixed(3)}{contoCurrency(e.conto)==="RON"?" RON":"€"}/l{parseFloat(e.odometro)>0?` · ${fmt(e.odometro)} km`:""}{e.pieno?" · pieno":""}</span>:""}</span>
-                    </Cell>
-                    {/* Le conversioni non sono spese vere: mostrate in viola con ↔
-                        invece del rosso -, così la lista non le fa sembrare uscite. */}
-                    <Cell style={{ color:e.isConversione?"#8B5CF6":"#EF4444", fontWeight:700 }}>{e.isConversione?"↔ ":"-"}{fmt(e.importo)}{contoCurrency(e.conto)==="RON"?" RON":"€"}</Cell>
-                    <Cell><button onClick={()=>openEdit("uscita",e)} style={{ width:24, height:24, borderRadius:5, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-dim)", cursor:"pointer", fontSize:10 }}>✏️</button></Cell>
-                    <Cell><button onClick={()=>deleteItem("uscita",e.id)} style={{ width:24, height:24, borderRadius:5, border:"1px solid #2A1A1A", background:"transparent", color:"#EF4444", cursor:"pointer", fontSize:12, fontWeight:700 }}>×</button></Cell>
-                  </div>
-                );
+                const Row = (e,i) => <MovRow key={e.id} e={e} i={i} tipo="uscita"/>;
                 if (vistaUscite==="recenti") return groupByDayDesc(filtered).map(({key,data,items})=>(
                   <div key={key} style={{ marginBottom:12 }}>
                     <div style={{ fontSize:fs-3, fontWeight:700, color:"var(--c-text-dim)", marginBottom:6, display:"flex", justifyContent:"space-between" }}>

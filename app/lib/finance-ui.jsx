@@ -69,7 +69,41 @@ export const SOTTOCATEGORIE = {
   "Palestra":  SOTTOCAT_PALESTRA,
 };
 // Emoji del gruppo sottocategorie nel form, per categoria.
-export const ICONA_SOTTOCAT = { "Trasporti":"🚗", "Utenze":"💡", "Cibo":"🍽️", "Palestra":"💪" };
+export const ICONA_SOTTOCAT = { "Trasporti":"🚗", "Utenze":"💡", "Cibo":"🍔", "Palestra":"💪" };
+
+// Icona e colore di ogni categoria, usati nella lista movimenti.
+// Perché servono: in una lista lunga l'occhio riconosce una forma colorata
+// molto prima di leggere una parola. Il colore NON è decorativo — è lo stesso
+// per tutte le voci della stessa categoria, quindi scorrendo si vede subito
+// "questa settimana ho speso quasi solo in arancione".
+// La sottocategoria, quando c'è, vince sulla categoria: un pieno di gasolio
+// dice più di "trasporti".
+export const ICONA_CAT = {
+  "Cibo":         { icona:"🛒", colore:"#F97316" },
+  "Trasporti":    { icona:"🚗", colore:"#8B5CF6" },
+  "Utenze":       { icona:"💡", colore:"#06B6D4" },
+  "Affitto":      { icona:"🏠", colore:"#0EA5E9" },
+  "Palestra":     { icona:"💪", colore:"#10B981" },
+  "Abbonamenti":  { icona:"🔁", colore:"#3B82F6" },
+  "Finanziamenti":{ icona:"🏦", colore:"#EF4444" },
+  "Salute":       { icona:"⚕️", colore:"#EC4899" },
+  "Personale":    { icona:"👤", colore:"#64748B" },
+  "Extra":        { icona:"✨", colore:"#A855F7" },
+  "Stipendio":    { icona:"💰", colore:"#10B981" },
+  "Conversione":  { icona:"🔄", colore:"#8B5CF6" },
+};
+export const ICONA_SOTTOCAT_MOV = {
+  "Spesa":"🛒", "Ristorante":"🍝", "Bar":"☕", "Delivery / Asporto":"🛵",
+  "Carburante":"⛽", "Manutenzione auto":"🔧", "Parcheggi":"🅿️",
+  "Amministrativo auto":"📄", "Bolt/Uber":"🚕",
+  "Luce":"💡", "Gas":"🔥", "Internet / Wifi":"📶", "Acqua e condominio":"🚰",
+  "Abbonamento":"🎟️", "Alimentazione":"🥤", "Attrezzatura":"🏋️",
+};
+export function iconaMovimento(e) {
+  const cat = ICONA_CAT[e?.categoria] || { icona:"•", colore:"#94A3B8" };
+  const sub = ICONA_SOTTOCAT_MOV[e?.sottocategoria];
+  return { icona: sub || cat.icona, colore: cat.colore };
+}
 // Unità di misura del consumo, per sottocategoria. Registrare il consumo
 // accanto all'importo è l'unico modo per distinguere "ho consumato di più" da
 // "hanno alzato la tariffa": il rapporto importo/consumo è il costo unitario,
