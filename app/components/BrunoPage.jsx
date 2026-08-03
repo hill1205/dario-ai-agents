@@ -933,10 +933,16 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
           if (dx < -45) setSwipeRow(e.id);
           else if (dx > 45 || aperta) setSwipeRow(null);
         }}>
+        {/* Le azioni stanno DIETRO la riga e si scoprono scorrendola.
+            Un elemento in posizione assoluta copre di suo quelli statici, per
+            questo la riga sopra deve essere posizionata a sua volta con uno
+            z-index: senza, matita e cestino restavano stampati sopra
+            l'importo anche a riga chiusa. */}
         {isMobile && (
-          <div style={{ position:"absolute", right:10, top:0, bottom:0, display:"flex", alignItems:"center" }}>{azioni}</div>
+          <div style={{ position:"absolute", right:10, top:0, bottom:0, display:"flex", alignItems:"center",
+            opacity: aperta ? 1 : 0, pointerEvents: aperta ? "auto" : "none", transition:"opacity .15s ease" }}>{azioni}</div>
         )}
-        <div style={{ display:"flex", alignItems:"center", gap:12, padding:"11px 12px", background:"var(--c-panel)",
+        <div style={{ position:"relative", zIndex:1, display:"flex", alignItems:"center", gap:12, padding:"11px 12px", background:"var(--c-panel)",
           transform: isMobile && aperta ? "translateX(-84px)" : "none", transition:"transform .18s ease" }}>
           <span style={{ width:34, height:34, borderRadius:10, flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, background:`${colore}1F` }}>{icona}</span>
           <span style={{ flex:1, minWidth:0 }}>
@@ -1580,14 +1586,14 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                 <div style={{ fontSize:fs-2, color:"var(--c-text-dim)" }}>Totale: <span style={{ color:"#10B981", fontWeight:700 }}>+{fmt(monthData.entrate.filter(e=>isReal(e)&&(!filtroContoEntrate||e.conto===filtroContoEntrate)&&inDateRange(e)).reduce((s,e)=>s+toEur(e),0))}€{suffissoRon(monthData.entrate.filter(e=>(!filtroContoEntrate||e.conto===filtroContoEntrate)&&inDateRange(e)), filtroContoEntrate)}</span></div>
                 <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                   <VistaToggle vista={vistaEntrate} onChange={setVistaEntrate} accent="#10B981"/>
-                  <button onClick={()=>openAdd("entrata")} style={{ padding:"6px 14px", borderRadius:7, border:"none", background:"#10B981", color:"#fff", cursor:"pointer", fontSize:12, fontWeight:600, whiteSpace:"nowrap" }}>+ Aggiungi</button>
+                  <button onClick={()=>openAdd("entrata")} style={{ padding:"7px 16px", borderRadius:16, border:"none", background:"#10B981", color:"#fff", cursor:"pointer", fontSize:12, fontWeight:600, whiteSpace:"nowrap" }}>+ Aggiungi</button>
                 </div>
               </div>
               <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:14, flexWrap:"wrap" }}>
                 <FiltroPill value={filtroContoEntrate} onChange={setFiltroContoEntrate} options={CONTI} placeholder="Tutti i conti" accent="#10B981"/>
                 <DateRangePicker da={filtroDataDa} a={filtroDataA} onChange={(d,a)=>{setFiltroDataDa(d);setFiltroDataA(a);}} accent="#10B981"/>
                 <button onClick={()=>exportCSV(monthData.entrate.filter(e=>isReal(e)&&(!filtroContoEntrate||e.conto===filtroContoEntrate)&&inDateRange(e)),"entrate")} title="Esporta le entrate filtrate in CSV"
-                  style={{ flexShrink:0, padding:"6px 12px", borderRadius:16, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-faintest)", cursor:"pointer", fontSize:12, whiteSpace:"nowrap" }}>CSV</button>
+                  style={{ flexShrink:0, padding:"6px 12px", borderRadius:16, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-dim)", cursor:"pointer", fontSize:12, whiteSpace:"nowrap" }}>CSV</button>
               </div>
               {(() => {
                 const filtered = monthData.entrate.filter(e=>(!filtroContoEntrate||e.conto===filtroContoEntrate)&&inDateRange(e));
@@ -1631,7 +1637,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                 <div style={{ fontSize:fs-2, color:"var(--c-text-dim)" }}>Totale: <span style={{ color:"#EF4444", fontWeight:700 }}>-{fmt(monthData.uscite.filter(e=>isReal(e)&&(!filtroConto||e.conto===filtroConto)&&(!filtroViaggio||e.viaggio===filtroViaggio)&&inDateRange(e)).reduce((s,e)=>s+toEur(e),0))}€{suffissoRon(monthData.uscite.filter(e=>(!filtroConto||e.conto===filtroConto)&&(!filtroViaggio||e.viaggio===filtroViaggio)&&inDateRange(e)), filtroConto)}</span></div>
                 <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                   <VistaToggle vista={vistaUscite} onChange={setVistaUscite} accent="#EF4444"/>
-                  <button onClick={()=>openAdd("uscita")} style={{ padding:"6px 14px", borderRadius:7, border:"none", background:"#EF4444", color:"#fff", cursor:"pointer", fontSize:12, fontWeight:600, whiteSpace:"nowrap" }}>+ Aggiungi</button>
+                  <button onClick={()=>openAdd("uscita")} style={{ padding:"7px 16px", borderRadius:16, border:"none", background:"#EF4444", color:"#fff", cursor:"pointer", fontSize:12, fontWeight:600, whiteSpace:"nowrap" }}>+ Aggiungi</button>
                 </div>
               </div>
               <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:14, flexWrap:"wrap" }}>
@@ -1641,7 +1647,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                 )}
                 <DateRangePicker da={filtroDataDa} a={filtroDataA} onChange={(d,a)=>{setFiltroDataDa(d);setFiltroDataA(a);}} accent="#EF4444"/>
                 <button onClick={()=>exportCSV(monthData.uscite.filter(e=>isReal(e)&&(!filtroConto||e.conto===filtroConto)&&(!filtroViaggio||e.viaggio===filtroViaggio)&&inDateRange(e)),"uscite")} title="Esporta le uscite filtrate in CSV"
-                  style={{ flexShrink:0, padding:"6px 12px", borderRadius:16, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-faintest)", cursor:"pointer", fontSize:12, whiteSpace:"nowrap" }}>CSV</button>
+                  style={{ flexShrink:0, padding:"6px 12px", borderRadius:16, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-dim)", cursor:"pointer", fontSize:12, whiteSpace:"nowrap" }}>CSV</button>
               </div>
               {(() => {
                 const filtered = monthData.uscite.filter(e=>(!filtroConto||e.conto===filtroConto)&&(!filtroViaggio||e.viaggio===filtroViaggio)&&inDateRange(e));
