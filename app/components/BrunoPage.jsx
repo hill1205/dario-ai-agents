@@ -8,6 +8,7 @@ import {
   getMonthLabel, getCurrentMonth, lastMonths, localISODate,
   CashFlowMiniChart, CategoryBars, costoCambio,
   SOTTOCAT_TRASPORTI, SOTTOCAT_AUTO, SOTTOCAT_UTENZE, SOTTOCATEGORIE,
+  SOTTOCAT_CIBO, SOTTOCAT_CIBO_FUORI, ICONA_SOTTOCAT,
   UNITA_CONSUMO, UNITA_DISPONIBILI, propagaSaldiAiMesiSuccessivi,
 } from "../lib/finance-ui";
 import {
@@ -343,6 +344,17 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
     acc[k]=(acc[k]||0)+toEur(e); return acc;
   },{});
   const totUtenze = Object.values(utenzeBySub).reduce((s,v)=>s+v,0);
+  // Dettaglio Cibo: il totale della categoria dice quanto hai speso, non se
+  // stai mangiando fuori più del solito. "Fuori casa" somma ristorante, bar e
+  // delivery — il delivery ci sta dentro perché costa come il ristorante anche
+  // se il pasto lo consumi a casa.
+  const ciboBySub = monthData.uscite.filter(e=>isReal(e)&&e.categoria==="Cibo").reduce((acc,e)=>{
+    const k = e.sottocategoria || "Senza sottocategoria";
+    acc[k]=(acc[k]||0)+toEur(e); return acc;
+  },{});
+  const totCibo = Object.values(ciboBySub).reduce((s,v)=>s+v,0);
+  const totCiboFuori = SOTTOCAT_CIBO_FUORI.reduce((s,k)=>s+(ciboBySub[k]||0),0);
+  const totCiboSpesa = ciboBySub["Spesa"] || 0;
   // Stesse sottocategorie nel mese precedente: serve la freccia "+12% sulla
   // luce" accanto alla cifra, che è la domanda vera ("sto consumando di più?").
   const mesePrecedente = (()=>{ const [y,m]=month.split("-").map(Number); const d=new Date(y,m-2); return `${d.getFullYear()}-${pad2(d.getMonth()+1)}`; })();
@@ -2292,6 +2304,30 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                     ))}
                   </div>
                 )}
+                {/* Dettaglio Cibo: casa contro fuori. Il rapporto fra le due
+                    cifre è l'unica che si possa davvero decidere di cambiare —
+                    il totale della spesa al supermercato molto meno. */}
+                {totCibo>0 && (
+                  <div style={{ marginTop:14, padding:"10px 12px", background:"var(--c-bg)", border:"1px solid var(--c-border)", borderRadius:8 }}>
+                    <div style={{ fontSize:fs-3, fontWeight:700, color:"var(--c-text-dim)", marginBottom:8 }}>
+                      🍽️ Dettaglio Cibo — fuori casa: <span style={{ color:"#F59E0B" }}>{fmt(totCiboFuori)}€</span> · totale: {fmt(totCibo)}€
+                    </div>
+                    {Object.entries(ciboBySub).sort((a,b)=>b[1]-a[1]).map(([sc,val])=>(
+                      <div key={sc} style={{ display:"flex", justifyContent:"space-between", fontSize:fs-3, marginBottom:4 }}>
+                        <span style={{ color:"var(--c-text)" }}>{sc==="Spesa"?"🛒 ":sc==="Ristorante"?"🍝 ":sc==="Bar"?"☕ ":sc==="Delivery / Asporto"?"🛵 ":"· "}{sc}</span>
+                        <span style={{ color:"var(--c-text-dim)", fontWeight:600 }}>{fmt(val)}€</span>
+                      </div>
+                    ))}
+                    {/* La percentuale si mostra solo con entrambe le voci
+                        popolate: un mese con solo ristoranti darebbe "100%
+                        fuori casa", vero ma inutile. */}
+                    {totCiboFuori>0 && totCiboSpesa>0 && (
+                      <div style={{ fontSize:fs-5, color:"var(--c-text-faintest)", marginTop:6 }}>
+                        Mangiare fuori è il <b style={{ color:"var(--c-text-dim)" }}>{Math.round((totCiboFuori/totCibo)*100)}%</b> di quanto spendi in cibo — ogni euro di spesa al supermercato ne ha accanto {(totCiboFuori/totCiboSpesa).toFixed(2)} spesi fuori.
+                      </div>
+                    )}
+                  </div>
+                )}
                 {/* Dettaglio Utenze: ogni bolletta col confronto sul mese
                     precedente, perché la cifra da sola non dice se hai
                     consumato di più o se è cambiata la tariffa. */}
@@ -2373,7 +2409,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                         l'inserimento veloce. */}
                     {SOTTOCATEGORIE[form.categoria] && !customCat && (
                       <div style={{ marginTop:8 }}>
-                        <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:6 }}>Sottocategoria {form.categoria==="Utenze"?"💡":"🚗"}</div>
+                        <div style={{ fontSize:11, color:"var(--c-text-dim)", marginBottom:6 }}>Sottocategoria {ICONA_SOTTOCAT[form.categoria]||"·"}</div>
                         <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
                           {SOTTOCATEGORIE[form.categoria].map(sc=>(
                             <button key={sc} onClick={()=>setForm(p=>({...p,sottocategoria:p.sottocategoria===sc?"":sc, unita: p.sottocategoria===sc?"":(UNITA_CONSUMO[sc]||"")}))}

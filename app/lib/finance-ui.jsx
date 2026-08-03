@@ -45,12 +45,23 @@ export const SOTTOCAT_AUTO = ["Amministrativo auto","Carburante","Manutenzione a
 // domanda che sul totale Utenze non si può fare (luce che sale e gas che
 // scende si annullano a vicenda).
 export const SOTTOCAT_UTENZE = ["Luce","Gas","Internet / Wifi","Acqua e condominio"];
+// Cibo: la domanda a cui deve rispondere non è "quanto ho speso di cibo" (quella
+// la dà già il totale della categoria) ma "quanto sto spendendo per mangiare
+// fuori invece di cucinare". Per questo il taglio è casa vs fuori.
+// Delivery sta con "fuori" anche se il pasto lo mangi in casa: costa come il
+// ristorante ma nella testa finisce insieme alla spesa, ed è la voce che
+// cresce senza che te ne accorga — separarla è l'unico modo per vederla.
+export const SOTTOCAT_CIBO = ["Spesa","Ristorante","Bar","Delivery / Asporto"];
+export const SOTTOCAT_CIBO_FUORI = ["Ristorante","Bar","Delivery / Asporto"];
 // Mappa categoria -> sottocategorie disponibili: così aggiungere una categoria
 // con sottocategorie non richiede di toccare form, CSV e recap uno per uno.
 export const SOTTOCATEGORIE = {
   "Trasporti": SOTTOCAT_TRASPORTI,
   "Utenze":    SOTTOCAT_UTENZE,
+  "Cibo":      SOTTOCAT_CIBO,
 };
+// Emoji del gruppo sottocategorie nel form, per categoria.
+export const ICONA_SOTTOCAT = { "Trasporti":"🚗", "Utenze":"💡", "Cibo":"🍽️" };
 // Unità di misura del consumo, per sottocategoria. Registrare il consumo
 // accanto all'importo è l'unico modo per distinguere "ho consumato di più" da
 // "hanno alzato la tariffa": il rapporto importo/consumo è il costo unitario,
