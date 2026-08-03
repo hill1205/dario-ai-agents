@@ -105,11 +105,11 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
   // controlli una volta al mese quando arriva lo stipendio.
   const [tab, setTab]           = useState("uscite");
   // Riga movimenti: le azioni non stanno sempre a schermo.
-  // Su desktop compaiono al passaggio del mouse (hoverRow); su telefono il
-  // mouse non esiste, quindi si tira la riga verso sinistra (swipeRow) e
-  // scoprono modifica ed elimina. Tenerle sempre visibili significava due
-  // bottoni per riga, cioè un centinaio di bottoni colorati in un mese pieno.
-  const [hoverRow, setHoverRow] = useState(null);
+  // Su desktop compaiono al passaggio del mouse (regola CSS .mov-row:hover,
+  // non stato React); su telefono il mouse non esiste, quindi si tira la riga
+  // verso sinistra e si scoprono modifica ed elimina. Tenerle sempre visibili
+  // significava due bottoni per riga, cioè un centinaio di bottoni colorati
+  // in un mese pieno.
   const [swipeRow, setSwipeRow] = useState(null);
   const touchStart = useRef(null);
   const [tabMenu, setTabMenu]   = useState(false);
@@ -896,12 +896,16 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
   // la descrizione è il testo nero, tutto il resto (conto, viaggio, consumo,
   // litri) sta su una riga grigia sotto. Prima erano tutte allo stesso peso e
   // la lista sembrava una tabella di database.
+  // Nota: si CHIAMA come funzione — MovRow({...}) — e non si usa come tag
+  // <MovRow/>. Come componente veniva ridichiarato a ogni render del padre,
+  // quindi React lo considerava un tipo nuovo e smontava tutte le righe
+  // rifacendole da capo: il bottone sotto il mouse spariva fra la pressione e
+  // il rilascio, il click non arrivava mai e la pagina rimbalzava in cima.
   const MovRow = ({ e, i, tipo }) => {
     const { icona, colore } = iconaMovimento(e);
     const isUscita = tipo === "uscita";
     const valuta = contoCurrency(e.conto)==="RON" ? " RON" : "€";
     const aperta = swipeRow === e.id;
-    const mostraAzioni = isMobile ? aperta : hoverRow === e.id;
     const flagged = flaggedIds.has(e.id);
     // Dettagli secondari: si aggiungono solo se ci sono davvero, così le righe
     // semplici restano su due sole righe di testo.
@@ -913,7 +917,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
     if (parseFloat(e.commissioni) > 0) meta.push(`di cui ${fmt(e.commissioni)}${valuta} di commissioni`);
     if (e.noSaldo) meta.push("storico, saldo non toccato");
     const azioni = (
-      <div style={{ display:"flex", alignItems:"center", gap:6, flexShrink:0 }}>
+      <div className="mov-actions" style={{ display:"flex", alignItems:"center", gap:6, flexShrink:0 }}>
         <button onClick={()=>{ setSwipeRow(null); openEdit(tipo, e); }} aria-label="Modifica"
           style={{ width:30, height:30, borderRadius:8, border:"1px solid var(--c-border)", background:"var(--c-bg)", color:"var(--c-text-dim)", cursor:"pointer", fontSize:12 }}>✏️</button>
         <button onClick={()=>{ setSwipeRow(null); deleteItem(tipo, e.id); }} aria-label="Elimina"
@@ -921,8 +925,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
       </div>
     );
     return (
-      <div key={e.id} style={{ position:"relative", overflow:"hidden", borderTop:i===0?"none":"1px solid var(--c-border)", background:flagged?"#F59E0B14":"transparent", boxShadow:flagged?"inset 3px 0 0 #F59E0B":"none" }}
-        onMouseEnter={()=>!isMobile&&setHoverRow(e.id)} onMouseLeave={()=>!isMobile&&setHoverRow(null)}
+      <div key={e.id} className="mov-row" style={{ position:"relative", overflow:"hidden", borderTop:i===0?"none":"1px solid var(--c-border)", background:flagged?"#F59E0B14":"transparent", boxShadow:flagged?"inset 3px 0 0 #F59E0B":"none" }}
         onTouchStart={ev=>{ touchStart.current = ev.touches[0].clientX; }}
         onTouchEnd={ev=>{
           if (touchStart.current == null) return;
@@ -954,7 +957,11 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
               {e.viaggio && viaggioById[e.viaggio] && <span style={{ color:"#F59E0B" }}> · ✈️ {viaggioById[e.viaggio].nome}</span>}
             </span>
           </span>
-          {!isMobile && mostraAzioni && azioni}
+          {/* Su desktop le azioni sono SEMPRE nel documento: compaiono e
+              spariscono via CSS, senza togliere e rimettere elementi. Se
+              venissero montate all'ingresso del mouse, la riga cambierebbe
+              larghezza sotto il puntatore e il click finirebbe nel vuoto. */}
+          {!isMobile && azioni}
           <span style={{ fontSize:fs-1, fontWeight:700, whiteSpace:"nowrap", color: e.isConversione ? "#8B5CF6" : (isUscita ? "var(--c-text-strong)" : "#10B981") }}>
             {e.isConversione ? "↔ " : (isUscita ? "−" : "+")}{fmt(e.importo)}
             <span style={{ fontSize:fs-5, color:"var(--c-text-faintest)", fontWeight:400 }}>{valuta==="€"?" €":" RON"}</span>
@@ -1365,6 +1372,13 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
 
   return (
     <div style={{ ...themeVars, display:"flex", flexDirection:"column", height:"100%", overflow: "auto", background:"var(--c-bg)" }}>
+      {/* L'apparire delle azioni sulla riga e' pura CSS: se dipendesse da uno
+          stato React, ogni movimento del mouse rifarebbe l'intera lista. */}
+      <style>{`
+        .mov-row .mov-actions { opacity: 0; transition: opacity .12s ease; }
+        .mov-row:hover .mov-actions { opacity: 1; }
+        @media (hover: none) { .mov-row .mov-actions { opacity: 1; } }
+      `}</style>
 
       {/* Header */}
       <div style={{ padding:"14px 20px", borderBottom:"1px solid var(--c-border)", flexShrink:0 }}>
@@ -1602,7 +1616,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                     {monthData.entrate.length===0?"Nessuna entrata — aggiungi la prima":"Nessuna entrata nel periodo/conto selezionato"}
                   </div>
                 );
-                const Row = (e,i) => <MovRow key={e.id} e={e} i={i} tipo="entrata"/>;
+                const Row = (e,i) => MovRow({ e, i, tipo:"entrata" });
                 if (vistaEntrate==="recenti") return groupByDayDesc(filtered).map(({key,data,items})=>(
                   <div key={key} style={{ marginBottom:12 }}>
                     <div style={{ fontSize:fs-3, fontWeight:700, color:"var(--c-text-dim)", marginBottom:6, display:"flex", justifyContent:"space-between" }}>
@@ -1653,7 +1667,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                 const filtered = monthData.uscite.filter(e=>(!filtroConto||e.conto===filtroConto)&&(!filtroViaggio||e.viaggio===filtroViaggio)&&inDateRange(e));
                 if (monthData.uscite.length===0) return <div style={{ padding:20, textAlign:"center", color:"var(--c-text-faintest)", fontSize:fs-2, background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10 }}>Nessuna uscita — aggiungi la prima</div>;
                 if (filtered.length===0) return <div style={{ padding:20, textAlign:"center", color:"var(--c-text-faintest)", fontSize:fs-2, background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10 }}>Nessuna uscita nel periodo/conto/viaggio selezionato</div>;
-                const Row = (e,i) => <MovRow key={e.id} e={e} i={i} tipo="uscita"/>;
+                const Row = (e,i) => MovRow({ e, i, tipo:"uscita" });
                 if (vistaUscite==="recenti") return groupByDayDesc(filtered).map(({key,data,items})=>(
                   <div key={key} style={{ marginBottom:12 }}>
                     <div style={{ fontSize:fs-3, fontWeight:700, color:"var(--c-text-dim)", marginBottom:6, display:"flex", justifyContent:"space-between" }}>
