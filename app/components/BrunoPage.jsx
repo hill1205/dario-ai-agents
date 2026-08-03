@@ -1378,6 +1378,9 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
         .mov-row .mov-actions { opacity: 0; transition: opacity .12s ease; }
         .mov-row:hover .mov-actions { opacity: 1; }
         @media (hover: none) { .mov-row .mov-actions { opacity: 1; } }
+        .card-link { transition: background .12s ease, transform .12s ease; }
+        .card-link:hover { background: var(--c-panel2); }
+        .card-link:active { transform: scale(.985); }
       `}</style>
 
       {/* Header */}
@@ -1456,16 +1459,20 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
           {/* Le uniche tre cifre che NON si leggono dal mese corrente: quanto
               possiedi, quanto è già impegnato ogni mese, quanto costa l'auto. */}
           <div style={{ display:"grid", gridTemplateColumns:isMobile?"repeat(2,1fr)":"repeat(3,1fr)", gap:8, marginTop:14 }}>
+            {/* Ogni riquadro porta alla sua sezione: il numero fa venire la
+                domanda, il tocco dà la risposta senza passare dai chip. */}
             {[
-              { label:"Patrimonio", val:`${fmt(totPatrimonio)}€`, sub: debitoTotale>0?`netto ${fmt(patrimonioNetto)}€`:null },
-              { label:"Rate e canoni", val:`${fmt(impegnoMensileEur)}€`, sub:"al mese" },
-              { label:"Auto", val:`${fmt(totAuto)}€`, sub: autoMese.spesaEur>0?`${fmt(autoMese.spesaEur)}€ carburante`:"questo mese" },
+              { label:"Patrimonio", val:`${fmt(totPatrimonio)}€`, sub: debitoTotale>0?`netto ${fmt(patrimonioNetto)}€`:null, vai:"saldi" },
+              { label:"Rate e canoni", val:`${fmt(impegnoMensileEur)}€`, sub:"al mese", vai:"ricorrenti" },
+              { label:"Auto", val:`${fmt(totAuto)}€`, sub: autoMese.spesaEur>0?`${fmt(autoMese.spesaEur)}€ carburante`:"questo mese", vai:"auto" },
             ].map(c=>(
-              <div key={c.label} style={{ background:"var(--c-panel)", borderRadius:12, padding:"10px 12px", minWidth:0, overflow:"hidden" }}>
+              <button key={c.label} onClick={()=>{ setTab(c.vai); setTabMenu(false); }} className="card-link"
+                style={{ display:"block", width:"100%", textAlign:"left", border:"none", cursor:"pointer",
+                  background:"var(--c-panel)", borderRadius:12, padding:"10px 12px", minWidth:0, overflow:"hidden" }}>
                 <div style={{ fontSize:fs-4, color:"var(--c-text-faint)", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{c.label}</div>
                 <div style={{ fontSize:fs+2, fontWeight:700, color:"var(--c-text-strong)", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{c.val}</div>
                 {c.sub && <div style={{ fontSize:fs-5, color:"var(--c-text-faintest)", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{c.sub}</div>}
-              </div>
+              </button>
             ))}
           </div>
         </div>
