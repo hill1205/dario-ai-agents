@@ -12,9 +12,13 @@ export const dynamic = "force-dynamic";
 // teorico invece che quotidiano.
 export const maxDuration = 60;
 
-const TG_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const TG_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
-const TG_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET;
+// .trim() su tutte: incollando i valori nel pannello Vercel è facilissimo
+// portarsi dietro uno spazio o un a-capo invisibile, e un secret con "\n" in
+// fondo non combacia mai — con controlli che falliscono in silenzio il
+// sintomo è un bot che non risponde e nessun errore da nessuna parte.
+const TG_TOKEN = (process.env.TELEGRAM_BOT_TOKEN || "").trim();
+const TG_CHAT_ID = (process.env.TELEGRAM_CHAT_ID || "").trim();
+const TG_SECRET = (process.env.TELEGRAM_WEBHOOK_SECRET || "").trim();
 const CLICKUP_API_KEY = process.env.CLICKUP_API_KEY;
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 
@@ -281,7 +285,13 @@ function buildKeyboard(draftId, suggested) {
 
 async function handleMessage(message, updateId) {
   const chatId = message.chat?.id;
-  if (String(chatId) !== String(TG_CHAT_ID)) return; // non sei tu: ignora in silenzio
+  if (String(chatId) !== TG_CHAT_ID) {
+    // Ignorare in silenzio è giusto (non vogliamo rispondere a estranei), ma
+    // senza traccia nei log un chat_id sbagliato in configurazione sembra
+    // identico a un bot rotto. Il chat_id non è un segreto: loggarlo va bene.
+    console.error(`Chat non autorizzata: ricevuto "${chatId}", atteso "${TG_CHAT_ID}"`);
+    return;
+  }
 
   const state = await readState();
   if (state.processed.includes(updateId)) return; // retry di Telegram: già fatto
@@ -440,7 +450,16 @@ export async function POST(request) {
   // Questa route è l'unica dell'app raggiungibile senza Basic Auth (vedi
   // middleware.js): il secret token è quindi l'unica cosa che la separa da
   // internet. Senza, chiunque potrebbe scriverti task su ClickUp.
-  if (!TG_SECRET || request.headers.get("x-telegram-bot-api-secret-token") !== TG_SECRET) {
+  const received = request.headers.get("x-telegram-bot-api-secret-token");
+  if (!TG_SECRET || received !== TG_SECRET) {
+    // Non logghiamo i valori (sono segreti), solo lunghezza e primi caratteri:
+    // basta a distinguere "variabile assente" da "secret diverso" da "stesso
+    // secret con caratteri invisibili in coda", che sono i tre casi reali.
+    console.error(
+      `Secret token rifiutato — atteso: len=${TG_SECRET.length} inizio="${TG_SECRET.slice(0, 6)}" | ricevuto: ${
+        received === null ? "header assente" : `len=${received.length} inizio="${received.slice(0, 6)}"`
+      }`
+    );
     return new Response("ok", { status: 200 });
   }
 
