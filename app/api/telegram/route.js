@@ -179,6 +179,37 @@ function prossimiGiorni() {
   return righe.join(", ");
 }
 
+// Sposta una data "YYYY-MM-DD" di N giorni. Mezzogiorno UTC come ancoraggio
+// cosi' l'ora legale non fa scivolare il risultato al giorno prima o dopo.
+function shiftIsoDays(iso, days) {
+  const ms = new Date(`${iso}T12:00:00Z`).getTime() + days * 86400000;
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+// "2026-08-08" -> "sabato 08/08"
+function isoLeggibile(iso) {
+  const d = new Date(`${iso}T12:00:00Z`);
+  const giorno = new Intl.DateTimeFormat("it-IT", { timeZone: "UTC", weekday: "long" }).format(d);
+  return `${giorno} ${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+}
+
+// Scadenza di una task bloccata da materiale altrui: la portiamo a 48h prima
+// dell'azione, cosi' il giorno in cui la vedi in lista e' quello in cui il
+// materiale deve essere in mano tua, non quello in cui e' gia' tardi.
+// Se 48h prima cadrebbe oggi o nel passato ripieghiamo sul giorno prima, e in
+// casi estremi sulla data stessa: una scadenza gia' scaduta al momento della
+// creazione sarebbe peggio che nessuna scadenza.
+// Il calcolo sta qui e non nel prompt di proposito: sulle date Claude ha gia'
+// sbagliato una volta (venerdi' diventato sabato), l'aritmetica la fa il codice.
+function scadenzaAnticipata(iso) {
+  const oggi = bucharestToday(); // stringhe ISO: il confronto lessicografico e' cronologico
+  const dueGiorniPrima = shiftIsoDays(iso, -2);
+  if (dueGiorniPrima > oggi) return dueGiorniPrima;
+  const giornoPrima = shiftIsoDays(iso, -1);
+  if (giornoPrima > oggi) return giornoPrima;
+  return iso;
+}
+
 function buildSystemPrompt() {
   return `Sei l'assistente di Dario, imprenditore che gestisce l'agenzia di marketing IAGREX (nome commerciale: Imperivm) e il progetto HOC.
 
@@ -199,6 +230,7 @@ Rispondi SOLO con un oggetto JSON, senza testo attorno e senza blocchi di codice
       "priorita": "urgent" | "high" | "normal" | "low",
       "scadenza": "YYYY-MM-DD" oppure null,
       "contesto": "hoc" | "iagrex" | "personale",
+      "bloccata_da": "cosa serve e da chi, es. 'i dati da Marco' — oppure null",
       "note": "contesto utile che non sta nel titolo, max 300 caratteri, o stringa vuota"
     }
   ]
@@ -214,7 +246,19 @@ QUANTE TASK — la regola più importante:
 
 SCADENZE:
 - La scadenza è la data dell'AZIONE, mai quella del motivo o della conseguenza. In "posta il video giovedì perché sabato c'è la cena" la scadenza è giovedì, non sabato.
+- Metti sempre la data reale in cui l'azione va fatta. Non anticiparla tu per stare largo: se la task dipende da qualcos'altro ci pensa il sistema, tu limitati a compilare "bloccata_da".
 - Non inventare scadenze: se nessuno ne ha indicata una, metti null.
+
+BLOCCATA_DA — compilalo solo quando serve davvero:
+- Va valorizzato SOLO se Dario, per poter fare quella task, deve prima ricevere qualcosa da qualcun altro (dati, documenti, materiali, un'approvazione).
+- Esempio: "fai il pagamento entro sabato appena ti mando i dati" → azione "Fare il pagamento", scadenza sabato, bloccata_da "i dati da <nome>".
+- Se la task dipende solo dal fatto che Dario si metta a farla, bloccata_da è null. Non usarlo per dire "richiede tempo" o "va fatto prima X".
+- Non inventare un mittente: se non si capisce chi deve mandare la cosa, scrivi solo cosa serve.
+
+LINGUA:
+- Il messaggio in arrivo può essere in qualsiasi lingua (italiano, rumeno, inglese...): Dario lavora anche con interlocutori rumeni.
+- "azione" e "note" vanno SEMPRE scritte in italiano, qualunque sia la lingua del messaggio originale, così la lista task resta leggibile a colpo d'occhio.
+- I nomi propri, i nomi di aziende e i riferimenti di documenti (numeri di fattura, codici) vanno lasciati come sono, senza tradurli.
 
 ALTRO:
 - "contesto": "hoc" se riguarda il progetto HOC, "iagrex" se riguarda l'agenzia (clienti, lead, fatture, contabilità, offerte), "personale" per tutto il resto o se non è deducibile.
@@ -325,25 +369,45 @@ async function handleMessage(message, updateId) {
   }
 
   const create = async (draft) => {
+    const bloccata = draft.bloccata_da ? String(draft.bloccata_da).trim() : "";
     const prefix = CONTEXT_PREFIX[draft.contesto] ?? "";
-    const body = { name: `${prefix}${draft.azione}`.slice(0, 255) };
+    // La clessidra e il "serve:" nel titolo perche' e' l'unica parte che si
+    // legge senza aprire la task, ne' in dashboard ne' nella notifica.
+    const titolo = bloccata
+      ? `⏳ ${prefix}${draft.azione} (serve: ${bloccata})`
+      : `${prefix}${draft.azione}`;
+    const body = { name: titolo.slice(0, 255) };
     if (PRIORITY_MAP[draft.priorita]) body.priority = PRIORITY_MAP[draft.priorita];
+
+    // Se e' bloccata, la scadenza in ClickUp diventa quella anticipata: e' il
+    // giorno in cui il materiale deve essere in mano tua. La data vera
+    // dell'azione resta scritta nella descrizione, altrimenti la perderesti.
+    const scadenzaEffettiva =
+      draft.scadenza && bloccata ? scadenzaAnticipata(draft.scadenza) : draft.scadenza;
     // Mezzogiorno e non mezzanotte: il server Vercel gira in UTC e una data a
     // mezzanotte scivolerebbe al giorno prima una volta resa nel fuso di
     // Bucarest. Stessa scelta di app/api/create-task/route.js.
-    if (draft.scadenza) {
-      const ms = new Date(`${draft.scadenza}T12:00:00`).getTime();
+    if (scadenzaEffettiva) {
+      const ms = new Date(`${scadenzaEffettiva}T12:00:00`).getTime();
       if (!isNaN(ms)) { body.due_date = ms; body.due_date_time = false; }
     }
+
     const descr = [];
     if (draft.richiedente) descr.push(`Richiesto da: ${draft.richiedente}`);
+    if (bloccata) {
+      descr.push(
+        draft.scadenza && scadenzaEffettiva !== draft.scadenza
+          ? `In attesa di: ${bloccata}\nScadenza reale dell'azione: ${isoLeggibile(draft.scadenza)}. La scadenza qui è anticipata a ${isoLeggibile(scadenzaEffettiva)}, giorno entro cui il materiale deve essere tuo.`
+          : `In attesa di: ${bloccata}`
+      );
+    }
     if (draft.note) descr.push(draft.note);
     descr.push("— creata dal bot Telegram");
     body.description = descr.join("\n\n");
 
     const res = await cu(`/list/${TODO_LIST_ID}/task`, { method: "POST", body: JSON.stringify(body) });
     if (!res.ok) throw new Error(JSON.stringify(await res.json()).slice(0, 200));
-    return body.name;
+    return { nome: body.name, scadenzaEffettiva };
   };
 
   // In sequenza e non in parallelo: sono al massimo 5 chiamate e cosi' non
@@ -352,7 +416,7 @@ async function handleMessage(message, updateId) {
   const falliti = [];
   for (const draft of drafts) {
     try {
-      create_ok.push({ nome: await create(draft), draft });
+      create_ok.push({ ...(await create(draft)), draft });
     } catch (e) {
       console.error("Creazione task fallita:", e);
       falliti.push({ azione: draft.azione, errore: e.message });
@@ -365,12 +429,18 @@ async function handleMessage(message, updateId) {
   // ricreate, ma un doppione visibile e' meglio di una richiesta persa.
   if (falliti.length === 0) await writeProcessed([...processed, updateId]);
 
-  const righe = create_ok.map(({ nome, draft }) => {
+  const righe = create_ok.map(({ nome, scadenzaEffettiva, draft }) => {
     const meta = [];
     if (draft.richiedente) meta.push(`👤 ${escapeHtml(draft.richiedente)}`);
     meta.push(`${PRIORITY_ICON[draft.priorita] || "🔵"} ${draft.priorita}`);
-    if (draft.scadenza) meta.push(`📅 ${draft.scadenza}`);
-    return `✅ <b>${escapeHtml(nome)}</b>\n${meta.join("   ")}`;
+    if (scadenzaEffettiva) meta.push(`📅 ${isoLeggibile(scadenzaEffettiva)}`);
+    let riga = `✅ <b>${escapeHtml(nome)}</b>\n${meta.join("   ")}`;
+    // Se abbiamo anticipato la scadenza va detto subito: altrimenti leggi una
+    // data diversa da quella che ti ha scritto la persona e pensi a un errore.
+    if (draft.scadenza && scadenzaEffettiva !== draft.scadenza) {
+      riga += `\n<i>anticipata — l'azione va fatta entro ${isoLeggibile(draft.scadenza)}</i>`;
+    }
+    return riga;
   });
 
   if (falliti.length) {
