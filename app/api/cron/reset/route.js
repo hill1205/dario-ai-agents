@@ -39,6 +39,29 @@ export async function GET(req) {
     return Response.json({ error: 'CLICKUP_API_KEY non configurata' }, { status: 500 });
   }
 
+  // GUARDIA ORA LEGALE.
+  // Vercel esegue i cron solo in UTC, e mezzanotte a Bucarest cade alle
+  // 21:00 UTC d'estate e alle 22:00 UTC d'inverno. In vercel.json sono
+  // registrate entrambe: qui lasciamo passare solo quella che casca
+  // davvero alle 00 locali, l'altra esce senza toccare niente. Da fine
+  // ottobre si inverte da solo.
+  //
+  // Serve anche come rete di sicurezza: se una chiamata partisse alle
+  // 23:xx, bucharestDate(-1) punterebbe al giorno sbagliato e il reset
+  // cancellerebbe le routine di una giornata ancora in corso.
+  const oraBucarest = Number(
+    new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Bucharest', hour: '2-digit', hourCycle: 'h23' })
+      .format(new Date())
+  );
+  const forzato = new URL(req.url).searchParams.get('force') === '1';
+  if (oraBucarest !== 0 && !forzato) {
+    return Response.json({
+      skipped: true,
+      motivo: `A Bucarest sono le ${oraBucarest}:00, non mezzanotte — questa e' l'altra schedulazione UTC (ora legale/solare).`,
+      oraBucarest,
+    });
+  }
+
   try {
     const tasks = await fetchRoutineTasks();
 
@@ -49,9 +72,8 @@ export async function GET(req) {
     // abitudine, cosi' il tracking granulare arriva senza che Dario debba
     // compilare niente in piu'.
     //
-    // Il giorno e' -1: il cron gira all'01:00 UTC, cioe' le 4 del mattino a
-    // Bucarest — a quell'ora le routine appena completate appartengono al
-    // giorno precedente, non a quello appena iniziato.
+    // Il giorno e' -1: giriamo a mezzanotte di Bucarest, quindi la giornata
+    // appena finita e' ieri, non quella che sta iniziando in questo istante.
     const giorno = bucharestDate(-1);
     let snapshot = { success: false, motivo: 'non tentato' };
     try {

@@ -1,8 +1,13 @@
 {
+  "_commento": "Reset a mezzanotte di Bucarest. Vercel esegue i cron SOLO in UTC, e mezzanotte a Bucarest cade alle 21:00 UTC con l'ora legale e alle 22:00 UTC con l'ora solare. Nessuna espressione cron sa dell'ora legale, quindi ne registriamo due: la route /api/cron/reset esegue il reset solo se in quel momento a Bucarest sono davvero le 00, e ignora l'altra chiamata. Da fine ottobre si inverte da solo, senza toccare niente.",
   "crons": [
     {
       "path": "/api/cron/reset",
-      "schedule": "0 1 * * *"
+      "schedule": "0 21 * * *"
+    },
+    {
+      "path": "/api/cron/reset",
+      "schedule": "0 22 * * *"
     }
   ]
 }
