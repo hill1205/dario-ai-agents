@@ -899,6 +899,13 @@ export default function App() {
     <div style={{fontSize:Math.max(9,fontSize-4),fontWeight:700,color:T.textDim,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:10,...style}}>{children}</div>
   ), [T,fontSize]);
 
+  // Si invoca come funzione — {SettingsContent()} — e non come componente
+  // <SettingsContent/>. Essendo definita qui dentro, ad ogni render sarebbe
+  // una funzione nuova: come componente React la rimonterebbe da zero,
+  // facendo perdere il focus allo slider mentre lo trascini. Chiamandola
+  // come funzione il JSX viene inserito senza creare un confine di
+  // componente, quindi non c'e' niente da rimontare.
+  // Stessa classe di bug che azzerava lo scroll nella griglia Abitudini.
   const SettingsContent = ()=>(
     <div style={{padding:12}}>
       <div style={{fontSize:11,color:"#64748B",marginBottom:6}}>Dimensione testo: {fontSize}px</div>
@@ -962,7 +969,7 @@ export default function App() {
               </button>
               {showSettings && (
                 <div style={{marginTop:8,background:T.bg,borderRadius:8,border:`1px solid ${T.border}`}}>
-                  <SettingsContent/>
+                  {SettingsContent()}
                 </div>
               )}
             </div>
@@ -1006,7 +1013,7 @@ export default function App() {
 
               {isMobile && showSettings && (
                 <div style={{background:T.panel,borderBottom:`1px solid ${T.border}`,flexShrink:0}}>
-                  <SettingsContent/>
+                  {SettingsContent()}
                 </div>
               )}
 

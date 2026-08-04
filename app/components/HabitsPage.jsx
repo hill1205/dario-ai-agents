@@ -68,6 +68,23 @@ function Ring({ pct, size = 46, label, sublabel, dim = false }) {
   );
 }
 
+// Card DEVE stare fuori dal componente.
+// Definita dentro HabitsPage, ad ogni render era una funzione nuova: React
+// la trattava come un componente diverso e rimontava tutto il sottoalbero,
+// azzerando lo scroll orizzontale della griglia. Su Android succedeva
+// proprio scorrendo — la barra del browser che compare/scompare fa partire
+// un resize di visualViewport, page.jsx aggiorna appHeight e la pagina si
+// ri-renderizza. Risultato: la griglia tornava sempre ai primi giorni.
+function Card({ title, subtitle, children, fs }) {
+  return (
+    <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:11,padding:14,marginBottom:12}}>
+      <div style={{fontSize:fs-2,fontWeight:700,color:"var(--c-text-strong)",marginBottom:subtitle?2:10}}>{title}</div>
+      {subtitle && <div style={{fontSize:fs-5,color:"var(--c-text-faint)",marginBottom:10}}>{subtitle}</div>}
+      {children}
+    </div>
+  );
+}
+
 export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = false }) {
   const fs = fontSize;
   const themeVars = THEME_VARS[theme] || THEME_VARS.dark;
@@ -356,14 +373,6 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
   }, [mood, pctGiorno]);
 
   // ---- Render ---------------------------------------------------------
-  const Card = ({ title, subtitle, children }) => (
-    <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:11,padding:14,marginBottom:12}}>
-      <div style={{fontSize:fs-2,fontWeight:700,color:"var(--c-text-strong)",marginBottom:subtitle?2:10}}>{title}</div>
-      {subtitle && <div style={{fontSize:fs-5,color:"var(--c-text-faint)",marginBottom:10}}>{subtitle}</div>}
-      {children}
-    </div>
-  );
-
   const cellW = 22, cellH = 20, nomeW = isMobile ? 108 : 150;
 
   return (
@@ -405,7 +414,7 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
         )}
 
         {/* CHECK-IN MOOD */}
-        <Card title="Come stai oggi?" subtitle="Tre tap. Serve a capire se i giorni in cui esegui sono quelli in cui stai bene.">
+        <Card fs={fs} title="Come stai oggi?" subtitle="Tre tap. Serve a capire se i giorni in cui esegui sono quelli in cui stai bene.">
           {MOOD_FIELDS.map(f => (
             <div key={f.key} style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
               <div style={{fontSize:fs-3,color:"var(--c-text-muted)",width:isMobile?96:112,flexShrink:0}}>
@@ -436,7 +445,7 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
         </Card>
 
         {/* ANELLI SETTIMANA */}
-        <Card title="Questa settimana">
+        <Card fs={fs} title="Questa settimana">
           <div style={{display:"flex",justifyContent:"space-between",gap:4,overflowX:"auto",paddingBottom:2}}>
             {settimana.map(d => (
               <Ring key={d.data} pct={d.pct ?? 0} dim={d.pct===null} size={isMobile?42:50}
@@ -446,7 +455,7 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
         </Card>
 
         {/* GRIGLIA MENSILE */}
-        <Card title={`Griglia ${label}`} subtitle={giorniConDati.length===0 ? "Nessuno snapshot per questo mese — lo storico parte dal giorno di attivazione." : `${giorniConDati.length} giorni tracciati`}>
+        <Card fs={fs} title={`Griglia ${label}`} subtitle={giorniConDati.length===0 ? "Nessuno snapshot per questo mese — lo storico parte dal giorno di attivazione." : `${giorniConDati.length} giorni tracciati`}>
           <div style={{overflowX:"auto"}}>
             <div style={{display:"inline-block",minWidth:"100%"}}>
               {/* riga numeri giorno, colorata per settimana */}
@@ -570,7 +579,7 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
         </Card>
 
         {/* NOTA DEL GIORNO */}
-        <Card title="Nota del giorno" subtitle="Perché hai saltato, cosa è andato storto. Dopo una settimana i pattern si vedono da soli.">
+        <Card fs={fs} title="Nota del giorno" subtitle="Perché hai saltato, cosa è andato storto. Dopo una settimana i pattern si vedono da soli.">
           <textarea rows={2} placeholder="Es. saltato outreach: riunione lunga con cliente"
             value={notaDraft?.data === oggi ? notaDraft.testo : (byDate.get(oggi)?.nota || "")}
             onChange={e=>setNotaDraft({ data: oggi, testo: e.target.value })}
@@ -596,7 +605,7 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
         </Card>
 
         {/* % PER ABITUDINE */}
-        <Card title="Quali stai tradendo" subtitle="Strategiche in cima (⚡ = priorità alta su ClickUp), poi le peggiori. 🔥 = giorni consecutivi.">
+        <Card fs={fs} title="Quali stai tradendo" subtitle="Strategiche in cima (⚡ = priorità alta su ClickUp), poi le peggiori. 🔥 = giorni consecutivi.">
           {perAbitudine.length===0 && <div style={{fontSize:fs-3,color:"var(--c-text-faintest)"}}>Ancora nessun dato per questo mese.</div>}
           {perAbitudine.map(h => (
             <div key={h.nome} style={{display:"flex",alignItems:"center",gap:8,marginBottom:7}}>
@@ -624,7 +633,7 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
         </Card>
 
         {/* TREND GIORNALIERO */}
-        <Card title="Andamento del mese" subtitle="Percentuale di routine completate, giorno per giorno.">
+        <Card fs={fs} title="Andamento del mese" subtitle="Percentuale di routine completate, giorno per giorno.">
           <div style={{overflowX:"auto"}}>
             <div style={{display:"flex",alignItems:"flex-end",gap:2,height:120,minWidth:giorniMese*18}}>
               {Array.from({length:giorniMese},(_,i)=>i+1).map(g => {
@@ -651,7 +660,7 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
         </Card>
 
         {/* MOOD ULTIMI 14 GIORNI */}
-        <Card title="Umore · Energia · Motivazione" subtitle="Ultimi 14 giorni, con sotto la percentuale di routine di quel giorno.">
+        <Card fs={fs} title="Umore · Energia · Motivazione" subtitle="Ultimi 14 giorni, con sotto la percentuale di routine di quel giorno.">
           <div style={{overflowX:"auto"}}>
             <div style={{display:"flex",gap:6,minWidth:14*34}}>
               {ultimi14.map(d => (
