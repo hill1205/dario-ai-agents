@@ -1,6 +1,6 @@
 export const dynamic = 'force-dynamic';
 
-import { saveSnapshot, isTaskDone, bucharestDate } from '../../../lib/habits-store';
+import { saveSnapshot, snapshotDaTasks, bucharestDate } from '../../../lib/habits-store';
 
 const CLICKUP_API_KEY = process.env.CLICKUP_API_KEY;
 const CRON_SECRET = process.env.CRON_SECRET;
@@ -81,11 +81,7 @@ export async function GET(req) {
     const giorno = bucharestDate(-1);
     let snapshot = { success: false, motivo: 'non tentato' };
     try {
-      snapshot = await saveSnapshot(
-        giorno,
-        tasks.filter(isTaskDone).map(t => t.name),
-        tasks.map(t => t.name)
-      );
+      snapshot = await saveSnapshot(giorno, snapshotDaTasks(tasks, giorno));
     } catch (e) {
       // Lo snapshot non deve MAI impedire il reset: se il Doc ClickUp non
       // risponde, perdere lo storico di un giorno e' accettabile, ritrovarsi

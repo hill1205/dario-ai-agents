@@ -1,10 +1,14 @@
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-import { readHabits, saveSnapshot, snapshotOggi, bucharestDate } from "../../lib/habits-store";
+import {
+  readHabits, saveSnapshot, snapshotOggi, bucharestDate,
+  toggleGiornoPassato, toggleOggiSuClickUp, setNota,
+} from "../../lib/habits-store";
 
-// Storico per singola abitudine. Ogni voce e'
-// { data:"YYYY-MM-DD", done:[nomi], all:[nomi] }.
+// Storico per singola abitudine.
+// { data:"YYYY-MM-DD", done:[nomi], all:[nomi], strategiche:[nomi], nota }
+//
 // "all" serve perche' le routine cambiano nel tempo: senza la lista delle
 // abitudini attive QUEL giorno, una routine aggiunta oggi risulterebbe
 // "saltata" per tutti i giorni precedenti, sporcando le percentuali.
@@ -22,10 +26,10 @@ export async function GET() {
 
     let days = storico;
     if (live) {
-      days = [...storico.filter((d) => d.data !== oggi), live];
-      // Persistiamo subito: se il cron notturno fallisce, almeno l'ultimo
-      // stato visto resta salvato.
-      saveSnapshot(live.data, live.done, live.all).catch(() => {});
+      const prev = storico.find((d) => d.data === oggi) || {};
+      // La nota del giorno la scrive Dario, non ClickUp: va conservata.
+      days = [...storico.filter((d) => d.data !== oggi), { ...live, nota: prev.nota }];
+      saveSnapshot(live.data, live).catch(() => {});
     }
 
     days.sort((a, b) => (a.data < b.data ? -1 : 1));
@@ -39,8 +43,39 @@ export async function POST(request) {
   try {
     const body = await request.json();
     const day = body.data || bucharestDate(0);
-    const result = await saveSnapshot(day, body.done, body.all);
-    return Response.json(result);
+    return Response.json(await saveSnapshot(day, body));
+  } catch (error) {
+    return Response.json({ error: error.message }, { status: 500 });
+  }
+}
+
+// PATCH = correzioni manuali dalla griglia.
+//   { azione:"toggle", data, abitudine }  → inverte fatta/saltata
+//   { azione:"nota",   data, nota }       → salva la nota del giorno
+//
+// Per OGGI il toggle deve passare da ClickUp, non dallo storico: il giorno
+// in corso viene ricalcolato dalle task ad ogni caricamento, quindi una
+// correzione scritta solo nel Doc verrebbe cancellata subito dopo.
+export async function PATCH(request) {
+  try {
+    const { azione, data, abitudine, nota } = await request.json();
+    const oggi = bucharestDate(0);
+
+    if (azione === "nota") {
+      if (!data) return Response.json({ error: "data mancante" }, { status: 400 });
+      return Response.json(await setNota(data, nota || ""));
+    }
+
+    if (azione === "toggle") {
+      if (!data || !abitudine) return Response.json({ error: "data o abitudine mancanti" }, { status: 400 });
+      if (data > oggi) return Response.json({ success: false, motivo: "non si corregge il futuro" });
+      const res = data === oggi
+        ? await toggleOggiSuClickUp(abitudine)
+        : await toggleGiornoPassato(data, abitudine);
+      return Response.json(res);
+    }
+
+    return Response.json({ error: "azione non riconosciuta" }, { status: 400 });
   } catch (error) {
     return Response.json({ error: error.message }, { status: 500 });
   }
