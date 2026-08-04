@@ -1,5 +1,7 @@
 export const dynamic = 'force-dynamic';
 
+import { saveSnapshot, isTaskDone, bucharestDate } from '../../../lib/habits-store';
+
 const CLICKUP_API_KEY = process.env.CLICKUP_API_KEY;
 const CRON_SECRET = process.env.CRON_SECRET;
 const ROUTINE_DAILY_LIST_ID = "901218950375";
@@ -39,6 +41,32 @@ export async function GET(req) {
 
   try {
     const tasks = await fetchRoutineTasks();
+
+    // SNAPSHOT PRIMA DEL RESET.
+    // Fino al 04/08/26 questo cron azzerava le routine buttando via l'unica
+    // informazione utile: QUALI erano state fatte. Restava solo il booleano
+    // "tutte completate" dello streak. Qui congeliamo lo stato per singola
+    // abitudine, cosi' il tracking granulare arriva senza che Dario debba
+    // compilare niente in piu'.
+    //
+    // Il giorno e' -1: il cron gira all'01:00 UTC, cioe' le 4 del mattino a
+    // Bucarest — a quell'ora le routine appena completate appartengono al
+    // giorno precedente, non a quello appena iniziato.
+    const giorno = bucharestDate(-1);
+    let snapshot = { success: false, motivo: 'non tentato' };
+    try {
+      snapshot = await saveSnapshot(
+        giorno,
+        tasks.filter(isTaskDone).map(t => t.name),
+        tasks.map(t => t.name)
+      );
+    } catch (e) {
+      // Lo snapshot non deve MAI impedire il reset: se il Doc ClickUp non
+      // risponde, perdere lo storico di un giorno e' accettabile, ritrovarsi
+      // le routine di ieri ancora spuntate la mattina dopo no.
+      snapshot = { success: false, motivo: e.message };
+    }
+
     const results = await Promise.all(
       tasks.map(async (t) => ({ id: t.id, name: t.name, reset: await resetTask(t.id) }))
     );
@@ -48,6 +76,7 @@ export async function GET(req) {
       timestamp: new Date().toISOString(),
       totalTasks: tasks.length,
       resetCount,
+      snapshot: { giorno, ...snapshot },
       details: results,
     });
   } catch (error) {

@@ -27,6 +27,8 @@ const DOCS = {
   bruno_finance:  { docId: "2kxuu4g1-712", pageId: "2kxuu4g1-952",  marker: "BRUNO_FINANCE_JSON:" },
   iagrex_finance: { docId: "2kxuu4g1-752", pageId: "2kxuu4g1-972",  marker: "IAGREX_FINANCE_JSON:" },
   weight:         { docId: "2kxuu4g1-612", pageId: "2kxuu4g1-312",  marker: "WEIGHT_DATA_JSON:" },
+  habits:         { docId: "2kxuu4g1-972", pageId: "2kxuu4g1-1372", marker: "HABITS_DATA_JSON:" },
+  mood:           { docId: "2kxuu4g1-972", pageId: "2kxuu4g1-1392", marker: "MOOD_DATA_JSON:" },
 };
 
 async function safe(label, fn) {
@@ -86,7 +88,7 @@ async function fetchNotionPipeline() {
 }
 
 export async function GET() {
-  const [todo, routine, sospeso, streak, brunoFinance, iagrexFinance, weight, pipeline] = await Promise.all([
+  const [todo, routine, sospeso, streak, brunoFinance, iagrexFinance, weight, pipeline, habits, moodData] = await Promise.all([
     safe("ClickUp · to-do",           () => fetchTaskList(TASK_LIST_IDS.todo)),
     safe("ClickUp · routine",         () => fetchTaskList(TASK_LIST_IDS.routine)),
     safe("ClickUp · sospeso",         () => fetchTaskList(TASK_LIST_IDS.sospeso)),
@@ -95,9 +97,11 @@ export async function GET() {
     safe("ClickUp · finanze IAGREX",  () => fetchDoc(DOCS.iagrex_finance)),
     safe("ClickUp · peso",            () => fetchDoc(DOCS.weight)),
     safe("Notion · pipeline lead/clienti", () => fetchNotionPipeline()),
+    safe("ClickUp · storico abitudini", () => fetchDoc(DOCS.habits)),
+    safe("ClickUp · mood",              () => fetchDoc(DOCS.mood)),
   ]);
 
-  const sections = { todo, routine, sospeso, streak, bruno_finance: brunoFinance, iagrex_finance: iagrexFinance, weight, pipeline };
+  const sections = { todo, routine, sospeso, streak, bruno_finance: brunoFinance, iagrex_finance: iagrexFinance, weight, pipeline, habits, mood: moodData };
   const errors = Object.entries(sections).filter(([,v]) => !v.ok).map(([k,v]) => ({ section: k, error: v.error }));
 
   return Response.json({
@@ -113,6 +117,8 @@ export async function GET() {
       iagrex_finance: iagrexFinance.ok ? iagrexFinance.data : null,
       weight: weight.ok ? weight.data : null,
       pipeline: pipeline.ok ? pipeline.data : null,
+      habits: habits.ok ? habits.data : null,
+      mood: moodData.ok ? moodData.data : null,
     },
   });
 }

@@ -8,6 +8,7 @@ import IAGREXPage from "./components/IAGREXPage";
 import IdeasPage from "./components/IdeasPage";
 import SimulatorPage from "./components/SimulatorPage";
 import CalculatorPage from "./components/CalculatorPage";
+import HabitsPage from "./components/HabitsPage";
 
 const DONE_STATUSES = ["complete","completed","done","chiuso","closed","fatto","completato","completata"];
 
@@ -16,6 +17,9 @@ const DONE_STATUSES = ["complete","completed","done","chiuso","closed","fatto","
 // a runtime in base al tema attivo (vedi NAV_ITEMS_RESOLVED piu' sotto).
 const NAV_ITEMS = [
   { id:"home",     icon:"🏠", label:"Dashboard",  color:null },
+  // Abitudini (04/08): il tracking per singola routine. In home lo streak
+  // dice solo "tutte fatte sì/no"; qui si vede QUALE abitudine salti.
+  { id:"abitudini", icon:"✅", label:"Abitudini", color:"#F97316" },
   { id:"pipeline", icon:"🎯", label:"Pipeline",   color:"#8B5CF6" },
   { id:"clienti",  icon:"👥", label:"Clienti",    color:"#10B981" },
   { id:"finanze",  icon:"💰", label:"Finanze",    color:"#F59E0B" },
@@ -975,6 +979,7 @@ export default function App() {
           {view==="idee"     && <IdeasPage    fontSize={fontSize} theme={theme}/>}
           {view==="simulatore" && <SimulatorPage fontSize={fontSize} onBack={()=>setView("home")} theme={theme}/>}
           {view==="calcolatrice" && <CalculatorPage fontSize={fontSize} onBack={()=>setView("home")} theme={theme}/>}
+          {view==="abitudini" && <HabitsPage fontSize={fontSize} theme={theme} isMobile={isMobile}/>}
 
           {view==="home" && (
             <>
@@ -1156,9 +1161,13 @@ export default function App() {
                   <div><DCard accent="#10B981" gradient={CARD_GRADIENTS.green}>
                     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
                       <DLabel style={{marginBottom:0,color:"rgba(255,255,255,0.85)"}}>🔄 Routine</DLabel>
-                      {routineStreak > 0 && (
-                        <span style={{fontSize:fontSize-4,color:"#FED7AA",fontWeight:700}}>🔥 {routineStreak}g</span>
-                      )}
+                      {/* Scorciatoia alla pagina Abitudini: lo streak è il
+                          punto in cui viene naturale chiedersi "sì, ma quale
+                          ho saltato?" — la risposta è a un tap. */}
+                      <span onClick={()=>setView("abitudini")} title="Vedi lo storico per singola abitudine"
+                        style={{fontSize:fontSize-4,color:"#FED7AA",fontWeight:700,cursor:"pointer",padding:"2px 6px",borderRadius:6,background:"rgba(255,255,255,0.12)"}}>
+                        {routineStreak > 0 ? `🔥 ${routineStreak}g` : "📊 storico"}
+                      </span>
                     </div>
                     {homeData.routine.length===0?(
                       <div style={{fontSize:fontSize-2,color:"rgba(255,255,255,0.6)"}}>{homeLoading?"Caricamento...":"Nessuna routine"}</div>
