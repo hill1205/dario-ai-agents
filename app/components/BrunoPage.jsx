@@ -112,7 +112,22 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
   // in un mese pieno.
   const [swipeRow, setSwipeRow] = useState(null);
   const touchStart = useRef(null);
-  const [tabMenu, setTabMenu]   = useState(false);
+  // Barra delle schede: teniamo un riferimento al contenitore e al chip
+  // attivo per poterlo riportare in vista quando la scheda cambia da fuori.
+  const tabsRef       = useRef(null);
+  const chipAttivoRef = useRef(null);
+  // Riporta in vista il chip attivo quando la scheda cambia. Serve soprattutto
+  // su mobile: se apri "Rate e canoni" dalla card in cima, il chip
+  // corrispondente e' l'ultimo della riga e resterebbe fuori schermo, dando
+  // l'impressione che nessuna scheda sia selezionata.
+  // Scrolliamo il contenitore a mano invece di usare scrollIntoView, che
+  // trascinerebbe anche la pagina in verticale.
+  useEffect(() => {
+    const box = tabsRef.current, chip = chipAttivoRef.current;
+    if (!box || !chip) return;
+    const sx = chip.offsetLeft - box.offsetWidth / 2 + chip.offsetWidth / 2;
+    box.scrollTo({ left: Math.max(0, sx), behavior: "smooth" });
+  }, [tab]);
   const [filtroConto, setFiltroConto] = useState("");
   // Filtro conto delle Entrate, tenuto separato da quello delle Uscite: sono
   // due liste diverse e non ha senso che cambiare conto in una sposti l'altra.
@@ -1466,7 +1481,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
               { label:"Rate e canoni", val:`${fmt(impegnoMensileEur)}€`, sub:"al mese", vai:"ricorrenti" },
               { label:"Auto", val:`${fmt(totAuto)}€`, sub: autoMese.spesaEur>0?`${fmt(autoMese.spesaEur)}€ carburante`:"questo mese", vai:"auto" },
             ].map(c=>(
-              <button key={c.label} onClick={()=>{ setTab(c.vai); setTabMenu(false); }} className="card-link"
+              <button key={c.label} onClick={()=>setTab(c.vai)} className="card-link"
                 style={{ display:"block", width:"100%", textAlign:"left", border:"none", cursor:"pointer",
                   background:"var(--c-panel)", borderRadius:12, padding:"10px 12px", minWidth:0, overflow:"hidden" }}>
                 <div style={{ fontSize:fs-4, color:"var(--c-text-faint)", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{c.label}</div>
@@ -1545,55 +1560,34 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
       </div>
 
       {/* Tabs */}
-      {/* Sette voci su una riga sono la cosa che fa sembrare piena la pagina
-          prima ancora di leggerla. Le quattro che apri ogni giorno restano
-          fuori; Rate, Viaggi e Recap — che guardi una volta a settimana —
-          stanno sotto "Altro". */}
+      {/* Tutte e sette su una riga sola (04/08). Prima le tre meno frequenti
+          — Rate, Viaggi, Recap — stavano dietro un menu "Altro" per non
+          affollare la barra. Ma un menu a scomparsa costa comunque due tap e
+          nasconde cosa esiste: su mobile la riga scorre in orizzontale, su
+          desktop ci stanno tutte in vista. */}
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, padding:"10px 16px", borderBottom:"1px solid var(--c-border)", flexShrink:0, background:"var(--c-bg)" }}>
-        <div style={{ display:"flex", gap:6, alignItems:"center", overflowX:"auto", flexWrap:isMobile?"nowrap":"wrap", scrollbarWidth:"none" }}>
-          {[["uscite","Uscite"],["entrate","Entrate"],["saldi","Conti"],["auto","Auto"]].map(([t,label])=>(
-            <button key={t} onClick={()=>{setTab(t);setTabMenu(false);}}
+        <div ref={tabsRef}
+          style={{ display:"flex", gap:6, alignItems:"center", overflowX:"auto", flexWrap:isMobile?"nowrap":"wrap", scrollbarWidth:"none", minWidth:0 }}>
+          {[
+            ["uscite","Uscite"],["entrate","Entrate"],["saldi","Conti"],["auto","Auto"],
+            ["ricorrenti","Rate e abbonamenti"],["viaggi","Viaggi"],["recap","Recap"],
+          ].map(([t,label])=>(
+            <button key={t} onClick={()=>setTab(t)}
+              // Ref solo sul chip attivo: serve a riportarlo in vista quando
+              // cambi scheda da un'altra parte (es. dalle card in cima), che
+              // altrimenti su mobile resterebbe fuori dallo schermo.
+              ref={tab===t ? chipAttivoRef : null}
               style={{ padding:"6px 14px", borderRadius:16, border:"none", cursor:"pointer", fontSize:fs-2, whiteSpace:"nowrap", flexShrink:0,
                 fontWeight:tab===t?700:400,
                 background: tab===t ? "var(--c-text-strong)" : "transparent",
                 color: tab===t ? "var(--c-bg)" : "var(--c-text-faint)" }}>{label}</button>
           ))}
-          <div style={{ position:"relative", flexShrink:0 }}>
-            {(()=>{
-              const altre = [["ricorrenti","🔁 Rate e abbonamenti"],["viaggi","✈️ Viaggi"],["recap","📊 Recap"]];
-              const attiva = altre.find(([t])=>t===tab);
-              return (
-                <>
-                  <button onClick={()=>setTabMenu(v=>!v)}
-                    style={{ padding:"6px 14px", borderRadius:16, border:"none", cursor:"pointer", fontSize:fs-2, whiteSpace:"nowrap",
-                      fontWeight:attiva?700:400,
-                      background: attiva ? "var(--c-text-strong)" : "transparent",
-                      color: attiva ? "var(--c-bg)" : "var(--c-text-faint)" }}>
-                    {attiva ? attiva[1].split(" ").slice(1).join(" ") : "Altro"} ⌄
-                  </button>
-                </>
-              );
-            })()}
-          </div>
         </div>
         <button onClick={openConversione} title="Registra un cambio valuta tra Revolut EUR e Revolut RON senza contarlo come entrata/uscita reale"
           style={{ flexShrink:0, padding:"6px 12px", borderRadius:16, border:"1px solid var(--c-border)", background:"transparent", color:"var(--c-text-dim)", cursor:"pointer", fontSize:fs-3, whiteSpace:"nowrap" }}>
           🔄 {isMobile ? "" : "Conversione"}
         </button>
       </div>
-      {/* Le voci di "Altro" si aprono in una riga sotto la barra, non in un
-          menu sovrapposto: la barra dei chip scorre in orizzontale su mobile,
-          e un menu in posizione assoluta dentro un contenitore che scorre
-          viene tagliato via — è il motivo per cui non si vedeva niente. */}
-      {tabMenu && (
-        <div style={{ display:"flex", gap:6, flexWrap:"wrap", padding:"10px 16px", borderBottom:"1px solid var(--c-border)", background:"var(--c-panel)" }}>
-          {[["ricorrenti","🔁 Rate e abbonamenti"],["viaggi","✈️ Viaggi"],["recap","📊 Recap"]].map(([t,label])=>(
-            <button key={t} onClick={()=>{setTab(t);setTabMenu(false);}}
-              style={{ padding:"6px 14px", borderRadius:16, border:"1px solid var(--c-border)", cursor:"pointer", fontSize:fs-2, whiteSpace:"nowrap",
-                background: tab===t ? "var(--c-panel2)" : "transparent", color:"var(--c-text)" }}>{label}</button>
-          ))}
-        </div>
-      )}
 
       {loading && <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", color:"var(--c-text-faintest)" }}>⏳ Caricamento...</div>}
 
