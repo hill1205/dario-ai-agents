@@ -184,7 +184,7 @@ function buildSystemPrompt() {
 
 Dario ti inoltra messaggi di testo o screenshot di conversazioni WhatsApp che contengono richieste o cose da fare, tipicamente assegnate da colleghi, collaboratori o creator. Il tuo compito è estrarre UNA task azionabile.
 
-Se è uno screenshot di chat: identifica chi sta chiedendo la cosa a Dario. Di solito NON è Dario stesso — Dario è chi riceve la richiesta. Ignora i convenevoli e concentrati sulla richiesta operativa.
+Se è uno screenshot di chat: identifica chi sta chiedendo la cosa a Dario. Di solito NON è Dario stesso — Dario è chi riceve la richiesta. Ignora i convenevoli e concentrati sulle richieste operative.
 
 Oggi è ${bucharestWeekday()} ${bucharestToday()} (fuso Europe/Bucharest).
 Per risolvere scadenze relative usa questa corrispondenza, NON calcolare da solo: ${prossimiGiorni()}.
@@ -192,22 +192,39 @@ Se qualcuno dice "entro venerdì" intende il primo venerdì che trovi in quell'e
 
 Rispondi SOLO con un oggetto JSON, senza testo attorno e senza blocchi di codice:
 {
-  "azione": "titolo della task, imperativo, concreto, max 80 caratteri",
-  "richiedente": "nome di chi ha chiesto, o null se non deducibile",
-  "priorita": "urgent" | "high" | "normal" | "low",
-  "scadenza": "YYYY-MM-DD" oppure null,
-  "contesto": "hoc" | "iagrex" | "personale",
-  "note": "contesto utile che non sta nel titolo, max 300 caratteri, o stringa vuota"
+  "tasks": [
+    {
+      "azione": "titolo della task, imperativo, concreto, max 80 caratteri",
+      "richiedente": "nome di chi ha chiesto, o null se non deducibile",
+      "priorita": "urgent" | "high" | "normal" | "low",
+      "scadenza": "YYYY-MM-DD" oppure null,
+      "contesto": "hoc" | "iagrex" | "personale",
+      "note": "contesto utile che non sta nel titolo, max 300 caratteri, o stringa vuota"
+    }
+  ]
 }
 
-Regole:
+QUANTE TASK — la regola più importante:
+- Metti nell'elenco una task per ogni azione DISTINTA che spetta a Dario. Massimo 5.
+- "Mandami la fattura di luglio e aggiorna i prezzi sul sito" = 2 task: sono due cose scollegate, in momenti diversi.
+- NON spezzare una singola azione nei suoi passaggi: "prepara e mandami il preventivo" è UNA task sola.
+- Le azioni che spettano ad ALTRI non sono task di Dario. In "mandami la fattura perché devo pagare entro il 6" l'unica task di Dario è mandare la fattura; il pagamento lo fa l'altro e va al massimo nelle note.
+- Un motivo, una conseguenza o un evento non sono task. In "posta il video giovedì perché sabato abbiamo la cena aziendale" c'è UNA task (postare il video); la cena è solo il motivo.
+- Se non c'è nessuna richiesta azionabile, restituisci "tasks": [].
+
+SCADENZE:
+- La scadenza è la data dell'AZIONE, mai quella del motivo o della conseguenza. In "posta il video giovedì perché sabato c'è la cena" la scadenza è giovedì, non sabato.
+- Non inventare scadenze: se nessuno ne ha indicata una, metti null.
+
+ALTRO:
 - "contesto": "hoc" se riguarda il progetto HOC, "iagrex" se riguarda l'agenzia (clienti, lead, fatture, contabilità, offerte), "personale" per tutto il resto o se non è deducibile.
 - "priorita" è "urgent" solo se c'è un'urgenza esplicita o una scadenza entro 24h. In assenza di segnali usa "normal".
-- Non inventare scadenze: se nessuno ne ha indicata una, metti null.
-- Se il contenuto non contiene nessuna richiesta azionabile, metti "azione": null.`;
+- Se una data citata serve solo a dare contesto (un evento, una riunione), scrivila nelle note invece che nella scadenza.`;
 }
 
-async function extractTask({ text, imageBase64 }) {
+// Restituisce sempre un array (eventualmente vuoto): un messaggio può
+// contenere più richieste distinte, e prima ne perdevamo tutte tranne una.
+async function extractTasks({ text, imageBase64 }) {
   const content = [];
   if (imageBase64) {
     content.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: imageBase64 } });
@@ -239,7 +256,13 @@ async function extractTask({ text, imageBase64 }) {
   // mette una frase davanti, prendiamo comunque il primo oggetto bilanciato.
   const match = raw.match(/\{[\s\S]*\}/);
   if (!match) throw new Error("Claude non ha restituito JSON");
-  return JSON.parse(match[0]);
+  const parsed = JSON.parse(match[0]);
+  // Tolleranza sul formato: se torna un oggetto singolo invece dell'elenco lo
+  // avvolgiamo, invece di far fallire tutto il messaggio.
+  const list = Array.isArray(parsed.tasks) ? parsed.tasks : parsed.azione ? [parsed] : [];
+  // Il tetto di 5 e' anche una difesa: se Claude fraintende una chat lunga e
+  // spezzetta tutto, meglio 5 task da sistemare che 40.
+  return list.filter((t) => t && t.azione).slice(0, 5);
 }
 
 /* ------------------------------------------------------------------ */
@@ -285,58 +308,82 @@ async function handleMessage(message, updateId) {
   const pendingId = pending.result?.message_id;
   const edit = (payload) => tg("editMessageText", { chat_id: chatId, message_id: pendingId, ...payload });
 
-  let draft;
+  let drafts;
   try {
     const imageBase64 = hasPhoto ? await downloadPhoto(message.photo) : null;
-    draft = await extractTask({ text, imageBase64 });
+    drafts = await extractTasks({ text, imageBase64 });
   } catch (e) {
     console.error("Estrazione fallita:", e);
     await edit({ text: `⚠️ Non sono riuscito a leggerlo.\n${escapeHtml(e.message).slice(0, 200)}`, parse_mode: "HTML" });
     return;
   }
 
-  if (!draft.azione) {
+  if (drafts.length === 0) {
     await edit({ text: "🤷 Non ci ho trovato dentro una richiesta azionabile." });
     await writeProcessed([...processed, updateId]);
     return;
   }
 
-  const prefix = CONTEXT_PREFIX[draft.contesto] ?? "";
-  const body = { name: `${prefix}${draft.azione}`.slice(0, 255) };
-  if (PRIORITY_MAP[draft.priorita]) body.priority = PRIORITY_MAP[draft.priorita];
-  // Mezzogiorno e non mezzanotte: il server Vercel gira in UTC e una data a
-  // mezzanotte scivolerebbe al giorno prima una volta resa nel fuso di
-  // Bucarest. Stessa scelta di app/api/create-task/route.js.
-  if (draft.scadenza) {
-    const ms = new Date(`${draft.scadenza}T12:00:00`).getTime();
-    if (!isNaN(ms)) { body.due_date = ms; body.due_date_time = false; }
-  }
-  const descr = [];
-  if (draft.richiedente) descr.push(`Richiesto da: ${draft.richiedente}`);
-  if (draft.note) descr.push(draft.note);
-  descr.push("— creata dal bot Telegram");
-  body.description = descr.join("\n\n");
+  const create = async (draft) => {
+    const prefix = CONTEXT_PREFIX[draft.contesto] ?? "";
+    const body = { name: `${prefix}${draft.azione}`.slice(0, 255) };
+    if (PRIORITY_MAP[draft.priorita]) body.priority = PRIORITY_MAP[draft.priorita];
+    // Mezzogiorno e non mezzanotte: il server Vercel gira in UTC e una data a
+    // mezzanotte scivolerebbe al giorno prima una volta resa nel fuso di
+    // Bucarest. Stessa scelta di app/api/create-task/route.js.
+    if (draft.scadenza) {
+      const ms = new Date(`${draft.scadenza}T12:00:00`).getTime();
+      if (!isNaN(ms)) { body.due_date = ms; body.due_date_time = false; }
+    }
+    const descr = [];
+    if (draft.richiedente) descr.push(`Richiesto da: ${draft.richiedente}`);
+    if (draft.note) descr.push(draft.note);
+    descr.push("— creata dal bot Telegram");
+    body.description = descr.join("\n\n");
 
-  try {
     const res = await cu(`/list/${TODO_LIST_ID}/task`, { method: "POST", body: JSON.stringify(body) });
     if (!res.ok) throw new Error(JSON.stringify(await res.json()).slice(0, 200));
-  } catch (e) {
-    console.error("Creazione task fallita:", e);
-    // Niente writeProcessed: cosi' se rimandi lo stesso messaggio riprova
-    // invece di scartarlo come duplicato gia' gestito.
-    await edit({ text: `⚠️ ClickUp ha rifiutato la task.\n${escapeHtml(e.message)}\n\nRimandami il messaggio per riprovare.`, parse_mode: "HTML" });
-    return;
+    return body.name;
+  };
+
+  // In sequenza e non in parallelo: sono al massimo 5 chiamate e cosi' non
+  // rischiamo il rate limit di ClickUp, che su piano gratuito e' stretto.
+  const create_ok = [];
+  const falliti = [];
+  for (const draft of drafts) {
+    try {
+      create_ok.push({ nome: await create(draft), draft });
+    } catch (e) {
+      console.error("Creazione task fallita:", e);
+      falliti.push({ azione: draft.azione, errore: e.message });
+    }
   }
 
-  await writeProcessed([...processed, updateId]);
+  // Segniamo l'update come processato solo se e' andato tutto bene: se
+  // qualcosa e' fallito, rimandando lo stesso messaggio si riprova invece di
+  // scartarlo come duplicato. Il prezzo e' che le task riuscite verrebbero
+  // ricreate, ma un doppione visibile e' meglio di una richiesta persa.
+  if (falliti.length === 0) await writeProcessed([...processed, updateId]);
 
-  const meta = [];
-  if (draft.richiedente) meta.push(`👤 ${escapeHtml(draft.richiedente)}`);
-  meta.push(`${PRIORITY_ICON[draft.priorita] || "🔵"} ${draft.priorita}`);
-  if (draft.scadenza) meta.push(`📅 ${draft.scadenza}`);
+  const righe = create_ok.map(({ nome, draft }) => {
+    const meta = [];
+    if (draft.richiedente) meta.push(`👤 ${escapeHtml(draft.richiedente)}`);
+    meta.push(`${PRIORITY_ICON[draft.priorita] || "🔵"} ${draft.priorita}`);
+    if (draft.scadenza) meta.push(`📅 ${draft.scadenza}`);
+    return `✅ <b>${escapeHtml(nome)}</b>\n${meta.join("   ")}`;
+  });
 
+  if (falliti.length) {
+    righe.push(
+      `\n⚠️ Non create (${falliti.length}):\n` +
+        falliti.map((f) => `• ${escapeHtml(f.azione)} — ${escapeHtml(f.errore).slice(0, 120)}`).join("\n") +
+        `\n\nRimandami il messaggio per riprovare.`
+    );
+  }
+
+  const intestazione = create_ok.length > 1 ? `<b>${create_ok.length} task create</b>\n\n` : "";
   await edit({
-    text: `✅ <b>${escapeHtml(body.name)}</b>\n${meta.join("   ")}\n\n<i>nel TO DO DAILY</i>`,
+    text: `${intestazione}${righe.join("\n\n")}\n\n<i>nel TO DO DAILY</i>`,
     parse_mode: "HTML",
     reply_markup: { inline_keyboard: [[{ text: "📋 Apri la dashboard", url: APP_URL }]] },
   });
