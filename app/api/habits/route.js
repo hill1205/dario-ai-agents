@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-import { readHabits, saveSnapshot, bucharestDate } from "../../lib/habits-store";
+import { readHabits, saveSnapshot, snapshotOggi, bucharestDate } from "../../lib/habits-store";
 
 // Storico per singola abitudine. Ogni voce e'
 // { data:"YYYY-MM-DD", done:[nomi], all:[nomi] }.
@@ -11,15 +11,30 @@ import { readHabits, saveSnapshot, bucharestDate } from "../../lib/habits-store"
 
 export async function GET() {
   try {
-    const days = (await readHabits()).sort((a, b) => (a.data < b.data ? -1 : 1));
-    return Response.json({ days, oggi: bucharestDate(0) });
+    const storico = await readHabits();
+    const oggi = bucharestDate(0);
+
+    // Il giorno in corso lo calcoliamo qui e non lato client: serve la
+    // lista routine con include_closed=true, che /api/tasks non
+    // restituisce (le completate sparirebbero, contate come saltate).
+    let live = null;
+    try { live = await snapshotOggi(); } catch {}
+
+    let days = storico;
+    if (live) {
+      days = [...storico.filter((d) => d.data !== oggi), live];
+      // Persistiamo subito: se il cron notturno fallisce, almeno l'ultimo
+      // stato visto resta salvato.
+      saveSnapshot(live.data, live.done, live.all).catch(() => {});
+    }
+
+    days.sort((a, b) => (a.data < b.data ? -1 : 1));
+    return Response.json({ days, oggi });
   } catch (error) {
     return Response.json({ error: error.message }, { status: 500 });
   }
 }
 
-// Chiamato dalla dashboard per il giorno in corso, cosi' la griglia mostra
-// oggi in tempo reale invece di restare vuota fino allo snapshot notturno.
 export async function POST(request) {
   try {
     const body = await request.json();

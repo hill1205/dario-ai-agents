@@ -23,7 +23,6 @@ const ACCENT = "#F97316";
 // Un colore per settimana come nel riferimento: serve a leggere la griglia
 // "a blocchi" invece che come un muro unico di 31 colonne.
 const WEEK_COLORS = ["#6366F1", "#06B6D4", "#EC4899", "#10B981", "#F59E0B", "#8B5CF6"];
-const DONE_STATUSES = ["complete","completed","done","chiuso","closed","fatto","completato","completata"];
 const MESI = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
 const GG = ["Do","Lu","Ma","Me","Gi","Ve","Sa"];
 
@@ -86,10 +85,9 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
     setLoading(true);
     setErrore(null);
     try {
-      const [hRes, mRes, tRes] = await Promise.all([
+      const [hRes, mRes] = await Promise.all([
         fetch("/api/habits", { cache:"no-store" }),
         fetch("/api/mood",   { cache:"no-store" }),
-        fetch("/api/tasks",  { cache:"no-store" }),
       ]);
 
       // Errore esplicito e non lista vuota: una griglia vuota per un
@@ -97,26 +95,12 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
       // tipo di bugia che rende inutile tutto il tracking.
       if (!hRes.ok) throw new Error("storico abitudini non raggiungibile");
       const h = await hRes.json();
-      let storico = h.days || [];
 
       if (mRes.ok) setMood((await mRes.json()).days || []);
 
-      // Giorno in corso, calcolato live dalle routine ClickUp.
-      if (tRes.ok) {
-        const t = await tRes.json();
-        const routine = t.routine || [];
-        if (routine.length > 0) {
-          const all  = routine.map(r => r.name);
-          const done = routine.filter(r => DONE_STATUSES.includes((r.status?.status||"").toLowerCase())).map(r => r.name);
-          storico = [...storico.filter(d => d.data !== oggi), { data: oggi, done, all }]
-            .sort((a,b) => (a.data < b.data ? -1 : 1));
-          // Persistiamo anche subito: se il cron notturno dovesse fallire,
-          // almeno l'ultimo stato visto resta salvato.
-          fetch("/api/habits", { method:"POST", headers:{"Content-Type":"application/json"},
-            body: JSON.stringify({ data: oggi, done, all }) }).catch(()=>{});
-        }
-      }
-      setDays(storico);
+      // Il giorno in corso arriva gia' calcolato dal server: serve la lista
+      // routine con include_closed=true, che /api/tasks non restituisce.
+      setDays(h.days || []);
     } catch (e) {
       setErrore(e.message);
     }

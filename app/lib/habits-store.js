@@ -16,7 +16,13 @@ const PAGE_ID = "2kxuu4g1-1372";
 // dashboard risultano completate.
 export const DONE_STATUSES = ["complete", "completed", "done", "chiuso", "closed", "fatto", "completato", "completata"];
 
-export const isTaskDone = (t) => DONE_STATUSES.includes((t?.status?.status || "").toLowerCase());
+// Doppio controllo: nome dello status E tipo ClickUp ("closed"/"done").
+// Il nome da solo e' fragile — oggi la lista ROUTINE DAILY usa "completata",
+// ma basta rinominarlo dall'interfaccia perche' ogni routine risulti
+// saltata senza nessun errore visibile. Il tipo invece non cambia.
+export const isTaskDone = (t) =>
+  DONE_STATUSES.includes((t?.status?.status || "").toLowerCase()) ||
+  ["closed", "done"].includes((t?.status?.type || "").toLowerCase());
 
 // Data nel fuso di Dario, non in UTC: il server Vercel gira in UTC e il
 // cron parte all'01:00 UTC, quando a Bucarest e' gia' il giorno dopo.
@@ -50,6 +56,37 @@ export async function writeHabits(days) {
     }
   );
   if (!res.ok) throw new Error(`ClickUp doc write error: ${res.status}`);
+}
+
+const ROUTINE_DAILY_LIST_ID = "901218950375";
+
+// include_closed=true e' obbligatorio qui.
+// Bug del 04/08: la pagina Abitudini calcolava il giorno in corso da
+// /api/tasks, che chiama ClickUp con include_closed=false. Le routine
+// completate spariscono da quella risposta, quindi finivano fuori sia da
+// "done" che da "all": in griglia risultavano × (saltate) le uniche
+// rimaste aperte e le fatte non comparivano proprio. Lo stesso motivo per
+// cui il cron notturno usa include_closed=true.
+export async function fetchRoutineTasks() {
+  if (!CLICKUP_API_KEY) throw new Error("CLICKUP_API_KEY non configurata");
+  const res = await fetch(
+    `https://api.clickup.com/api/v2/list/${ROUTINE_DAILY_LIST_ID}/task?include_closed=true`,
+    { headers: { Authorization: CLICKUP_API_KEY }, cache: "no-store" }
+  );
+  if (!res.ok) throw new Error(`ClickUp list routine: ${res.status}`);
+  return (await res.json()).tasks || [];
+}
+
+// Snapshot del giorno in corso, calcolato al volo: il cron lo salvera' solo
+// stanotte, ma la griglia deve mostrare oggi in tempo reale.
+export async function snapshotOggi() {
+  const tasks = await fetchRoutineTasks();
+  if (tasks.length === 0) return null;
+  return {
+    data: bucharestDate(0),
+    done: tasks.filter(isTaskDone).map((t) => t.name),
+    all:  tasks.map((t) => t.name),
+  };
 }
 
 // Salva (o sovrascrive) lo snapshot di un giorno.
