@@ -42,9 +42,13 @@ export async function GET(req) {
   // GUARDIA ORA LEGALE.
   // Vercel esegue i cron solo in UTC, e mezzanotte a Bucarest cade alle
   // 21:00 UTC d'estate e alle 22:00 UTC d'inverno. In vercel.json sono
-  // registrate entrambe: qui lasciamo passare solo quella che casca
-  // davvero alle 00 locali, l'altra esce senza toccare niente. Da fine
-  // ottobre si inverte da solo.
+  // registrate entrambe le schedulazioni ("0 21 * * *" e "0 22 * * *"):
+  // qui lasciamo passare solo quella che casca davvero alle 00 locali,
+  // l'altra esce senza toccare niente. Da fine ottobre si inverte da solo.
+  //
+  // NB: la spiegazione sta qui e non in vercel.json perche' quello schema
+  // e' validato in modo rigido — una chiave extra tipo "_commento" fa
+  // fallire il build ("should NOT have additional property").
   //
   // Serve anche come rete di sicurezza: se una chiamata partisse alle
   // 23:xx, bucharestDate(-1) punterebbe al giorno sbagliato e il reset
