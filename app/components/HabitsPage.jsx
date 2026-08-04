@@ -348,7 +348,6 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
                   {Array.from({length:giorniMese},(_,i)=>i+1).map(g => {
                     const data = ymd(anno,mese,g);
                     const e = byDate.get(data);
-                    const wk = WEEK_COLORS[Math.floor((g-1)/7)%WEEK_COLORS.length];
                     const futuro = data > oggi;
                     const attiva = e && (e.all||[]).includes(nome);
                     const fatta  = attiva && (e.done||[]).includes(nome);
@@ -356,14 +355,17 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
                     if (futuro)        { bd = "var(--c-border)"; }
                     else if (!e)       { bd = "var(--c-border)"; }
                     else if (!attiva)  { bd = "var(--c-border)"; txt = "–"; }
-                    else if (fatta)    { bg = `${wk}40`; bd = wk; txt = "✓"; }
+                    // Spunta sempre verde, non del colore della settimana:
+                    // "fatta" deve leggersi a colpo d'occhio come stato,
+                    // non cambiare significato a seconda della colonna.
+                    else if (fatta)    { bg = "#10B98125"; bd = "#10B981"; txt = "✓"; }
                     else               { bg = "#EF444415"; bd = "#EF444450"; txt = "×"; }
                     return (
                       <div key={g} title={`${nome} — ${data}`}
                         style={{width:cellW,height:cellH,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",padding:1}}>
                         <div style={{width:"100%",height:"100%",borderRadius:4,border:`1px solid ${bd}`,background:bg,
                           display:"flex",alignItems:"center",justifyContent:"center",
-                          fontSize:10,fontWeight:700,color:txt==="✓"?wk:txt==="×"?"#EF4444":"var(--c-text-faintest)",
+                          fontSize:10,fontWeight:700,color:txt==="✓"?"#10B981":txt==="×"?"#EF4444":"var(--c-text-faintest)",
                           outline:data===oggi?`1px solid ${ACCENT}`:"none"}}>{txt}</div>
                       </div>
                     );
@@ -384,7 +386,7 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
             </div>
           </div>
           <div style={{display:"flex",gap:12,marginTop:10,fontSize:9,color:"var(--c-text-faint)",flexWrap:"wrap"}}>
-            <span>✓ fatta</span><span style={{color:"#EF4444"}}>× saltata</span><span>– non attiva quel giorno</span><span>(vuoto) nessun dato</span>
+            <span style={{color:"#10B981"}}>✓ fatta</span><span style={{color:"#EF4444"}}>× saltata</span><span>– non attiva quel giorno</span><span>(vuoto) nessun dato</span>
           </div>
         </Card>
 
