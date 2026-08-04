@@ -29,6 +29,18 @@ export function middleware(request) {
   // escluso qui o il reset notturno delle routine si romperebbe.
   if (request.nextUrl.pathname.startsWith("/api/cron/")) return NextResponse.next();
 
+  // Stesso problema per il webhook Telegram: i server di Telegram non possono
+  // inviare credenziali Basic, quindi con il middleware attivo riceverebbero
+  // 401 e nessun messaggio arriverebbe mai. La route POST /api/telegram ha la
+  // sua protezione dedicata (header X-Telegram-Bot-Api-Secret-Token verificato
+  // contro TELEGRAM_WEBHOOK_SECRET) e ignora in silenzio qualsiasi chat_id
+  // diverso dal tuo. Escludiamo solo il POST: la GET di diagnostica resta
+  // dietro Basic Auth, così l'elenco delle variabili configurate non è
+  // leggibile da fuori.
+  if (request.nextUrl.pathname === "/api/telegram" && request.method === "POST") {
+    return NextResponse.next();
+  }
+
   const header = request.headers.get("authorization");
   if (header?.startsWith("Basic ")) {
     try {
