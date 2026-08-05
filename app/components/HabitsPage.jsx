@@ -142,33 +142,43 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
 
   const oggi = todayBucharest();
 
+  // Una chiamata sola invece di tre.
+  //
+  // Prima la pagina apriva /api/habits, /api/mood e /api/gratitude in
+  // parallelo e scriveva gli stati solo quando avevano risposto TUTTE:
+  // il mood restava invisibile finche' non finiva la piu' lenta, e da
+  // telefono si pagavano tre handshake invece di uno. Ora le tre letture
+  // avvengono in parallelo dentro il datacenter e il browser fa un viaggio
+  // solo; ogni sezione arriva col suo eventuale errore, quindi il
+  // fallimento di una non spegne le altre.
   const load = useCallback(async () => {
     setLoading(true);
     setErrore(null);
+    setMoodErrore(null);
     try {
-      const [hRes, mRes, gRes] = await Promise.all([
-        fetch("/api/habits",    { cache:"no-store" }),
-        fetch("/api/mood",      { cache:"no-store" }),
-        fetch("/api/gratitude", { cache:"no-store" }),
-      ]);
+      const res = await fetch("/api/abitudini-tutto", { cache:"no-store" });
+      if (!res.ok) throw new Error("dati non raggiungibili");
+      const { habits: h, mood: m, gratitude: g } = await res.json();
 
       // Errore esplicito e non lista vuota: una griglia vuota per un
       // problema di rete si legge come "non hai fatto niente", ed e' il
       // tipo di bugia che rende inutile tutto il tracking.
-      if (!hRes.ok) throw new Error("storico abitudini non raggiungibile");
-      const h = await hRes.json();
+      if (!h || h.error) throw new Error(h?.error || "storico abitudini non raggiungibile");
 
-      if (mRes.ok) {
-        const m = await mRes.json();
+      // Il mood ha un errore suo, visibile nella sua card. Prima veniva
+      // ingoiato in silenzio: se ClickUp rispondeva 429, i pallini
+      // restavano vuoti e sembrava un bug dell'app.
+      if (m && !m.error) {
         setMood(m.days || []);
         setFascia(m.fascia || null);
         if (m.oraPomeriggio) setOraPomeriggio(m.oraPomeriggio);
+      } else {
+        setMoodErrore(m?.error || "mood non raggiungibile");
       }
 
       // Il diario non e' critico: se la sua pagina sul Doc non risponde, il
-      // resto della pagina deve restare in piedi. Per questo non alza.
-      if (gRes.ok) {
-        const g = await gRes.json();
+      // resto della pagina deve restare in piedi.
+      if (g && !g.error) {
         setGrat(g.days || []);
         setGratPassato({ unMeseFa: g.unMeseFa || null, unAnnoFa: g.unAnnoFa || null });
       }
@@ -389,6 +399,12 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
   const moodOggi = moodByDate.get(oggi) || {};
   // La fascia la decide il SERVER (ora di Bucarest): il telefono puo' avere
   // un fuso diverso, e finire per scrivere nel check sbagliato.
+  //
+  // Finche' non e' arrivata, la card NON deve indovinare. Prima ripiegava
+  // su "mattina": alle 19 vedevi "🌅 check mattutino" coi pallini vuoti
+  // finche' la risposta non atterrava, e si leggeva come un bug dell'app.
+  // Adesso resta dichiaratamente in caricamento e i bottoni sono spenti.
+  const moodPronto = fascia !== null;
   const fasciaOggi = fascia || "mattina";
   const checkCorrente = moodOggi[fasciaOggi] || {};
 
@@ -612,16 +628,22 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
 
         {/* CHECK-IN MOOD — due rilevazioni al giorno */}
         <Card fs={fs}
-          title={`Come stai oggi? ${fasciaOggi==="mattina" ? "🌅 check mattutino" : "🌇 check pomeridiano"}`}
-          subtitle={`La fascia cambia da sola alle ${oraPomeriggio}:00 (ora di Bucarest). Una volta registrato, un valore non si cambia più: è il senso della misura.`}>
+          title={!moodPronto
+            ? (moodErrore ? "Come stai oggi? · non disponibile" : "Come stai oggi? · sto caricando…")
+            : `Come stai oggi? ${fasciaOggi==="mattina" ? "🌅 check mattutino" : "🌇 check pomeridiano"}`}
+          subtitle={!moodPronto
+            ? "Sto chiedendo al server quale check tocca adesso: la fascia la decide lui, non il telefono."
+            : `La fascia cambia da sola alle ${oraPomeriggio}:00 (ora di Bucarest). Una volta registrato, un valore non si cambia più: è il senso della misura.`}>
 
           {/* Riepilogo dell'altra fascia: sola lettura, serve a vedere la
               direzione della giornata mentre compili la seconda. */}
-          <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
+          <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap",opacity:moodPronto?1:0.45}}>
             {FASCE_MOOD.map(fa => {
               const dati = moodOggi[fa.key] || {};
               const compilato = MOOD_FIELDS.some(f => typeof dati[f.key] === "number");
-              const attiva = fa.key === fasciaOggi;
+              // Finche' non sappiamo la fascia, nessuna delle due e' "in
+              // corso": evidenziarne una a caso e' il bug che stiamo togliendo.
+              const attiva = moodPronto && fa.key === fasciaOggi;
               return (
                 <div key={fa.key} style={{flex:1,minWidth:150,padding:"7px 9px",borderRadius:8,
                   border:`1px solid ${attiva?ACCENT+"70":"var(--c-border)"}`,
@@ -630,7 +652,8 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
                     {fa.icon} {fa.label} {attiva && "· in corso"}
                   </div>
                   <div style={{fontSize:fs-4,color:compilato?"var(--c-text)":"var(--c-text-faintest)",fontWeight:600}}>
-                    {compilato
+                    {!moodPronto ? "…"
+                      : compilato
                       ? MOOD_FIELDS.map(f => `${f.icon}${dati[f.key] ?? "–"}`).join("  ")
                       : attiva ? "da compilare" : "non compilato"}
                   </div>
@@ -646,6 +669,9 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
             // serve solo a spegnere i bottoni.
             const bloccato = typeof valore === "number"
               && checkCorrente.ts && (Date.now() - checkCorrente.ts) >= FINESTRA_MS;
+            // Spenti anche mentre carica: senza la fascia dal server, un tap
+            // finirebbe nel check che il client ha indovinato.
+            const inattivo = !moodPronto || bloccato;
             return (
               <div key={f.key} style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
                 <div style={{fontSize:fs-3,color:"var(--c-text-muted)",width:isMobile?96:112,flexShrink:0}}>
@@ -654,13 +680,13 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
                 <div style={{display:"flex",gap:5,flex:1}}>
                   {[1,2,3,4,5].map(v => {
                     const on = valore === v;
-                    const spento = bloccato && !on;
+                    const spento = inattivo && !on;
                     return (
                       <button key={v} onClick={()=>setMoodValue(f.key, v)}
-                        disabled={salvandoMood===f.key || bloccato}
-                        title={bloccato ? "Già registrato per questa fascia" : `${f.label}: ${v}`}
+                        disabled={salvandoMood===f.key || inattivo}
+                        title={!moodPronto ? "Sto caricando…" : bloccato ? "Già registrato per questa fascia" : `${f.label}: ${v}`}
                         style={{flex:1,padding:"6px 0",borderRadius:7,fontSize:fs-3,fontWeight:700,
-                          cursor:bloccato?"not-allowed":"pointer",
+                          cursor:inattivo?"not-allowed":"pointer",
                           border:`1px solid ${on?f.color:"var(--c-border)"}`,
                           background:on?`${f.color}25`:"transparent",
                           opacity:spento?0.35:1,

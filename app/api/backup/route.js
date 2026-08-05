@@ -29,6 +29,10 @@ const DOCS = {
   weight:         { docId: "2kxuu4g1-612", pageId: "2kxuu4g1-312",  marker: "WEIGHT_DATA_JSON:" },
   habits:         { docId: "2kxuu4g1-972", pageId: "2kxuu4g1-1372", marker: "HABITS_DATA_JSON:" },
   mood:           { docId: "2kxuu4g1-972", pageId: "2kxuu4g1-1392", marker: "MOOD_DATA_JSON:" },
+  // Il diario della sera e' l'unico dato dell'app che non si puo'
+  // ricostruire da nessun'altra parte: le finanze stanno anche in banca, le
+  // routine anche su ClickUp, ma una sera scritta e persa e' persa.
+  gratitudine:    { docId: "2kxuu4g1-972", pageId: "2kxuu4g1-1412", marker: "GRATITUDE_DATA_JSON:" },
 };
 
 async function safe(label, fn) {
@@ -88,7 +92,7 @@ async function fetchNotionPipeline() {
 }
 
 export async function GET() {
-  const [todo, routine, sospeso, streak, brunoFinance, iagrexFinance, weight, pipeline, habits, moodData] = await Promise.all([
+  const [todo, routine, sospeso, streak, brunoFinance, iagrexFinance, weight, pipeline, habits, moodData, gratitudine] = await Promise.all([
     safe("ClickUp · to-do",           () => fetchTaskList(TASK_LIST_IDS.todo)),
     safe("ClickUp · routine",         () => fetchTaskList(TASK_LIST_IDS.routine)),
     safe("ClickUp · sospeso",         () => fetchTaskList(TASK_LIST_IDS.sospeso)),
@@ -99,9 +103,10 @@ export async function GET() {
     safe("Notion · pipeline lead/clienti", () => fetchNotionPipeline()),
     safe("ClickUp · storico abitudini", () => fetchDoc(DOCS.habits)),
     safe("ClickUp · mood",              () => fetchDoc(DOCS.mood)),
+    safe("ClickUp · diario della sera", () => fetchDoc(DOCS.gratitudine)),
   ]);
 
-  const sections = { todo, routine, sospeso, streak, bruno_finance: brunoFinance, iagrex_finance: iagrexFinance, weight, pipeline, habits, mood: moodData };
+  const sections = { todo, routine, sospeso, streak, bruno_finance: brunoFinance, iagrex_finance: iagrexFinance, weight, pipeline, habits, mood: moodData, gratitudine };
   const errors = Object.entries(sections).filter(([,v]) => !v.ok).map(([k,v]) => ({ section: k, error: v.error }));
 
   return Response.json({
@@ -119,6 +124,7 @@ export async function GET() {
       pipeline: pipeline.ok ? pipeline.data : null,
       habits: habits.ok ? habits.data : null,
       mood: moodData.ok ? moodData.data : null,
+      gratitudine: gratitudine.ok ? gratitudine.data : null,
     },
   });
 }

@@ -8,11 +8,15 @@
 // Forma di una voce:
 //   { data:"YYYY-MM-DD", done:[nomi], all:[nomi], strategiche:[nomi], nota:"" }
 
+import { leggiJson, scriviJson, PAGINE } from "./clickup-doc";
+
 const CLICKUP_API_KEY = process.env.CLICKUP_API_KEY;
-const WORKSPACE_ID = "90121769473";
 // Doc "Storico Abitudini e Mood (dashboard)" — pagina Abitudini.
-const DOC_ID = "2kxuu4g1-972";
-const PAGE_ID = "2kxuu4g1-1372";
+// L'accesso al Doc passa da lib/clickup-doc.js: cache, retry sui 429 e
+// parsing stanno li', in un posto solo per tutte e tre le pagine.
+const PAGE_ID = PAGINE.abitudini;
+const MARCATORE = "HABITS_DATA_JSON";
+const INTESTAZIONE = "STORICO ABITUDINI DARIO\n\nNon modificare a mano: viene letto/scritto dalla dashboard.\nOgni voce: { data, done:[completate], all:[attive quel giorno], strategiche:[priorita' alta], nota }";
 const ROUTINE_DAILY_LIST_ID = "901218950375";
 
 // Stessi status considerati "fatta" in home (app/page.jsx): se le due liste
@@ -47,31 +51,15 @@ export function bucharestDate(offsetDays = 0) {
     .format(new Date(Date.now() + offsetDays * 86400000));
 }
 
-export async function readHabits() {
-  if (!CLICKUP_API_KEY) throw new Error("CLICKUP_API_KEY non configurata");
-  const res = await fetch(
-    `https://api.clickup.com/api/v3/workspaces/${WORKSPACE_ID}/docs/${DOC_ID}/pages/${PAGE_ID}?content_format=text/plain`,
-    { headers: { Authorization: CLICKUP_API_KEY }, cache: "no-store" }
-  );
-  if (!res.ok) throw new Error(`ClickUp doc error: ${res.status}`);
-  const data = await res.json();
-  const match = (data.content || "").match(/HABITS_DATA_JSON:([\s\S]*)/);
-  if (!match) return [];
-  try { return JSON.parse(match[1].trim()); }
-  catch { throw new Error("Formato dati abitudini non riconosciuto (JSON malformato nel Doc)"); }
+// forza=true nelle letture che precedono una scrittura: si deve partire dal
+// contenuto reale, non da una copia in cache, o due salvataggi ravvicinati
+// si sovrascrivono a vicenda.
+export async function readHabits(opts) {
+  return leggiJson(PAGE_ID, MARCATORE, opts);
 }
 
 export async function writeHabits(days) {
-  const content = `STORICO ABITUDINI DARIO\n\nNon modificare a mano: viene letto/scritto dalla dashboard.\nOgni voce: { data, done:[completate], all:[attive quel giorno], strategiche:[priorita' alta], nota }\n\nHABITS_DATA_JSON:${JSON.stringify(days)}`;
-  const res = await fetch(
-    `https://api.clickup.com/api/v3/workspaces/${WORKSPACE_ID}/docs/${DOC_ID}/pages/${PAGE_ID}`,
-    {
-      method: "PUT",
-      headers: { Authorization: CLICKUP_API_KEY, "Content-Type": "application/json" },
-      body: JSON.stringify({ content }),
-    }
-  );
-  if (!res.ok) throw new Error(`ClickUp doc write error: ${res.status}`);
+  return scriviJson(PAGE_ID, INTESTAZIONE, MARCATORE, days);
 }
 
 // include_closed=true e' obbligatorio qui.
@@ -116,7 +104,7 @@ export async function snapshotOggi() {
 export async function saveSnapshot(day, campi) {
   const { done, all, strategiche } = campi || {};
   if (!Array.isArray(all) || all.length === 0) return { success: false, motivo: "nessuna abitudine attiva" };
-  const days = await readHabits();
+  const days = await readHabits({ forza: true });
   const idx = days.findIndex((d) => d.data === day);
   const prev = idx >= 0 ? days[idx] : {};
   const entry = {
@@ -138,7 +126,7 @@ export async function saveSnapshot(day, campi) {
 // aggiorna la task su ClickUp (vedi toggleOggiSuClickUp), altrimenti al
 // primo ricalcolo la correzione verrebbe sovrascritta.
 export async function toggleGiornoPassato(day, abitudine) {
-  const days = await readHabits();
+  const days = await readHabits({ forza: true });
   const idx = days.findIndex((d) => d.data === day);
   if (idx < 0) return { success: false, motivo: "nessuno snapshot per quel giorno" };
   const entry = days[idx];
@@ -168,7 +156,7 @@ export async function toggleOggiSuClickUp(abitudine) {
 }
 
 export async function setNota(day, testo) {
-  const days = await readHabits();
+  const days = await readHabits({ forza: true });
   const idx = days.findIndex((d) => d.data === day);
   if (idx >= 0) days[idx] = { ...days[idx], nota: testo };
   else days.push({ data: day, done: [], all: [], strategiche: [], nota: testo });

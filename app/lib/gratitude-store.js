@@ -21,11 +21,13 @@
 //            E' l'unico posto dove finisce il contesto, ed e' anche la
 //            parte che tra sei mesi vale piu' delle tre righe sopra.
 
-const CLICKUP_API_KEY = process.env.CLICKUP_API_KEY;
-const WORKSPACE_ID = "90121769473";
+import { leggiJson, scriviJson, PAGINE } from "./clickup-doc";
+
 // Doc "Storico Abitudini e Mood (dashboard)" — pagina Gratitudine.
-const DOC_ID = "2kxuu4g1-972";
-const PAGE_ID = "2kxuu4g1-1412";
+// Cache, retry sui 429 e parsing stanno in lib/clickup-doc.js.
+const PAGE_ID = PAGINE.gratitudine;
+const MARCATORE = "GRATITUDE_DATA_JSON";
+const INTESTAZIONE = "DIARIO SERALE DARIO\n\nNon modificare a mano: viene letto/scritto dalla dashboard.\nOgni voce: { data, voci:[3 gratitudini], vittoria, perche, ts }\nSi compila la sera, si congela a mezzanotte di Bucarest.";
 
 export const N_VOCI = 3;
 const MAX_LEN = 500;
@@ -36,40 +38,8 @@ const MAX_LEN_PERCHE = 2000;
 export { bucharestDate } from "./habits-store";
 import { bucharestDate } from "./habits-store";
 
-async function readDoc() {
-  if (!CLICKUP_API_KEY) throw new Error("CLICKUP_API_KEY non configurata");
-  const res = await fetch(
-    `https://api.clickup.com/api/v3/workspaces/${WORKSPACE_ID}/docs/${DOC_ID}/pages/${PAGE_ID}?content_format=text/plain`,
-    { headers: { Authorization: CLICKUP_API_KEY }, cache: "no-store" }
-  );
-  if (!res.ok) throw new Error(`ClickUp doc error: ${res.status}`);
-  const data = await res.json();
-  const match = (data.content || "").match(/GRATITUDE_DATA_JSON:([\s\S]*)/);
-  if (!match) return [];
-  const grezzo = match[1].trim();
-  if (!grezzo) return [];
-  try {
-    const parsed = JSON.parse(grezzo);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    // Errore esplicito e non lista vuota: un JSON rotto che si legge come
-    // "nessuna voce" cancellerebbe lo storico alla prima scrittura.
-    throw new Error("Formato dati gratitudine non riconosciuto (JSON malformato nel Doc)");
-  }
-}
-
-async function writeDoc(days) {
-  const content = `DIARIO SERALE DARIO\n\nNon modificare a mano: viene letto/scritto dalla dashboard.\nOgni voce: { data, voci:[3 gratitudini], vittoria, perche, ts }\nSi compila la sera, si congela a mezzanotte di Bucarest.\n\nGRATITUDE_DATA_JSON:${JSON.stringify(days)}`;
-  const res = await fetch(
-    `https://api.clickup.com/api/v3/workspaces/${WORKSPACE_ID}/docs/${DOC_ID}/pages/${PAGE_ID}`,
-    {
-      method: "PUT",
-      headers: { Authorization: CLICKUP_API_KEY, "Content-Type": "application/json" },
-      body: JSON.stringify({ content }),
-    }
-  );
-  if (!res.ok) throw new Error(`ClickUp doc write error: ${res.status}`);
-}
+const readDoc = (opts) => leggiJson(PAGE_ID, MARCATORE, opts);
+const writeDoc = (days) => scriviJson(PAGE_ID, INTESTAZIONE, MARCATORE, days);
 
 const pulisci = (v, max = MAX_LEN) =>
   typeof v === "string" ? v.trim().slice(0, max) : "";
@@ -98,6 +68,30 @@ export async function readGratitude() {
   return (await readDoc()).sort((a, b) => (a.data < b.data ? -1 : 1));
 }
 
+// Payload per il client. Sta qui e non nella route perche' lo usano in due:
+// /api/gratitude e /api/abitudini-tutto.
+//
+// Un diario che non si rilegge e' data entry: le voci di un mese fa e di un
+// anno fa le tira fuori il server, cosi' il client non deve rifare i conti
+// sulle date (e sbagliarli, come gia' successo a fine luglio).
+export async function datiGratitudine() {
+  const days = await readGratitude();
+  const byDate = new Map(days.map((d) => [d.data, d]));
+  const cerca = (giorniFa) => {
+    const v = byDate.get(bucharestDate(-giorniFa));
+    return v && compilato(v) ? v : null;
+  };
+  return {
+    days,
+    oggi: bucharestDate(0),
+    // Alla griglia serve solo l'elenco delle date compilate per decidere
+    // dove mettere il cuore, non tutto il testo.
+    compilati: days.filter(compilato).map((d) => d.data),
+    unMeseFa: cerca(30),
+    unAnnoFa: cerca(365),
+  };
+}
+
 // Scrive (o aggiorna) la voce di un giorno.
 //
 // Regola di congelamento: si puo' scrivere SOLO il giorno in corso, ora di
@@ -118,7 +112,8 @@ export async function salvaGiorno(body) {
     };
   }
 
-  const days = await readDoc();
+  // forza: si scrive, quindi si parte dal contenuto reale e non dalla cache.
+  const days = await readDoc({ forza: true });
   const idx = days.findIndex((d) => d.data === day);
   const prev = idx >= 0 ? days[idx] : {};
   const entry = { data: day, ...normalizza(body, prev), ts: Date.now() };
