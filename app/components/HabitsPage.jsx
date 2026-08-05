@@ -521,11 +521,14 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
                       <div style={{fontSize:microFs,fontWeight:700,color:col,lineHeight:1.1}}>{g}</div>
                       {/* Iniziale a una lettera: martedi' e mercoledi' sono
                           entrambi "M", si distinguono dalla posizione e dal
-                          colore della settimana. Sabato e domenica smorzati,
-                          cosi' i blocchi di settimana si leggono a colpo
-                          d'occhio senza aggiungere righe o bordi. */}
-                      <div style={{fontSize:Math.max(7,microFs-2),fontWeight:weekend?400:600,lineHeight:1.1,
-                        color:data===oggi?ACCENT:weekend?"var(--c-text-faintest)":"var(--c-text-faint)"}}>
+                          colore della settimana. Feriali in testo pieno,
+                          sabato e domenica in rosso: i blocchi di settimana
+                          si leggono a colpo d'occhio senza aggiungere righe
+                          o bordi. La variabile --c-text-strong vale nero nel
+                          tema chiaro e quasi-bianco in quello scuro, quindi
+                          resta leggibile in entrambi. */}
+                      <div style={{fontSize:Math.max(7,microFs-2),fontWeight:700,lineHeight:1.1,
+                        color:data===oggi?ACCENT:weekend?"#EF4444":"var(--c-text-strong)"}}>
                         {INIZIALI_GG[dow]}
                       </div>
                     </div>
