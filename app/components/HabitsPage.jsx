@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { nomeFestivita } from "../lib/festivita";
 
 // Pagina Abitudini — tracking per SINGOLA routine, non piu' solo il
 // booleano "tutte fatte" dello streak in home.
@@ -514,10 +515,14 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
                 {Array.from({length:giorniMese},(_,i)=>i+1).map(g => {
                   const data = ymd(anno,mese,g);
                   const dow = new Date(anno,mese,g).getDay();
-                  const weekend = dow===0 || dow===6;
+                  const festa = nomeFestivita(data);
+                  // Rosso = giorno non lavorativo, weekend o festivita' che
+                  // sia: e' la stessa informazione, non due cose diverse.
+                  const rosso = dow===0 || dow===6 || !!festa;
                   const col = data===oggi ? ACCENT : weekColor(anno,mese,g);
                   return (
-                    <div key={g} style={{width:cellW,flexShrink:0,textAlign:"center"}}>
+                    <div key={g} title={festa ? `${data} — ${festa}` : undefined}
+                      style={{width:cellW,flexShrink:0,textAlign:"center"}}>
                       <div style={{fontSize:microFs,fontWeight:700,color:col,lineHeight:1.1}}>{g}</div>
                       {/* Iniziale a una lettera: martedi' e mercoledi' sono
                           entrambi "M", si distinguono dalla posizione e dal
@@ -528,7 +533,7 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
                           tema chiaro e quasi-bianco in quello scuro, quindi
                           resta leggibile in entrambi. */}
                       <div style={{fontSize:Math.max(7,microFs-2),fontWeight:700,lineHeight:1.1,
-                        color:data===oggi?ACCENT:weekend?"#EF4444":"var(--c-text-strong)"}}>
+                        color:data===oggi?ACCENT:rosso?"#EF4444":"var(--c-text-strong)"}}>
                         {INIZIALI_GG[dow]}
                       </div>
                     </div>
