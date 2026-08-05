@@ -25,6 +25,8 @@ const ACCENT = "#F97316";
 const WEEK_COLORS = ["#6366F1", "#06B6D4", "#EC4899", "#10B981", "#F59E0B", "#8B5CF6"];
 const MESI = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
 const GG = ["Do","Lu","Ma","Me","Gi","Ve","Sa"];
+// Indicizzate come getDay(): 0=domenica.
+const INIZIALI_GG = ["D","L","M","M","G","V","S"];
 
 const MOOD_FIELDS = [
   { key:"umore",       label:"Umore",       icon:"🙂", color:"#EC4899" },
@@ -505,14 +507,28 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
         <Card fs={fs} title={`Griglia ${label}`} subtitle={giorniConDati.length===0 ? "Nessuno snapshot per questo mese — lo storico parte dal giorno di attivazione." : `${giorniConDati.length} giorni tracciati`}>
           <div ref={gridRef} style={{overflowX:"auto"}}>
             <div style={{display:"inline-block",minWidth:"100%"}}>
-              {/* riga numeri giorno, colorata per settimana */}
+              {/* riga numeri giorno, colorata per settimana, con sotto
+                  l'iniziale del giorno della settimana */}
               <div style={{display:"flex",marginBottom:3}}>
                 <div style={{width:nomeW,flexShrink:0}}/>
                 {Array.from({length:giorniMese},(_,i)=>i+1).map(g => {
                   const data = ymd(anno,mese,g);
+                  const dow = new Date(anno,mese,g).getDay();
+                  const weekend = dow===0 || dow===6;
+                  const col = data===oggi ? ACCENT : weekColor(anno,mese,g);
                   return (
-                    <div key={g} style={{width:cellW,flexShrink:0,textAlign:"center",fontSize:microFs,fontWeight:700,
-                      color:data===oggi?ACCENT:weekColor(anno,mese,g)}}>{g}</div>
+                    <div key={g} style={{width:cellW,flexShrink:0,textAlign:"center"}}>
+                      <div style={{fontSize:microFs,fontWeight:700,color:col,lineHeight:1.1}}>{g}</div>
+                      {/* Iniziale a una lettera: martedi' e mercoledi' sono
+                          entrambi "M", si distinguono dalla posizione e dal
+                          colore della settimana. Sabato e domenica smorzati,
+                          cosi' i blocchi di settimana si leggono a colpo
+                          d'occhio senza aggiungere righe o bordi. */}
+                      <div style={{fontSize:Math.max(7,microFs-2),fontWeight:weekend?400:600,lineHeight:1.1,
+                        color:data===oggi?ACCENT:weekend?"var(--c-text-faintest)":"var(--c-text-faint)"}}>
+                        {INIZIALI_GG[dow]}
+                      </div>
+                    </div>
                   );
                 })}
               </div>
