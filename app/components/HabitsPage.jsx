@@ -556,7 +556,10 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
   }, []);
 
   const clamp = (min, v, max) => Math.max(min, Math.min(max, v));
-  const nomeW = isMobile ? 108 : (gridW ? clamp(150, Math.round(gridW * 0.22), 260) : 150);
+  // Colonna dei nomi piu' stretta di prima (era 150-260, 22% della
+  // larghezza): i 60px recuperati vanno tutti alle celle. I nomi lunghi
+  // vanno a capo su due righe come gia' facevano, e il tooltip resta.
+  const nomeW = isMobile ? 108 : (gridW ? clamp(140, Math.round(gridW * 0.18), 200) : 150);
 
   // Stacco visivo tra domenica e lunedi': senza, le 31 colonne sono un muro
   // unico e il colore da solo non basta a contare le settimane. Lo spazio
@@ -576,16 +579,38 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
 
   // gridW=0 al primo render (prima che ResizeObserver misuri): restiamo
   // sui valori vecchi, cosi' non si vede un salto di layout.
-  const cellW = gridW ? clamp(22, Math.floor((gridW - nomeW - 4 - nGap * GAP) / giorniMese), 46) : 22;
-  const cellH = clamp(20, Math.round(cellW * 0.9), 40);
+  const cellW = gridW ? clamp(22, Math.floor((gridW - nomeW - 4 - nGap * GAP) / giorniMese), 56) : 22;
+
+  // Le celle crescono in LARGHEZZA ma non in altezza (prima cellH era il 90%
+  // di cellW, con tetto a 40). Sembra un dettaglio ed e' il punto di tutto
+  // l'intervento: allargando in proporzione, celle piu' grandi = griglia
+  // piu' alta = piu' scorrimento verticale, cioe' esattamente il fastidio
+  // che stiamo togliendo. Larghe e basse si leggono meglio E stanno in uno
+  // schermo. Il tetto a 30px tiene otto routine dentro l'altezza utile.
+  const cellH = clamp(20, Math.round(cellW * 0.62), 30);
+
   // Altezza uguale per tutte le righe anche quando un nome va a capo:
   // altrimenti le righe si disallineano e le colonne non si leggono piu'
   // in verticale. Due righe di nome + un filo d'aria.
-  const nomeFs = isMobile ? fs - 5 : clamp(9, Math.round(cellW * 0.34), 13);
+  const nomeFs = isMobile ? fs - 5 : clamp(9, Math.round(cellW * 0.30), 12);
   const rowH = Math.max(cellH, Math.ceil(nomeFs * 1.25 * 2) + 2);
+
+  // Lo scroll orizzontale serve solo quando le celle sono gia' al minimo
+  // (22px) e comunque non ci stanno: in pratica sul telefono.
+  //
+  // Perche' e' importante distinguere: `overflowX:auto` rende il contenitore
+  // uno scroll container su ENTRAMBI gli assi (regola CSS: se un asse non e'
+  // visible, l'altro da visible diventa auto). Dentro un contenitore del
+  // genere `position:sticky` si aggancia a lui e non alla pagina, quindi la
+  // riga dei giorni non potrebbe restare ferma mentre scorri. Su desktop
+  // togliamo il contenitore e la riga puo' finalmente fissarsi.
+  const serveScrollX = gridW > 0 && (nomeW + 4 + nGap * GAP + 22 * giorniMese) > gridW;
   // Anche i simboli ✓/× e i numerini (giorno del mese, percentuali) erano
   // fissi a 10/8px: dentro celle grandi sparivano in mezzo al vuoto.
-  const simboloFs = clamp(10, Math.round(cellW * 0.5), 20);
+  // Il simbolo ✓/× si dimensiona sull'altezza, non sulla larghezza: ora che
+  // le celle sono larghe e basse, scalarlo su cellW lo farebbe sbordare
+  // sopra e sotto.
+  const simboloFs = clamp(10, Math.round(cellH * 0.62), 18);
   const microFs   = clamp(8,  Math.round(cellW * 0.38), 14);
 
   return (
@@ -845,11 +870,17 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
 
         {/* GRIGLIA MENSILE */}
         <Card fs={fs} title={`Griglia ${label}`} subtitle={giorniConDati.length===0 ? "Nessuno snapshot per questo mese — lo storico parte dal giorno di attivazione." : `${giorniConDati.length} giorni tracciati`}>
-          <div ref={gridRef} style={{overflowX:"auto"}}>
+          <div ref={gridRef} style={{overflowX: serveScrollX ? "auto" : "visible"}}>
             <div style={{display:"inline-block",minWidth:"100%"}}>
               {/* riga numeri giorno, colorata per settimana, con sotto
-                  l'iniziale del giorno della settimana */}
-              <div style={{display:"flex",marginBottom:3}}>
+                  l'iniziale del giorno della settimana.
+                  Sticky quando non c'e' scroll orizzontale: scorrendo la
+                  pagina i numeri restano in alto, cosi' arrivato all'ultima
+                  routine sai ancora in che colonna sei. Lo sfondo pieno
+                  serve o le celle ci passano sotto in trasparenza. */}
+              <div style={{display:"flex",marginBottom:3,
+                ...(serveScrollX ? {} : {position:"sticky",top:0,zIndex:2,
+                  background:"var(--c-panel)",paddingTop:2,paddingBottom:2})}}>
                 <div style={{width:nomeW,flexShrink:0}}/>
                 {Array.from({length:giorniMese},(_,i)=>i+1).map(g => {
                   const data = ymd(anno,mese,g);
