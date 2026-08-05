@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 
 // Pagina Abitudini — tracking per SINGOLA routine, non piu' solo il
 // booleano "tutte fatte" dello streak in home.
@@ -372,8 +372,40 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
     return { alta: media(alta), nAlta: alta.length, bassa: media(bassa), nBassa: bassa.length };
   }, [mood, pctGiorno]);
 
-  // ---- Render ---------------------------------------------------------
-  const cellW = 22, cellH = 20, nomeW = isMobile ? 108 : 150;
+  // ---- Dimensioni griglia ---------------------------------------------
+  // Prima erano fisse a 22x20px: su desktop la griglia usava meno di meta'
+  // della larghezza disponibile e le celle erano illeggibili. Ora misuriamo
+  // il contenitore e distribuiamo lo spazio sui giorni del mese.
+  //
+  // Il clamp serve da entrambi i lati: sotto i 22px le spunte non si
+  // leggono piu' (ed e' il caso di mobile, dove resta lo scroll
+  // orizzontale), sopra i 46px la griglia diventa un lenzuolo di quadratoni.
+  const gridRef = useRef(null);
+  const [gridW, setGridW] = useState(0);
+  useEffect(() => {
+    const el = gridRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(([entry]) => setGridW(entry.contentRect.width));
+    ro.observe(el);
+    setGridW(el.getBoundingClientRect().width);
+    return () => ro.disconnect();
+  }, []);
+
+  const clamp = (min, v, max) => Math.max(min, Math.min(max, v));
+  const nomeW = isMobile ? 108 : (gridW ? clamp(150, Math.round(gridW * 0.22), 260) : 150);
+  // gridW=0 al primo render (prima che ResizeObserver misuri): restiamo
+  // sui valori vecchi, cosi' non si vede un salto di layout.
+  const cellW = gridW ? clamp(22, Math.floor((gridW - nomeW - 4) / giorniMese), 46) : 22;
+  const cellH = clamp(20, Math.round(cellW * 0.9), 40);
+  // Altezza uguale per tutte le righe anche quando un nome va a capo:
+  // altrimenti le righe si disallineano e le colonne non si leggono piu'
+  // in verticale. Due righe di nome + un filo d'aria.
+  const nomeFs = isMobile ? fs - 5 : clamp(9, Math.round(cellW * 0.34), 13);
+  const rowH = Math.max(cellH, Math.ceil(nomeFs * 1.25 * 2) + 2);
+  // Anche i simboli ✓/× e i numerini (giorno del mese, percentuali) erano
+  // fissi a 10/8px: dentro celle grandi sparivano in mezzo al vuoto.
+  const simboloFs = clamp(10, Math.round(cellW * 0.5), 20);
+  const microFs   = clamp(8,  Math.round(cellW * 0.38), 14);
 
   return (
     <div style={{...themeVars,display:"flex",flexDirection:"column",height:"100%",overflow:"hidden",background:"var(--c-bg)"}}>
@@ -456,7 +488,7 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
 
         {/* GRIGLIA MENSILE */}
         <Card fs={fs} title={`Griglia ${label}`} subtitle={giorniConDati.length===0 ? "Nessuno snapshot per questo mese — lo storico parte dal giorno di attivazione." : `${giorniConDati.length} giorni tracciati`}>
-          <div style={{overflowX:"auto"}}>
+          <div ref={gridRef} style={{overflowX:"auto"}}>
             <div style={{display:"inline-block",minWidth:"100%"}}>
               {/* riga numeri giorno, colorata per settimana */}
               <div style={{display:"flex",marginBottom:3}}>
@@ -465,7 +497,7 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
                   const wk = Math.floor((g-1)/7);
                   const data = ymd(anno,mese,g);
                   return (
-                    <div key={g} style={{width:cellW,flexShrink:0,textAlign:"center",fontSize:8,fontWeight:700,
+                    <div key={g} style={{width:cellW,flexShrink:0,textAlign:"center",fontSize:microFs,fontWeight:700,
                       color:data===oggi?ACCENT:WEEK_COLORS[wk%WEEK_COLORS.length]}}>{g}</div>
                   );
                 })}
@@ -490,13 +522,17 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
                   {sezione.nomi.map(nome => {
                     const st = streakDi(nome);
                     return (
-                    <div key={nome} style={{display:"flex",alignItems:"center",marginBottom:2}}>
-                      <div title={nome} style={{width:nomeW,flexShrink:0,fontSize:fs-5,color:"var(--c-text)",paddingRight:6,
-                        display:"flex",alignItems:"center",gap:4,whiteSpace:"nowrap",overflow:"hidden"}}>
-                        <span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{nome}</span>
+                    <div key={nome} style={{display:"flex",alignItems:"center",marginBottom:2,height:rowH}}>
+                      <div title={nome} style={{width:nomeW,flexShrink:0,fontSize:nomeFs,lineHeight:1.25,color:"var(--c-text)",paddingRight:6,
+                        display:"flex",alignItems:"center",gap:4,overflow:"hidden"}}>
+                        {/* Il nome va a capo su max 2 righe: line-clamp taglia
+                            con i puntini solo se sfora davvero, e l'altezza
+                            della riga resta la stessa per tutte (rowH). */}
+                        <span style={{overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",
+                          wordBreak:"break-word"}}>{nome}</span>
                         {st.count > 0 && (
                           <span title={st.buchi ? `${st.buchi} giorni senza dati nel periodo` : "giorni consecutivi"}
-                            style={{flexShrink:0,fontSize:8,fontWeight:700,color:"#F97316",background:"#F9731618",
+                            style={{flexShrink:0,fontSize:Math.max(8,nomeFs-2),fontWeight:700,color:"#F97316",background:"#F9731618",
                               padding:"1px 4px",borderRadius:5}}>
                             🔥{st.count}{st.buchi ? "*" : ""}
                           </span>
@@ -526,7 +562,7 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
                               padding:1,cursor:cliccabile?"pointer":"default",opacity:inCorso?0.45:1}}>
                             <div style={{width:"100%",height:"100%",borderRadius:4,border:`1px solid ${bd}`,background:bg,
                               display:"flex",alignItems:"center",justifyContent:"center",
-                              fontSize:10,fontWeight:700,color:txt==="✓"?"#10B981":txt==="×"?"#EF4444":"var(--c-text-faintest)",
+                              fontSize:simboloFs,fontWeight:700,color:txt==="✓"?"#10B981":txt==="×"?"#EF4444":"var(--c-text-faintest)",
                               outline:data===oggi?`1px solid ${ACCENT}`:"none"}}>{txt}</div>
                           </div>
                         );
@@ -536,7 +572,7 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
                   })}
                   {/* percentuale della sezione, giorno per giorno */}
                   <div style={{display:"flex",alignItems:"center",marginTop:3}}>
-                    <div style={{width:nomeW,flexShrink:0,fontSize:8,fontWeight:700,color:sezione.colore}}>
+                    <div style={{width:nomeW,flexShrink:0,fontSize:Math.max(8,nomeFs-1),fontWeight:700,color:sezione.colore}}>
                       {sezione.soloStrat ? "% strategiche" : "% leggera"}
                     </div>
                     {Array.from({length:giorniMese},(_,i)=>i+1).map(g => {
@@ -548,7 +584,7 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
                         if (universo.length) p = Math.round(universo.filter(n=>(e.done||[]).includes(n)).length / universo.length * 100);
                       }
                       return (
-                        <div key={g} style={{width:cellW,flexShrink:0,textAlign:"center",fontSize:8,fontWeight:700,
+                        <div key={g} style={{width:cellW,flexShrink:0,textAlign:"center",fontSize:microFs,fontWeight:700,
                           color:p===null?"var(--c-text-faintest)":pctColor(p)}}>{p===null?"·":p}</div>
                       );
                     })}
@@ -562,7 +598,7 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
                 {Array.from({length:giorniMese},(_,i)=>i+1).map(g => {
                   const p = pctGiorno(ymd(anno,mese,g));
                   return (
-                    <div key={g} style={{width:cellW,flexShrink:0,textAlign:"center",fontSize:8,fontWeight:700,
+                    <div key={g} style={{width:cellW,flexShrink:0,textAlign:"center",fontSize:microFs,fontWeight:700,
                       color:p===null?"var(--c-text-faintest)":pctColor(p)}}>{p===null?"·":p}</div>
                   );
                 })}
