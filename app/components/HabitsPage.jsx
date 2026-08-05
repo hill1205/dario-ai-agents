@@ -130,15 +130,26 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
   const [notaMoodDraft, setNotaMoodDraft] = useState(null);
   const [notaMoodStato, setNotaMoodStato] = useState(null);
 
+  // ---- Diario della sera ------------------------------------------------
+  // gratDraft e' lo stato di lavoro del giorno in corso: si scrive mentre
+  // digiti e si manda al server all'uscita dal campo. Non lo teniamo dentro
+  // grat perche' altrimenti ogni tasto premuto riscriverebbe lo storico.
+  const [grat, setGrat] = useState([]);            // storico diario
+  const [gratDraft, setGratDraft] = useState(null); // { voci:[3], vittoria, perche }
+  const [gratStato, setGratStato] = useState(null);
+  const [gratPassato, setGratPassato] = useState({ unMeseFa:null, unAnnoFa:null });
+  const [gratAperto, setGratAperto] = useState(false);
+
   const oggi = todayBucharest();
 
   const load = useCallback(async () => {
     setLoading(true);
     setErrore(null);
     try {
-      const [hRes, mRes] = await Promise.all([
-        fetch("/api/habits", { cache:"no-store" }),
-        fetch("/api/mood",   { cache:"no-store" }),
+      const [hRes, mRes, gRes] = await Promise.all([
+        fetch("/api/habits",    { cache:"no-store" }),
+        fetch("/api/mood",      { cache:"no-store" }),
+        fetch("/api/gratitude", { cache:"no-store" }),
       ]);
 
       // Errore esplicito e non lista vuota: una griglia vuota per un
@@ -152,6 +163,14 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
         setMood(m.days || []);
         setFascia(m.fascia || null);
         if (m.oraPomeriggio) setOraPomeriggio(m.oraPomeriggio);
+      }
+
+      // Il diario non e' critico: se la sua pagina sul Doc non risponde, il
+      // resto della pagina deve restare in piedi. Per questo non alza.
+      if (gRes.ok) {
+        const g = await gRes.json();
+        setGrat(g.days || []);
+        setGratPassato({ unMeseFa: g.unMeseFa || null, unAnnoFa: g.unAnnoFa || null });
       }
 
       // Il giorno in corso arriva gia' calcolato dal server: serve la lista
@@ -413,6 +432,65 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
     setTimeout(()=>setNotaMoodStato(null), 1500);
   };
 
+  // ---- Diario della sera ------------------------------------------------
+  const gratByDate = useMemo(() => new Map(grat.map(g => [g.data, g])), [grat]);
+
+  // Un giorno conta come scritto se c'e' almeno la prima gratitudine o la
+  // vittoria. Stessa regola del server (compilato() in gratitude-store):
+  // se le due divergessero, il cuore in griglia direbbe una cosa e lo
+  // storico un'altra.
+  const gratScritto = (v) => Boolean(v && ((v.voci||[])[0]||"").trim() || (v?.vittoria||"").trim());
+
+  const gratOggi = useMemo(() => {
+    const salvato = gratByDate.get(oggi) || { voci:["","",""], vittoria:"", perche:"" };
+    if (!gratDraft) return salvato;
+    return { ...salvato, ...gratDraft };
+  }, [gratByDate, oggi, gratDraft]);
+
+  // Striscia di sere consecutive scritte, all'indietro da oggi. Oggi non
+  // ancora compilato non spezza la striscia: alle 18 non hai "saltato",
+  // non e' ancora sera.
+  const gratStreak = useMemo(() => {
+    let n = 0;
+    for (let i = 0; i < 400; i++) {
+      const d = new Date(`${oggi}T12:00:00`); d.setDate(d.getDate() - i);
+      const data = ymd(d.getFullYear(), d.getMonth(), d.getDate());
+      if (gratScritto(gratByDate.get(data))) n++;
+      else if (i > 0) break;
+    }
+    return n;
+  }, [gratByDate, oggi]);
+
+  const salvaGratitudine = async (patch) => {
+    const corpo = {
+      data: oggi,
+      voci: patch.voci ?? gratOggi.voci ?? ["","",""],
+      vittoria: patch.vittoria ?? gratOggi.vittoria ?? "",
+      perche: patch.perche ?? gratOggi.perche ?? "",
+    };
+    setGratStato("salvo");
+    try {
+      const res = await fetch("/api/gratitude", { method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify(corpo) });
+      // res.ok e non solo il try: un 409 (sera congelata) e' una risposta
+      // valida per fetch e senza questo controllo passerebbe per salvata.
+      if (!res.ok) throw new Error();
+      const json = await res.json();
+      setGrat(prev => {
+        const altri = prev.filter(g => g.data !== oggi);
+        return [...altri, json.giorno].sort((a,b) => (a.data < b.data ? -1 : 1));
+      });
+      setGratStato("ok");
+    } catch { setGratStato("errore"); }
+    setTimeout(()=>setGratStato(null), 1500);
+  };
+
+  const aggiornaVoce = (i, testo) => {
+    const voci = [...(gratOggi.voci || ["","",""])];
+    voci[i] = testo;
+    setGratDraft({ ...gratOggi, voci });
+  };
+
   const ultimi14 = useMemo(() => {
     const out = [];
     for (let i = 13; i >= 0; i--) {
@@ -636,6 +714,99 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
           )}
         </Card>
 
+        {/* DIARIO DELLA SERA */}
+        <Card fs={fs}
+          title={`🌙 Diario della sera${gratStreak > 0 ? `  ❤️ ${gratStreak}` : ""}`}
+          subtitle="Tre cose per cui sei grato e la cosa concreta che hai fatto oggi. Si chiude a mezzanotte: domani questa sera non si può più riscrivere.">
+
+          {[0,1,2].map(i => (
+            <div key={i} style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+              <div style={{flexShrink:0,width:18,textAlign:"center",fontSize:fs-3,
+                color:i===0?"#EF4444":"var(--c-text-faintest)"}}>{i===0?"❤️":"·"}</div>
+              <input
+                value={(gratOggi.voci||[])[i] || ""}
+                onChange={e=>aggiornaVoce(i, e.target.value)}
+                onBlur={()=>{ if (gratDraft) salvaGratitudine(gratDraft); }}
+                placeholder={i===0 ? "La cosa principale per cui sei grato oggi"
+                  : i===1 ? "Seconda (facoltativa)" : "Terza (facoltativa)"}
+                style={{flex:1,minWidth:0,padding:"9px 11px",borderRadius:8,border:"1px solid var(--c-border)",
+                  background:"var(--c-panel2)",color:"var(--c-text)",fontSize:fs-3,outline:"none",fontFamily:"inherit"}}/>
+            </div>
+          ))}
+
+          {/* La vittoria sta in un campo suo e non tra le gratitudini: la
+              gratitudine dice come stavi, la vittoria dice cosa hai
+              prodotto. Nei giorni in cui Finanze segna 0€ ma hai lavorato,
+              questa riga e' l'unica traccia che resta. */}
+          <div style={{display:"flex",alignItems:"center",gap:8,marginTop:10,paddingTop:10,borderTop:"1px solid var(--c-border)"}}>
+            <div style={{flexShrink:0,width:18,textAlign:"center",fontSize:fs-3}}>🏆</div>
+            <input
+              value={gratOggi.vittoria || ""}
+              onChange={e=>setGratDraft({ ...gratOggi, vittoria: e.target.value })}
+              onBlur={()=>{ if (gratDraft) salvaGratitudine(gratDraft); }}
+              placeholder="La vittoria di oggi: cosa hai chiuso, mosso, spedito"
+              style={{flex:1,minWidth:0,padding:"9px 11px",borderRadius:8,border:`1px solid ${ACCENT}40`,
+                background:"var(--c-panel2)",color:"var(--c-text)",fontSize:fs-3,outline:"none",fontFamily:"inherit"}}/>
+          </div>
+
+          <textarea rows={2}
+            value={gratOggi.perche || ""}
+            onChange={e=>setGratDraft({ ...gratOggi, perche: e.target.value })}
+            onBlur={()=>{ if (gratDraft) salvaGratitudine(gratDraft); }}
+            placeholder="Perché hai scelto proprio queste cose (facoltativo — ma è la parte che tra sei mesi vale di più)"
+            style={{width:"100%",boxSizing:"border-box",marginTop:10,padding:"9px 11px",borderRadius:8,
+              border:"1px solid var(--c-border)",background:"var(--c-panel2)",color:"var(--c-text)",
+              fontSize:fs-3,outline:"none",resize:"vertical",fontFamily:"inherit"}}/>
+
+          <div style={{fontSize:9,color:"var(--c-text-faintest)",marginTop:4,height:12}}>
+            {gratStato==="salvo" ? "salvo..." : gratStato==="ok" ? "✓ salvato"
+              : gratStato==="errore" ? "⚠️ non salvato" : "Si salva da solo quando esci dal campo."}
+          </div>
+
+          {/* Rilettura. Senza questa parte il diario e' data entry: scrivi
+              ogni sera in un buco nero e non torni mai indietro. */}
+          {[
+            { et:"Un mese fa", v:gratPassato.unMeseFa },
+            { et:"Un anno fa", v:gratPassato.unAnnoFa },
+          ].filter(x => x.v).map(x => (
+            <div key={x.et} style={{marginTop:10,paddingTop:10,borderTop:"1px solid var(--c-border)"}}>
+              <div style={{fontSize:9,fontWeight:700,color:ACCENT,marginBottom:3}}>{x.et} · {x.v.data}</div>
+              <div style={{fontSize:fs-4,color:"var(--c-text)",lineHeight:1.5}}>
+                {(x.v.voci||[]).filter(Boolean).join(" · ")}
+                {x.v.vittoria && <span style={{color:"var(--c-text-muted)"}}> — 🏆 {x.v.vittoria}</span>}
+              </div>
+            </div>
+          ))}
+
+          {grat.filter(g => g.data !== oggi && gratScritto(g)).length > 0 && (
+            <>
+              <button onClick={()=>setGratAperto(a=>!a)}
+                style={{marginTop:10,padding:"6px 10px",borderRadius:7,border:"1px solid var(--c-border)",
+                  background:"transparent",color:"var(--c-text-muted)",fontSize:fs-5,fontWeight:700,cursor:"pointer"}}>
+                {gratAperto ? "Nascondi le sere passate" : "Rileggi le sere passate"}
+              </button>
+              {gratAperto && grat.filter(g => g.data !== oggi && gratScritto(g)).slice(-30).reverse().map(g => (
+                <div key={g.data} style={{display:"flex",gap:8,marginTop:8,paddingTop:8,borderTop:"1px solid var(--c-border)"}}>
+                  <div style={{flexShrink:0,fontSize:9,color:"var(--c-text-faint)",width:64,paddingTop:1}}>
+                    {GG[new Date(`${g.data}T12:00:00`).getDay()]} {g.data.slice(8)}/{g.data.slice(5,7)}
+                  </div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:fs-4,color:"var(--c-text)",lineHeight:1.4}}>
+                      {(g.voci||[]).filter(Boolean).join(" · ") || "—"}
+                    </div>
+                    {g.vittoria && (
+                      <div style={{fontSize:fs-5,color:ACCENT,marginTop:2}}>🏆 {g.vittoria}</div>
+                    )}
+                    {g.perche && (
+                      <div style={{fontSize:fs-5,color:"var(--c-text-faint)",marginTop:2,lineHeight:1.4}}>{g.perche}</div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
+        </Card>
+
         {/* ANELLI SETTIMANA */}
         <Card fs={fs} title="Questa settimana">
           <div style={{display:"flex",justifyContent:"space-between",gap:4,overflowX:"auto",paddingBottom:2}}>
@@ -783,11 +954,42 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
                   );
                 })}
               </div>
+
+              {/* Riga diario. Volutamente NON ha il × dei giorni saltati:
+                  qui il segnale e' solo positivo. Le abitudini le misuri
+                  perche' vuoi vedere dove stai perdendo; il diario della
+                  sera non e' una prestazione da valutare, e una fila di
+                  crocette rosse lo trasformerebbe nell'ennesima cosa in cui
+                  senti di aver fallito. */}
+              <div style={{display:"flex",alignItems:"center",marginTop:4}}>
+                <div style={{width:nomeW,flexShrink:0,fontSize:fs-5,fontWeight:700,color:"#EF4444",
+                  display:"flex",alignItems:"center",gap:4,overflow:"hidden"}}>
+                  <span style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>🌙 Diario</span>
+                  {gratStreak > 0 && (
+                    <span title="sere consecutive scritte"
+                      style={{flexShrink:0,fontSize:Math.max(8,nomeFs-2),fontWeight:700,color:"#EF4444",
+                        background:"#EF444418",padding:"1px 4px",borderRadius:5}}>{gratStreak}</span>
+                  )}
+                </div>
+                {Array.from({length:giorniMese},(_,i)=>i+1).map(g => {
+                  const data = ymd(anno,mese,g);
+                  const scritto = gratScritto(gratByDate.get(data));
+                  return (
+                    <div key={g} title={scritto ? `Diario scritto — ${data}` : data}
+                      style={{width:cellW,flexShrink:0,marginLeft:gapPrima(g),textAlign:"center",
+                        fontSize:simboloFs,lineHeight:1.1,
+                        outline:data===oggi?`1px solid ${ACCENT}`:"none",borderRadius:4}}>
+                      {scritto ? "❤️" : ""}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
           <div style={{display:"flex",gap:12,marginTop:10,fontSize:9,color:"var(--c-text-faint)",flexWrap:"wrap"}}>
             <span style={{color:"#10B981"}}>✓ fatta</span><span style={{color:"#EF4444"}}>× saltata</span><span>– non attiva quel giorno</span><span>(vuoto) nessun dato</span>
             <span style={{color:"#F97316"}}>🔥 giorni consecutivi</span><span>* la striscia attraversa giorni senza dati</span>
+            <span style={{color:"#EF4444"}}>❤️ diario della sera scritto</span>
           </div>
           <div style={{marginTop:6,fontSize:9,color:"var(--c-text-faintest)"}}>
             Clicca una cella per correggerla. Su oggi la correzione va anche su ClickUp; sui giorni passati resta solo nello storico (su ClickUp quelle task sono già state azzerate).
