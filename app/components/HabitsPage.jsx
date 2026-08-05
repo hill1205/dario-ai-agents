@@ -29,6 +29,14 @@ const GG = ["Do","Lu","Ma","Me","Gi","Ve","Sa"];
 // Indicizzate come getDay(): 0=domenica.
 const INIZIALI_GG = ["D","L","M","M","G","V","S"];
 
+// Deve restare allineata a FINESTRA_CORREZIONE_MS in /api/mood: qui serve
+// solo a spegnere i bottoni, la verita' la decide comunque il server.
+const FINESTRA_MS = 60 * 1000;
+const FASCE_MOOD = [
+  { key:"mattina",    label:"Mattina",    icon:"🌅" },
+  { key:"pomeriggio", label:"Pomeriggio", icon:"🌇" },
+];
+
 const MOOD_FIELDS = [
   { key:"umore",       label:"Umore",       icon:"🙂", color:"#EC4899" },
   { key:"energia",     label:"Energia",     icon:"⚡", color:"#F59E0B" },
@@ -116,6 +124,11 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
   const [cellaInCorso, setCellaInCorso] = useState(null); // "data|abitudine"
   const [notaDraft, setNotaDraft] = useState(null);       // { data, testo }
   const [notaStato, setNotaStato] = useState(null);
+  const [fascia, setFascia] = useState(null);             // "mattina" | "pomeriggio", dal server
+  const [oraPomeriggio, setOraPomeriggio] = useState(16);
+  const [moodErrore, setMoodErrore] = useState(null);
+  const [notaMoodDraft, setNotaMoodDraft] = useState(null);
+  const [notaMoodStato, setNotaMoodStato] = useState(null);
 
   const oggi = todayBucharest();
 
@@ -134,7 +147,12 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
       if (!hRes.ok) throw new Error("storico abitudini non raggiungibile");
       const h = await hRes.json();
 
-      if (mRes.ok) setMood((await mRes.json()).days || []);
+      if (mRes.ok) {
+        const m = await mRes.json();
+        setMood(m.days || []);
+        setFascia(m.fascia || null);
+        if (m.oraPomeriggio) setOraPomeriggio(m.oraPomeriggio);
+      }
 
       // Il giorno in corso arriva gia' calcolato dal server: serve la lista
       // routine con include_closed=true, che /api/tasks non restituisce.
@@ -350,19 +368,49 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
   // ---- Mood -----------------------------------------------------------
   const moodByDate = useMemo(() => new Map(mood.map(m => [m.data, m])), [mood]);
   const moodOggi = moodByDate.get(oggi) || {};
+  // La fascia la decide il SERVER (ora di Bucarest): il telefono puo' avere
+  // un fuso diverso, e finire per scrivere nel check sbagliato.
+  const fasciaOggi = fascia || "mattina";
+  const checkCorrente = moodOggi[fasciaOggi] || {};
 
   const setMoodValue = async (key, value) => {
     setSalvandoMood(key);
-    setMood(prev => {
-      const altri = prev.filter(m => m.data !== oggi);
-      return [...altri, { ...(prev.find(m=>m.data===oggi) || { data: oggi }), [key]: value }]
-        .sort((a,b) => (a.data < b.data ? -1 : 1));
-    });
+    setMoodErrore(null);
+    // Niente aggiornamento ottimistico qui: il server puo' rifiutare
+    // (valore gia' registrato), e mostrare un numero che poi sparisce e'
+    // peggio di aspettare mezzo secondo.
     try {
-      await fetch("/api/mood", { method:"POST", headers:{"Content-Type":"application/json"},
+      const res = await fetch("/api/mood", { method:"POST", headers:{"Content-Type":"application/json"},
         body: JSON.stringify({ data: oggi, [key]: value }) });
-    } catch {}
+      const json = await res.json();
+      if (!res.ok) {
+        setMoodErrore(json.error || "Non salvato.");
+      } else {
+        setMood(prev => {
+          const altri = prev.filter(m => m.data !== oggi);
+          return [...altri, json.giorno].sort((a,b) => (a.data < b.data ? -1 : 1));
+        });
+      }
+    } catch {
+      setMoodErrore("Non salvato: controlla la connessione.");
+    }
     setSalvandoMood(null);
+  };
+
+  const salvaNotaMood = async (testo) => {
+    setNotaMoodStato("salvo");
+    try {
+      const res = await fetch("/api/mood", { method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ data: oggi, nota: testo }) });
+      if (!res.ok) throw new Error();
+      setMood(prev => {
+        const altri = prev.filter(m => m.data !== oggi);
+        const base = prev.find(m => m.data === oggi) || { data: oggi };
+        return [...altri, { ...base, nota: testo }].sort((a,b) => (a.data < b.data ? -1 : 1));
+      });
+      setNotaMoodStato("ok");
+    } catch { setNotaMoodStato("errore"); }
+    setTimeout(()=>setNotaMoodStato(null), 1500);
   };
 
   const ultimi14 = useMemo(() => {
@@ -382,9 +430,13 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
     const alta = [], bassa = [];
     for (const m of mood) {
       const p = pctGiorno(m.data);
-      if (p === null || m.energia === undefined) continue;
-      if (m.energia >= 4) alta.push(p);
-      else if (m.energia <= 2) bassa.push(p);
+      // Sulla MEDIA delle rilevazioni del giorno, non su un singolo check:
+      // altrimenti una mattina storta cancellerebbe un pomeriggio in cui
+      // hai recuperato tutto.
+      const e = m.media?.energia;
+      if (p === null || typeof e !== "number") continue;
+      if (e >= 4) alta.push(p);
+      else if (e <= 2) bassa.push(p);
     }
     const media = (a) => a.length ? Math.round(a.reduce((s,v)=>s+v,0)/a.length) : null;
     return { alta: media(alta), nAlta: alta.length, bassa: media(bassa), nBassa: bassa.length };
@@ -480,29 +532,102 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
           </div>
         )}
 
-        {/* CHECK-IN MOOD */}
-        <Card fs={fs} title="Come stai oggi?" subtitle="Tre tap. Serve a capire se i giorni in cui esegui sono quelli in cui stai bene.">
-          {MOOD_FIELDS.map(f => (
-            <div key={f.key} style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
-              <div style={{fontSize:fs-3,color:"var(--c-text-muted)",width:isMobile?96:112,flexShrink:0}}>
-                {f.icon} {f.label}
+        {/* CHECK-IN MOOD — due rilevazioni al giorno */}
+        <Card fs={fs}
+          title={`Come stai oggi? ${fasciaOggi==="mattina" ? "🌅 check mattutino" : "🌇 check pomeridiano"}`}
+          subtitle={`La fascia cambia da sola alle ${oraPomeriggio}:00 (ora di Bucarest). Una volta registrato, un valore non si cambia più: è il senso della misura.`}>
+
+          {/* Riepilogo dell'altra fascia: sola lettura, serve a vedere la
+              direzione della giornata mentre compili la seconda. */}
+          <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
+            {FASCE_MOOD.map(fa => {
+              const dati = moodOggi[fa.key] || {};
+              const compilato = MOOD_FIELDS.some(f => typeof dati[f.key] === "number");
+              const attiva = fa.key === fasciaOggi;
+              return (
+                <div key={fa.key} style={{flex:1,minWidth:150,padding:"7px 9px",borderRadius:8,
+                  border:`1px solid ${attiva?ACCENT+"70":"var(--c-border)"}`,
+                  background:attiva?ACCENT+"10":"var(--c-panel2)"}}>
+                  <div style={{fontSize:fs-5,fontWeight:700,color:attiva?ACCENT:"var(--c-text-faint)",marginBottom:3}}>
+                    {fa.icon} {fa.label} {attiva && "· in corso"}
+                  </div>
+                  <div style={{fontSize:fs-4,color:compilato?"var(--c-text)":"var(--c-text-faintest)",fontWeight:600}}>
+                    {compilato
+                      ? MOOD_FIELDS.map(f => `${f.icon}${dati[f.key] ?? "–"}`).join("  ")
+                      : attiva ? "da compilare" : "non compilato"}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {MOOD_FIELDS.map(f => {
+            const valore = checkCorrente[f.key];
+            // Bloccato = gia' registrato in questa fascia e fuori dalla
+            // finestra di correzione. Il conto lo rifa' il server, qui
+            // serve solo a spegnere i bottoni.
+            const bloccato = typeof valore === "number"
+              && checkCorrente.ts && (Date.now() - checkCorrente.ts) >= FINESTRA_MS;
+            return (
+              <div key={f.key} style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                <div style={{fontSize:fs-3,color:"var(--c-text-muted)",width:isMobile?96:112,flexShrink:0}}>
+                  {f.icon} {f.label}
+                </div>
+                <div style={{display:"flex",gap:5,flex:1}}>
+                  {[1,2,3,4,5].map(v => {
+                    const on = valore === v;
+                    const spento = bloccato && !on;
+                    return (
+                      <button key={v} onClick={()=>setMoodValue(f.key, v)}
+                        disabled={salvandoMood===f.key || bloccato}
+                        title={bloccato ? "Già registrato per questa fascia" : `${f.label}: ${v}`}
+                        style={{flex:1,padding:"6px 0",borderRadius:7,fontSize:fs-3,fontWeight:700,
+                          cursor:bloccato?"not-allowed":"pointer",
+                          border:`1px solid ${on?f.color:"var(--c-border)"}`,
+                          background:on?`${f.color}25`:"transparent",
+                          opacity:spento?0.35:1,
+                          color:on?f.color:"var(--c-text-faint)"}}>
+                        {v}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-              <div style={{display:"flex",gap:5,flex:1}}>
-                {[1,2,3,4,5].map(v => {
-                  const on = moodOggi[f.key] === v;
-                  return (
-                    <button key={v} onClick={()=>setMoodValue(f.key, v)} disabled={salvandoMood===f.key}
-                      style={{flex:1,padding:"6px 0",borderRadius:7,cursor:"pointer",fontSize:fs-3,fontWeight:700,
-                        border:`1px solid ${on?f.color:"var(--c-border)"}`,
-                        background:on?`${f.color}25`:"transparent",
-                        color:on?f.color:"var(--c-text-faint)"}}>
-                      {v}
-                    </button>
-                  );
-                })}
-              </div>
+            );
+          })}
+
+          {moodErrore && (
+            <div style={{fontSize:fs-5,color:"#EF4444",marginBottom:8}}>⚠️ {moodErrore}</div>
+          )}
+
+          {/* Media del giorno: quello che finisce nei grafici. */}
+          {moodOggi.media && (
+            <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:10,
+              paddingTop:8,borderTop:"1px solid var(--c-border)"}}>
+              <span style={{fontSize:fs-5,color:"var(--c-text-faint)",fontWeight:700}}>
+                Media del giorno {moodOggi.media.nRilevazioni===1 && "(un solo check)"}
+              </span>
+              {MOOD_FIELDS.map(f => (
+                <span key={f.key} style={{fontSize:fs-3,fontWeight:700,color:f.color}}>
+                  {f.icon} {moodOggi.media[f.key] ?? "–"}
+                </span>
+              ))}
             </div>
-          ))}
+          )}
+
+          {/* Nota del mood — unica per il giorno, sempre modificabile */}
+          <textarea
+            value={notaMoodDraft?.data === oggi ? notaMoodDraft.testo : (moodOggi.nota || "")}
+            onChange={e=>setNotaMoodDraft({ data: oggi, testo: e.target.value })}
+            onBlur={()=>{ if (notaMoodDraft?.data === oggi) salvaNotaMood(notaMoodDraft.testo); }}
+            placeholder="Perché il mood è cambiato, cosa è successo oggi…"
+            rows={2}
+            style={{width:"100%",boxSizing:"border-box",background:"var(--c-panel2)",border:"1px solid var(--c-border)",
+              borderRadius:8,padding:9,color:"var(--c-text)",fontSize:fs-3,fontFamily:"inherit",resize:"vertical"}}/>
+          <div style={{fontSize:fs-6,color:"var(--c-text-faintest)",marginTop:4}}>
+            {notaMoodStato==="salvo" ? "salvo..." : notaMoodStato==="ok" ? "✓ salvata"
+              : notaMoodStato==="errore" ? "⚠️ non salvata" : "Si salva da sola quando esci dal campo."}
+          </div>
           {correlazione.alta !== null && correlazione.bassa !== null && (
             <div style={{marginTop:10,paddingTop:10,borderTop:"1px solid var(--c-border)",fontSize:fs-4,color:"var(--c-text-dim)",lineHeight:1.5}}>
               Nei giorni di <b style={{color:"#10B981"}}>energia alta</b> completi il <b style={{color:"#10B981"}}>{correlazione.alta}%</b> delle routine ({correlazione.nAlta} gg) ·
@@ -751,22 +876,27 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
         </Card>
 
         {/* MOOD ULTIMI 14 GIORNI */}
-        <Card fs={fs} title="Umore · Energia · Motivazione" subtitle="Ultimi 14 giorni, con sotto la percentuale di routine di quel giorno.">
+        <Card fs={fs} title="Umore · Energia · Motivazione" subtitle="Media delle due rilevazioni, ultimi 14 giorni. Passa sopra una barra per vedere mattina e pomeriggio separati.">
           <div style={{overflowX:"auto"}}>
             <div style={{display:"flex",gap:6,minWidth:14*34}}>
               {ultimi14.map(d => (
                 <div key={d.data} style={{flex:1,minWidth:30,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
                   <div style={{display:"flex",alignItems:"flex-end",gap:2,height:56}}>
                     {MOOD_FIELDS.map(f => {
-                      const v = d.m?.[f.key];
+                      // Barra sulla media del giorno; nel tooltip il
+                      // dettaglio delle due fasce, che e' il motivo per cui
+                      // le rileviamo separate.
+                      const v = d.m?.media?.[f.key];
+                      const ma = d.m?.mattina?.[f.key], po = d.m?.pomeriggio?.[f.key];
+                      const dett = (ma || po) ? ` (🌅${ma ?? "–"} 🌇${po ?? "–"})` : "";
                       return (
-                        <div key={f.key} title={`${f.label}: ${v ?? "–"}`}
+                        <div key={f.key} title={`${f.label}: ${v ?? "–"}${dett}`}
                           style={{width:7,height:v?`${(v/5)*100}%`:2,background:v?f.color:"var(--c-border)",borderRadius:2}}/>
                       );
                     })}
                   </div>
                   <div style={{fontSize:8,color:"var(--c-text-muted)",fontWeight:600}}>
-                    {d.m ? MOOD_FIELDS.map(f=>d.m[f.key] ?? "–").join("·") : "–"}
+                    {d.m?.media ? MOOD_FIELDS.map(f=>d.m.media[f.key] ?? "–").join("·") : "–"}
                   </div>
                   <div style={{fontSize:8,fontWeight:700,color:d.pct===null?"var(--c-text-faintest)":pctColor(d.pct)}}>
                     {d.pct===null?"·":`${d.pct}%`}
