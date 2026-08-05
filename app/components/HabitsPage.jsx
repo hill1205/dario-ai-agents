@@ -37,6 +37,21 @@ const ymd = (y, m, d) => `${y}-${pad(m + 1)}-${pad(d)}`;
 function todayBucharest() {
   return new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Bucharest" });
 }
+// Indice della settimana di calendario (lunedi'-domenica) a cui appartiene
+// il giorno g del mese. Prima era un banale Math.floor((g-1)/7), che
+// spezzava il mese in blocchi da 7 a partire dal giorno 1: in agosto 2026
+// il blocco "22-28" conteneva due mezze settimane diverse e il colore non
+// voleva dire piu' niente. Ora l'offset del primo del mese allinea i
+// blocchi alle settimane vere.
+function weekIndex(anno, mese, g) {
+  // getDay(): 0=domenica. Lo rimappiamo con lunedi'=0.
+  const dowPrimo = (new Date(anno, mese, 1).getDay() + 6) % 7;
+  return Math.floor((g - 1 + dowPrimo) / 7);
+}
+function weekColor(anno, mese, g) {
+  return WEEK_COLORS[weekIndex(anno, mese, g) % WEEK_COLORS.length];
+}
+
 // Colore semaforo sulla percentuale: sotto il 50% e' un problema, non una
 // sfumatura. Deve saltare all'occhio senza doverlo leggere.
 function pctColor(p) {
@@ -494,11 +509,10 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
               <div style={{display:"flex",marginBottom:3}}>
                 <div style={{width:nomeW,flexShrink:0}}/>
                 {Array.from({length:giorniMese},(_,i)=>i+1).map(g => {
-                  const wk = Math.floor((g-1)/7);
                   const data = ymd(anno,mese,g);
                   return (
                     <div key={g} style={{width:cellW,flexShrink:0,textAlign:"center",fontSize:microFs,fontWeight:700,
-                      color:data===oggi?ACCENT:WEEK_COLORS[wk%WEEK_COLORS.length]}}>{g}</div>
+                      color:data===oggi?ACCENT:weekColor(anno,mese,g)}}>{g}</div>
                   );
                 })}
               </div>
@@ -675,7 +689,7 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
               {Array.from({length:giorniMese},(_,i)=>i+1).map(g => {
                 const data = ymd(anno,mese,g);
                 const p = pctGiorno(data);
-                const wk = WEEK_COLORS[Math.floor((g-1)/7)%WEEK_COLORS.length];
+                const wk = weekColor(anno,mese,g);
                 return (
                   <div key={g} style={{flex:1,minWidth:16,display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
                     <div style={{fontSize:8,fontWeight:700,color:p===null?"var(--c-text-faintest)":pctColor(p),height:10}}>
