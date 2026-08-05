@@ -411,9 +411,26 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
 
   const clamp = (min, v, max) => Math.max(min, Math.min(max, v));
   const nomeW = isMobile ? 108 : (gridW ? clamp(150, Math.round(gridW * 0.22), 260) : 150);
+
+  // Stacco visivo tra domenica e lunedi': senza, le 31 colonne sono un muro
+  // unico e il colore da solo non basta a contare le settimane. Lo spazio
+  // va PRIMA di ogni lunedi', tranne quando il mese inizia di lunedi'
+  // (niente rientro a vuoto sul bordo sinistro).
+  const GAP = isMobile ? 5 : 8;
+  const gapPrima = useCallback((g) => (
+    g > 1 && new Date(anno, mese, g).getDay() === 1 ? GAP : 0
+  ), [anno, mese, GAP]);
+  // I gap rubano larghezza alle celle: vanno tolti prima di dividere,
+  // altrimenti la griglia sfora e ricompare lo scroll orizzontale.
+  const nGap = useMemo(() => {
+    let n = 0;
+    for (let g = 2; g <= giorniMese; g++) if (new Date(anno, mese, g).getDay() === 1) n++;
+    return n;
+  }, [anno, mese, giorniMese]);
+
   // gridW=0 al primo render (prima che ResizeObserver misuri): restiamo
   // sui valori vecchi, cosi' non si vede un salto di layout.
-  const cellW = gridW ? clamp(22, Math.floor((gridW - nomeW - 4) / giorniMese), 46) : 22;
+  const cellW = gridW ? clamp(22, Math.floor((gridW - nomeW - 4 - nGap * GAP) / giorniMese), 46) : 22;
   const cellH = clamp(20, Math.round(cellW * 0.9), 40);
   // Altezza uguale per tutte le righe anche quando un nome va a capo:
   // altrimenti le righe si disallineano e le colonne non si leggono piu'
@@ -522,7 +539,7 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
                   const col = data===oggi ? ACCENT : weekColor(anno,mese,g);
                   return (
                     <div key={g} title={festa ? `${data} — ${festa}` : undefined}
-                      style={{width:cellW,flexShrink:0,textAlign:"center"}}>
+                      style={{width:cellW,flexShrink:0,textAlign:"center",marginLeft:gapPrima(g)}}>
                       <div style={{fontSize:microFs,fontWeight:700,color:col,lineHeight:1.1}}>{g}</div>
                       {/* Iniziale a una lettera: martedi' e mercoledi' sono
                           entrambi "M", si distinguono dalla posizione e dal
@@ -597,7 +614,7 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
                           <div key={g} title={cliccabile ? `${nome} — ${data} (clicca per correggere)` : `${nome} — ${data}`}
                             onClick={cliccabile ? ()=>toggleCella(data, nome) : undefined}
                             style={{width:cellW,height:cellH,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",
-                              padding:1,cursor:cliccabile?"pointer":"default",opacity:inCorso?0.45:1}}>
+                              padding:1,marginLeft:gapPrima(g),cursor:cliccabile?"pointer":"default",opacity:inCorso?0.45:1}}>
                             <div style={{width:"100%",height:"100%",borderRadius:4,border:`1px solid ${bd}`,background:bg,
                               display:"flex",alignItems:"center",justifyContent:"center",
                               fontSize:simboloFs,fontWeight:700,color:txt==="✓"?"#10B981":txt==="×"?"#EF4444":"var(--c-text-faintest)",
@@ -622,7 +639,7 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
                         if (universo.length) p = Math.round(universo.filter(n=>(e.done||[]).includes(n)).length / universo.length * 100);
                       }
                       return (
-                        <div key={g} style={{width:cellW,flexShrink:0,textAlign:"center",fontSize:microFs,fontWeight:700,
+                        <div key={g} style={{width:cellW,flexShrink:0,marginLeft:gapPrima(g),textAlign:"center",fontSize:microFs,fontWeight:700,
                           color:p===null?"var(--c-text-faintest)":pctColor(p)}}>{p===null?"·":p}</div>
                       );
                     })}
@@ -636,7 +653,7 @@ export default function HabitsPage({ fontSize = 14, theme = "dark", isMobile = f
                 {Array.from({length:giorniMese},(_,i)=>i+1).map(g => {
                   const p = pctGiorno(ymd(anno,mese,g));
                   return (
-                    <div key={g} style={{width:cellW,flexShrink:0,textAlign:"center",fontSize:microFs,fontWeight:700,
+                    <div key={g} style={{width:cellW,flexShrink:0,marginLeft:gapPrima(g),textAlign:"center",fontSize:microFs,fontWeight:700,
                       color:p===null?"var(--c-text-faintest)":pctColor(p)}}>{p===null?"·":p}</div>
                   );
                 })}
