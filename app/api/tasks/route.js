@@ -1,3 +1,5 @@
+import { stripSystemTasks } from "../../lib/system-tasks";
+
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
@@ -26,7 +28,9 @@ async function fetchTasks(listId) {
     throw new Error(`ClickUp list ${listId}: ${res.status}`);
   }
   const data = await res.json();
-  return data.tasks || [];
+  // Via i contenitori di sistema (⚙️): restano aperti su ClickUp perche' il
+  // bot Telegram ci legge dentro, ma in dashboard non sono task da fare.
+  return stripSystemTasks(data.tasks || []);
 }
 
 export async function GET() {

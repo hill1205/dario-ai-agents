@@ -77,7 +77,13 @@ async function getTasksFromList(listId, apiKey) {
       headers: cuHeaders(apiKey),
     });
     const data = await res.json();
-    return data.tasks ?? [];
+    // I contenitori ⚙️ sono storage, non task: fuori anche dal contesto
+    // passato agli agenti, altrimenti leggono JSON al posto del lavoro.
+    // Duplicato di app/lib/system-tasks.js: questo file e' volutamente
+    // senza import esterni (vedi intestazione).
+    return (data.tasks ?? []).filter(
+      (t) => !(typeof t?.name === "string" && t.name.trim().startsWith("⚙️"))
+    );
   } catch (err) {
     return [];
   }
