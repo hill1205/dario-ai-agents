@@ -38,6 +38,11 @@ const DOCS = {
   // Il fatturato di una decisione lo ritrovi in banca, il ragionamento che
   // ti ci ha portato no.
   decisioni:      { docId: "2kxuu4g1-972", pageId: "2kxuu4g1-1432", marker: "DECISIONS_DATA_JSON:" },
+  // Percorso di apprendimento (07/08). Le spiegazioni scritte con parole
+  // proprie per alzare il livello sono l'unico contenuto di questa pagina
+  // che non esiste da nessun'altra parte: gli appunti li puoi rifare,
+  // quelle no.
+  apprendimento:  { docId: "2kxuu4g1-972", pageId: "2kxuu4g1-1452", marker: "LEARNING_DATA_JSON:" },
 };
 
 async function safe(label, fn) {
@@ -97,7 +102,7 @@ async function fetchNotionPipeline() {
 }
 
 export async function GET() {
-  const [todo, routine, sospeso, streak, brunoFinance, iagrexFinance, weight, pipeline, habits, moodData, gratitudine, decisioni] = await Promise.all([
+  const [todo, routine, sospeso, streak, brunoFinance, iagrexFinance, weight, pipeline, habits, moodData, gratitudine, decisioni, apprendimento] = await Promise.all([
     safe("ClickUp · to-do",           () => fetchTaskList(TASK_LIST_IDS.todo)),
     safe("ClickUp · routine",         () => fetchTaskList(TASK_LIST_IDS.routine)),
     safe("ClickUp · sospeso",         () => fetchTaskList(TASK_LIST_IDS.sospeso)),
@@ -110,9 +115,10 @@ export async function GET() {
     safe("ClickUp · mood",              () => fetchDoc(DOCS.mood)),
     safe("ClickUp · diario della sera", () => fetchDoc(DOCS.gratitudine)),
     safe("ClickUp · registro decisioni", () => fetchDoc(DOCS.decisioni)),
+    safe("ClickUp · percorso apprendimento", () => fetchDoc(DOCS.apprendimento)),
   ]);
 
-  const sections = { todo, routine, sospeso, streak, bruno_finance: brunoFinance, iagrex_finance: iagrexFinance, weight, pipeline, habits, mood: moodData, gratitudine, decisioni };
+  const sections = { todo, routine, sospeso, streak, bruno_finance: brunoFinance, iagrex_finance: iagrexFinance, weight, pipeline, habits, mood: moodData, gratitudine, decisioni, apprendimento };
   const errors = Object.entries(sections).filter(([,v]) => !v.ok).map(([k,v]) => ({ section: k, error: v.error }));
 
   return Response.json({
@@ -132,6 +138,7 @@ export async function GET() {
       mood: moodData.ok ? moodData.data : null,
       gratitudine: gratitudine.ok ? gratitudine.data : null,
       decisioni: decisioni.ok ? decisioni.data : null,
+      apprendimento: apprendimento.ok ? apprendimento.data : null,
     },
   });
 }

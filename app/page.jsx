@@ -6,6 +6,7 @@ import BrunoPage from "./components/BrunoPage";
 import ClientiPage from "./components/ClientiPage";
 import IAGREXPage from "./components/IAGREXPage";
 import DecisionsPage from "./components/DecisionsPage";
+import LearningPage from "./components/LearningPage";
 import SimulatorPage from "./components/SimulatorPage";
 import CalculatorPage from "./components/CalculatorPage";
 import HabitsPage from "./components/HabitsPage";
@@ -24,8 +25,8 @@ const NAV_ITEMS = [
   { id:"clienti",  icon:"👥", label:"Clienti",    color:"#10B981" },
   { id:"finanze",  icon:"💰", label:"Finanze",    color:"#F59E0B" },
   { id:"iagrex",   icon:"📊", label:"IAGREX",     color:"#3B82F6" },
-  { id:"simulatore", icon:"🚀", label:"Simulatore 1M€", color:"#EC4899" },
-  { id:"calcolatrice", icon:"🧮", label:"Calcolatrice", color:"#14B8A6" },
+  { id:"simulatore", icon:"🚀", label:"Simulatore 1M€", breve:"1M€", color:"#EC4899" },
+  { id:"calcolatrice", icon:"🧮", label:"Calcolatrice", breve:"Calc", color:"#14B8A6" },
   // "Sospese" non è più una pagina a parte (10/07): le task sospese si
   // vedono e si gestiscono direttamente dalla card in home, come To Do e
   // Routine — una vista in meno da mantenere sincronizzata.
@@ -33,8 +34,18 @@ const NAV_ITEMS = [
   // pagina viva costa manutenzione. Al suo posto entra "Decisioni", che ha
   // lo scopo opposto — non catturare pensieri al volo, ma obbligare a
   // motivare per iscritto le scelte importanti e poi tornarci sopra.
-  { id:"decisioni", icon:"⚖️", label:"Decisioni", color:"#8B5CF6" },
+  { id:"decisioni", icon:"⚖️", label:"Decisioni", breve:"Decis.", color:"#8B5CF6" },
+  // Apprendimento (07/08): archivio di quello che impara, alimentato
+  // incollando conversazioni coi chatbot. Sta accanto a Decisioni perché
+  // sono le due pagine "riflessive" — una traccia cosa scegli, l'altra
+  // cosa impari — ma non hanno dati in comune.
+  { id:"apprendimento", icon:"📚", label:"Apprendimento", breve:"Studio", color:"#06B6D4" },
 ];
+
+// "breve" e' l'etichetta usata SOLO nella barra mobile. Con dieci voci in
+// fondo allo schermo ognuna ha una cinquantina di pixel: "Apprendimento" a
+// 8px non ci sta e veniva tagliato a meta'. Dove manca si usa "label",
+// che per le voci corte (Pipeline, Clienti, Finanze) va gia' bene.
 
 // Priorità ClickUp: urgent(0) > high(1) > normal(2) > low(3) > nessuna(4).
 // Ordiniamo To Do/Routine di conseguenza invece di lasciarli nell'ordine
@@ -947,6 +958,7 @@ export default function App() {
           {view==="pipeline" && <PipelinePage fontSize={fontSize} theme={theme} onGoToIagrex={()=>setView("iagrex")}/>}
           {view==="clienti"  && <ClientiPage  fontSize={fontSize} theme={theme}/>}
           {view==="decisioni" && <DecisionsPage fontSize={fontSize} theme={theme} isMobile={isMobile} onCountChange={setDecisioniDaRivedere}/>}
+          {view==="apprendimento" && <LearningPage fontSize={fontSize} theme={theme} isMobile={isMobile}/>}
           {view==="simulatore" && <SimulatorPage fontSize={fontSize} onBack={()=>setView("home")} theme={theme}/>}
           {view==="calcolatrice" && <CalculatorPage fontSize={fontSize} onBack={()=>setView("home")} theme={theme}/>}
           {view==="abitudini" && <HabitsPage fontSize={fontSize} theme={theme} isMobile={isMobile}/>}
@@ -1234,7 +1246,7 @@ export default function App() {
             <button key={item.id} onClick={()=>setView(item.id)}
               style={{flex:1,padding:"6px 2px",borderRadius:8,border:"none",background:view===item.id?T.border:"transparent",color:view===item.id?c:T.textDim,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1,position:"relative"}}>
               <span style={{fontSize:18}}>{item.icon}</span>
-              <span style={{fontSize:8}}>{item.label}</span>
+              <span style={{fontSize:8,whiteSpace:"nowrap"}}>{item.breve || item.label}</span>
               {item.id==="decisioni" && decisioniDaRivedere>0 && (
                 <span style={{position:"absolute",top:2,right:"50%",marginRight:-16,minWidth:14,height:14,padding:"0 3px",borderRadius:7,background:"#F59E0B",color:"#0F172A",fontSize:9,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center"}}>
                   {decisioniDaRivedere}

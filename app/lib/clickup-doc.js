@@ -19,6 +19,7 @@ export const PAGINE = {
   mood:        "2kxuu4g1-1392",
   gratitudine: "2kxuu4g1-1412",
   decisioni:   "2kxuu4g1-1432",
+  apprendimento: "2kxuu4g1-1452",
 };
 
 // 45 secondi: abbastanza da coprire un ricaricamento della pagina e i
