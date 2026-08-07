@@ -33,6 +33,11 @@ const DOCS = {
   // ricostruire da nessun'altra parte: le finanze stanno anche in banca, le
   // routine anche su ClickUp, ma una sera scritta e persa e' persa.
   gratitudine:    { docId: "2kxuu4g1-972", pageId: "2kxuu4g1-1412", marker: "GRATITUDE_DATA_JSON:" },
+  // Registro decisioni (07/08). Vale lo stesso ragionamento del diario:
+  // il "perché" di una scelta non è ricostruibile da nessun'altra fonte.
+  // Il fatturato di una decisione lo ritrovi in banca, il ragionamento che
+  // ti ci ha portato no.
+  decisioni:      { docId: "2kxuu4g1-972", pageId: "2kxuu4g1-1432", marker: "DECISIONS_DATA_JSON:" },
 };
 
 async function safe(label, fn) {
@@ -92,7 +97,7 @@ async function fetchNotionPipeline() {
 }
 
 export async function GET() {
-  const [todo, routine, sospeso, streak, brunoFinance, iagrexFinance, weight, pipeline, habits, moodData, gratitudine] = await Promise.all([
+  const [todo, routine, sospeso, streak, brunoFinance, iagrexFinance, weight, pipeline, habits, moodData, gratitudine, decisioni] = await Promise.all([
     safe("ClickUp · to-do",           () => fetchTaskList(TASK_LIST_IDS.todo)),
     safe("ClickUp · routine",         () => fetchTaskList(TASK_LIST_IDS.routine)),
     safe("ClickUp · sospeso",         () => fetchTaskList(TASK_LIST_IDS.sospeso)),
@@ -104,14 +109,15 @@ export async function GET() {
     safe("ClickUp · storico abitudini", () => fetchDoc(DOCS.habits)),
     safe("ClickUp · mood",              () => fetchDoc(DOCS.mood)),
     safe("ClickUp · diario della sera", () => fetchDoc(DOCS.gratitudine)),
+    safe("ClickUp · registro decisioni", () => fetchDoc(DOCS.decisioni)),
   ]);
 
-  const sections = { todo, routine, sospeso, streak, bruno_finance: brunoFinance, iagrex_finance: iagrexFinance, weight, pipeline, habits, mood: moodData, gratitudine };
+  const sections = { todo, routine, sospeso, streak, bruno_finance: brunoFinance, iagrex_finance: iagrexFinance, weight, pipeline, habits, mood: moodData, gratitudine, decisioni };
   const errors = Object.entries(sections).filter(([,v]) => !v.ok).map(([k,v]) => ({ section: k, error: v.error }));
 
   return Response.json({
     generated_at: new Date().toISOString(),
-    note: "Le idee vocali (archivio 🎙️) non sono incluse qui: vengono aggiunte lato client prima del download, perché vivono in localStorage/Notion a seconda della sezione.",
+    note: "Backup completo: da 07/08 ogni fonte viene letta lato server, niente più sezioni aggiunte dal client.",
     errors,
     data: {
       todo: todo.ok ? todo.data : null,
@@ -125,6 +131,7 @@ export async function GET() {
       habits: habits.ok ? habits.data : null,
       mood: moodData.ok ? moodData.data : null,
       gratitudine: gratitudine.ok ? gratitudine.data : null,
+      decisioni: decisioni.ok ? decisioni.data : null,
     },
   });
 }

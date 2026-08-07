@@ -5,7 +5,7 @@ import PipelinePage, { STAGE_PROBABILITY } from "./components/PipelinePage";
 import BrunoPage from "./components/BrunoPage";
 import ClientiPage from "./components/ClientiPage";
 import IAGREXPage from "./components/IAGREXPage";
-import IdeasPage from "./components/IdeasPage";
+import DecisionsPage from "./components/DecisionsPage";
 import SimulatorPage from "./components/SimulatorPage";
 import CalculatorPage from "./components/CalculatorPage";
 import HabitsPage from "./components/HabitsPage";
@@ -29,10 +29,11 @@ const NAV_ITEMS = [
   // "Sospese" non è più una pagina a parte (10/07): le task sospese si
   // vedono e si gestiscono direttamente dalla card in home, come To Do e
   // Routine — una vista in meno da mantenere sincronizzata.
-  // Colore neutro (null, come Dashboard) di proposito: non deve saltare
-  // all'occhio come le altre — è una voce di servizio, non un'area
-  // principale del lavoro quotidiano.
-  { id:"idee",     icon:"🎙️", label:"Idee",       color:null },
+  // "Idee" è stata rimossa il 07/08: pagina mai usata in due mesi, e ogni
+  // pagina viva costa manutenzione. Al suo posto entra "Decisioni", che ha
+  // lo scopo opposto — non catturare pensieri al volo, ma obbligare a
+  // motivare per iscritto le scelte importanti e poi tornarci sopra.
+  { id:"decisioni", icon:"⚖️", label:"Decisioni", color:"#8B5CF6" },
 ];
 
 // Priorità ClickUp: urgent(0) > high(1) > normal(2) > low(3) > nessuna(4).
@@ -355,20 +356,15 @@ export default function App() {
   // all'obiettivo 1M€ — quanto MRR potenziale sta maturando nelle trattative.
   const [pipelineStats, setPipelineStats] = useState(null); // {leads, lordo, ponderato}
   const [inactivityDays, setInactivityDays] = useState(0);
-  // Idee vocali: catturarle/leggerle ora vive tutto nella pagina dedicata
-  // "Idee" (IdeasPage), non più qui. Qui resta solo "ideas" — la lista
-  // "da valutare" per il popup del rito del venerdì — popolata da un check
-  // leggero SOLO il venerdì (vedi checkFridayRitual), non ad ogni apertura
-  // app: prima loadIdeas() partiva sempre al mount, aggiungendo una
-  // chiamata Notion in più al boot della home tutti i giorni per un
-  // popup che serve solo una volta a settimana.
-  const [ideas, setIdeas]                   = useState([]);
+  // Decisioni da rivedere: solo il conteggio, non l'elenco. Serve al banner
+  // in home e al pallino sul tab — l'elenco vero lo carica la pagina
+  // Decisioni quando ci arrivi. Un conteggio è una riga di JSON, tenerlo
+  // qui non pesa; tenere qui tutte le decisioni sì.
+  const [decisioniDaRivedere, setDecisioniDaRivedere] = useState(0);
   const [backupStatus, setBackupStatus]     = useState(null); // null | "loading" | "done" | "error"
   const [deviceTzLabel, setDeviceTzLabel]   = useState(null); // {label,time} se il device è in un fuso diverso da Bucarest
   const [useLocalWeather, setUseLocalWeather] = useState(false);
   const [weatherStatus, setWeatherStatus]   = useState(null); // null | "loading" | "denied" | "error"
-  const [showFridayRitual, setShowFridayRitual] = useState(false);
-  const [fridayBusyId, setFridayBusyId]     = useState(null);
   // Draft di creazione per ciascuna delle tre liste (to-do/routine/sospeso),
   // ognuna con proprio testo + priorità selezionata — prima esisteva solo
   // per il to-do e senza priorità.
@@ -409,7 +405,7 @@ export default function App() {
       // usando in quel momento, non su tutti e tre insieme.
       if (localStorage.getItem("dario-use-local-weather") === "1") setUseLocalWeather(true);
     } catch {}
-    checkFridayRitual();
+    caricaDecisioniDaRivedere();
   },[]);
 
   // Banner "bentornato": calcolato interamente in locale (nessuna chiamata
@@ -791,80 +787,35 @@ export default function App() {
     return h<12?"Buongiorno":h<18?"Buon pomeriggio":"Buonasera";
   };
 
-  // Idee al volo: cattura veloce di pensieri/idee imprenditoriali senza
-  // dover aprire una nota separata. Vivevano solo in localStorage (sparivano
-  // cambiando browser/dispositivo); ora vivono su Notion, nello stesso
-  // database della pipeline, così sopravvivono e possono alimentare il
-  // rito settimanale del venerdì (serve sapere quali sono ancora "Da
-  // valutare" contro quelle già smaltite, cosa che localStorage da solo
-  // non poteva modellare).
-  // Check leggero per il rito del venerdì: la chiamata a Notion parte SOLO
-  // se oggi è venerdì (fuso Bucarest) e non l'abbiamo già mostrato oggi —
-  // gli altri sei giorni della settimana questa funzione non fa alcuna
-  // richiesta di rete. La lista idee completa (con aggiunta/rimozione/
-  // dettatura) vive ora solo nella pagina "Idee" dedicata.
-  const checkFridayRitual = async () => {
-    const oggi = todayBucharest();
-    const giornoSettimana = new Date().toLocaleString("en-US",{timeZone:"Europe/Bucharest",weekday:"short"});
-    const giaVistoOggi = localStorage.getItem("dario-friday-ritual-shown") === oggi;
-    if (giornoSettimana !== "Fri" || giaVistoOggi) return;
+  // Solo il numero di decisioni la cui data di revisione è arrivata.
+  // Chiamata leggera (?soloConteggio=1): il server fa il filtro e risponde
+  // con un intero, così il boot della home non si porta dietro tutto lo
+  // storico delle decisioni per accendere un banner.
+  //
+  // Perché parte al mount e non solo un giorno preciso (come faceva il
+  // rito del venerdì): una revisione ha una data sua, non un giorno della
+  // settimana. Se il check girasse solo il venerdì, una revisione fissata
+  // di lunedì resterebbe invisibile per quattro giorni — cioè esattamente
+  // i giorni in cui la decisione è ancora fresca e vale la pena guardarla.
+  const caricaDecisioniDaRivedere = async () => {
     try {
-      const res = await fetch("/api/ideas-data");
+      const res = await fetch("/api/decisions?soloConteggio=1");
       if (!res.ok) return;
-      const dataRes = await res.json();
-      const loaded = dataRes.ideas || [];
-      const daValutare = loaded.filter(i=>(i.stato||"Da valutare")==="Da valutare");
-      if (daValutare.length > 0) {
-        setIdeas(loaded);
-        setShowFridayRitual(true);
-        localStorage.setItem("dario-friday-ritual-shown", oggi);
-      }
+      const d = await res.json();
+      setDecisioniDaRivedere(d.daRivedere || 0);
     } catch {}
   };
 
-  // Le tre azioni del rito del venerdì: "diventa task" crea davvero il
-  // task nel To-Do di ClickUp (stessa API del bottone + task manuale),
-  // "scarta" e "ignora ancora" aggiornano solo lo stato su Notion — quarta
-  // opzione implicita è chiudere il modal, che lascia tutto "Da valutare"
-  // per la prossima volta.
-  const fridayIdeaToTask = async (idea) => {
-    setFridayBusyId(idea.notionId);
-    try {
-      await fetch("/api/create-task",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:idea.text,list:"todo"})});
-      await setIdeaStato(idea.notionId, "Diventata task");
-    } catch {}
-    setFridayBusyId(null);
-  };
-  const fridayIdeaScarta = async (idea) => {
-    setFridayBusyId(idea.notionId);
-    await setIdeaStato(idea.notionId, "Scartata");
-    setFridayBusyId(null);
-  };
-  // Usato dal rito del venerdì per marcare lo stato di un'idea senza
-  // rimuoverla dalla lista (a differenza di removeIdea, che la archivia).
-  const setIdeaStato = async (notionId, stato) => {
-    setIdeas(prev=>prev.map(i=>i.notionId===notionId?{...i,stato}:i));
-    try { await fetch("/api/ideas-data",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({notionId,stato})}); } catch {}
-  };
-
-  // Backup completo: aggrega ClickUp (to-do/routine/streak/finanze/peso) e
-  // Notion (pipeline) lato server (/api/backup), poi aggiunge qui le idee
-  // vocali che invece vivono solo in localStorage — nessuna delle due fonti
-  // da sola basterebbe a ricostruire tutto. Il file scaricato è un JSON
-  // leggibile, pensato per essere riaperto a mano in caso di disastro, non
-  // per un ripristino automatico (che oggi non esiste).
+  // Backup completo: aggrega ClickUp (to-do/routine/streak/finanze/peso/
+  // abitudini/diario/decisioni) e Notion (pipeline), tutto lato server in
+  // /api/backup. Il file scaricato è un JSON leggibile, pensato per essere
+  // riaperto a mano in caso di disastro, non per un ripristino automatico
+  // (che oggi non esiste).
   const downloadBackup = async () => {
     setBackupStatus("loading");
     try {
       const res = await fetch("/api/backup");
       const payload = await res.json();
-      // Le idee non sono più tenute in stato qui (vivono nella pagina
-      // "Idee" dedicata): per il backup le recuperiamo fresche al momento,
-      // unica occasione in cui vale la chiamata extra a Notion.
-      try {
-        const ideasRes = await fetch("/api/ideas-data");
-        payload.data.ideas_vocali = ideasRes.ok ? (await ideasRes.json()).ideas || [] : [];
-      } catch { payload.data.ideas_vocali = []; }
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -959,6 +910,14 @@ export default function App() {
                   borderLeft:`3px solid ${view===item.id?c:"transparent"}`,
                   color:view===item.id?c:T.textDim,cursor:"pointer",fontSize:13,fontWeight:600,textAlign:"left"}}>
                 <span>{item.icon}</span>{item.label}
+                {/* Pallino ambra sul tab Decisioni: numero, non solo forma —
+                    "3 da rivedere" e "1 da rivedere" richiedono due reazioni
+                    diverse, e un pallino muto le appiattirebbe. */}
+                {item.id==="decisioni" && decisioniDaRivedere>0 && (
+                  <span style={{marginLeft:"auto",minWidth:18,height:18,padding:"0 5px",borderRadius:9,background:"#F59E0B",color:"#0F172A",fontSize:10,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center"}}>
+                    {decisioniDaRivedere}
+                  </span>
+                )}
               </button>
               );
             })}
@@ -983,7 +942,7 @@ export default function App() {
           {view==="finanze"  && <BrunoPage  fontSize={fontSize} theme={theme} isMobile={isMobile}/>}
           {view==="pipeline" && <PipelinePage fontSize={fontSize} theme={theme} onGoToIagrex={()=>setView("iagrex")}/>}
           {view==="clienti"  && <ClientiPage  fontSize={fontSize} theme={theme}/>}
-          {view==="idee"     && <IdeasPage    fontSize={fontSize} theme={theme}/>}
+          {view==="decisioni" && <DecisionsPage fontSize={fontSize} theme={theme} isMobile={isMobile} onCountChange={setDecisioniDaRivedere}/>}
           {view==="simulatore" && <SimulatorPage fontSize={fontSize} onBack={()=>setView("home")} theme={theme}/>}
           {view==="calcolatrice" && <CalculatorPage fontSize={fontSize} onBack={()=>setView("home")} theme={theme}/>}
           {view==="abitudini" && <HabitsPage fontSize={fontSize} theme={theme} isMobile={isMobile}/>}
@@ -1021,6 +980,18 @@ export default function App() {
                 <div style={{margin:"10px 16px 0",padding:"8px 12px",borderRadius:8,border:"1px solid #8B5CF640",background:"#8B5CF60D",color:"#8B5CF6",fontSize:12,flexShrink:0}}>
                   👋 Bentornato! Non aprivi l'app da {inactivityDays} giorn{inactivityDays===1?"o":"i"}
                   {leadDaRicontattare.length>0 ? ` — hai ${leadDaRicontattare.length} lead in attesa in pipeline.` : "."}
+                </div>
+              )}
+
+              {/* Promemoria revisione decisioni. Sta in home e non solo sul
+                  tab perché una revisione mancata non fa rumore: nessuno te
+                  la chiede, nessun cliente aspetta, e sparisce. Il banner è
+                  l'unico attrito che la tiene in vita. */}
+              {decisioniDaRivedere > 0 && (
+                <div onClick={()=>setView("decisioni")}
+                  style={{margin:"10px 16px 0",padding:"8px 12px",borderRadius:8,border:"1px solid #F59E0B40",background:"#F59E0B0D",color:"#F59E0B",fontSize:12,flexShrink:0,cursor:"pointer"}}
+                  title="Decisioni la cui data di revisione è arrivata">
+                  ⚖️ {decisioniDaRivedere} decision{decisioniDaRivedere===1?"e":"i"} da rivedere — è arrivata la data che ti eri dato.
                 </div>
               )}
 
@@ -1257,9 +1228,14 @@ export default function App() {
             const c = item.color || T.cardText;
             return (
             <button key={item.id} onClick={()=>setView(item.id)}
-              style={{flex:1,padding:"6px 2px",borderRadius:8,border:"none",background:view===item.id?T.border:"transparent",color:view===item.id?c:T.textDim,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1}}>
+              style={{flex:1,padding:"6px 2px",borderRadius:8,border:"none",background:view===item.id?T.border:"transparent",color:view===item.id?c:T.textDim,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1,position:"relative"}}>
               <span style={{fontSize:18}}>{item.icon}</span>
               <span style={{fontSize:8}}>{item.label}</span>
+              {item.id==="decisioni" && decisioniDaRivedere>0 && (
+                <span style={{position:"absolute",top:2,right:"50%",marginRight:-16,minWidth:14,height:14,padding:"0 3px",borderRadius:7,background:"#F59E0B",color:"#0F172A",fontSize:9,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  {decisioniDaRivedere}
+                </span>
+              )}
             </button>
             );
           })}
@@ -1278,45 +1254,6 @@ export default function App() {
               <button onClick={()=>setShowWeightModal(false)} style={{flex:1,padding:10,borderRadius:8,border:"1px solid #1A1A2E",background:"transparent",color:"#475569",cursor:"pointer",fontSize:14}}>Annulla</button>
               <button onClick={saveWeightModal} style={{flex:1,padding:10,borderRadius:8,border:"none",background:"#F97316",color:"#fff",cursor:"pointer",fontSize:14,fontWeight:700}}>Salva</button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* IDEA MODAL */}
-      {/* RITO DEL VENERDÌ: revisione idee "Da valutare" accumulate durante
-          la settimana. Per ciascuna, tre scelte esplicite invece di
-          lasciarle marcire in una lista che non si riguarda mai. */}
-      {showFridayRitual && (
-        <div style={{position:"fixed",inset:0,background:"#00000090",zIndex:998,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setShowFridayRitual(false)}>
-          <div style={{background:"#0F0F1A",border:"1px solid #8B5CF640",borderRadius:16,padding:24,width:"100%",maxWidth:480,maxHeight:"80vh",display:"flex",flexDirection:"column"}} onClick={e=>e.stopPropagation()}>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
-              <div style={{fontSize:14,fontWeight:700,color:"#F8FAFC"}}>🗓️ Rito del venerdì — Idee da rivedere</div>
-              <button onClick={()=>setShowFridayRitual(false)} style={{width:26,height:26,borderRadius:6,border:"none",background:"#1A1A2E",color:"#94A3B8",cursor:"pointer",fontSize:13}}>×</button>
-            </div>
-            <div style={{fontSize:11,color:"#64748B",marginBottom:14}}>Per ognuna: la trasformi in task, la scarti, o la lasci per la prossima volta.</div>
-            <div style={{overflowY:"auto",flex:1,display:"flex",flexDirection:"column",gap:10}}>
-              {ideas.filter(i=>(i.stato||"Da valutare")==="Da valutare").map(i=>(
-                <div key={i.notionId} style={{background:"#09090F",border:"1px solid #1A1A2E",borderRadius:10,padding:12}}>
-                  <div style={{fontSize:13,color:"#E2E8F0",lineHeight:1.4,marginBottom:10}}>{i.text}</div>
-                  <div style={{display:"flex",gap:6}}>
-                    <button onClick={()=>fridayIdeaToTask(i)} disabled={fridayBusyId===i.notionId}
-                      style={{flex:1,padding:"7px 0",borderRadius:7,border:"1px solid #10B98140",background:"#10B98115",color:"#10B981",cursor:"pointer",fontSize:11,fontWeight:600}}>
-                      ✅ Diventa task
-                    </button>
-                    <button onClick={()=>fridayIdeaScarta(i)} disabled={fridayBusyId===i.notionId}
-                      style={{flex:1,padding:"7px 0",borderRadius:7,border:"1px solid #EF444440",background:"#EF444415",color:"#EF4444",cursor:"pointer",fontSize:11,fontWeight:600}}>
-                      🗑️ Scarta
-                    </button>
-                  </div>
-                </div>
-              ))}
-              {ideas.filter(i=>(i.stato||"Da valutare")==="Da valutare").length===0 && (
-                <div style={{fontSize:12,color:"#475569",textAlign:"center",padding:"20px 0"}}>Tutto smaltito 🎉</div>
-              )}
-            </div>
-            <button onClick={()=>setShowFridayRitual(false)} style={{marginTop:14,padding:10,borderRadius:8,border:"1px solid #1A1A2E",background:"transparent",color:"#475569",cursor:"pointer",fontSize:13}}>
-              Ignora ancora tutte — richiedi il prossimo venerdì
-            </button>
           </div>
         </div>
       )}
