@@ -52,16 +52,19 @@ export async function POST(request) {
 // significherebbe tre file che rileggono e riscrivono la stessa risorsa.
 //   azione "modifica"  → correggi la decisione (solo entro 24 ore)
 //   azione "revisione" → compila le sei domande del follow-up
-//   azione "rimanda"   → sposta la data di revisione di N giorni
+//   azione "rimanda"   → sposta di N giorni una delle date di revisione
+//
+// "revisione" e "rimanda" vogliono anche "indice": una decisione può avere
+// fino a tre revisioni, e l'id da solo non basta più a dire quale.
 export async function PATCH(request) {
   try {
     const body = await request.json();
-    const { id, azione } = body;
+    const { id, azione, indice } = body;
     if (!id) return Response.json({ error: "id mancante" }, { status: 400 });
 
     let esito;
-    if (azione === "revisione")      esito = await salvaRevisione(id, body);
-    else if (azione === "rimanda")   esito = await rimandaRevisione(id, body.giorni);
+    if (azione === "revisione")      esito = await salvaRevisione(id, indice, body);
+    else if (azione === "rimanda")   esito = await rimandaRevisione(id, indice, body.giorni);
     else                             esito = await aggiornaDecisione(id, body);
 
     if (!esito.ok) return errore(esito);

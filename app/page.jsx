@@ -356,10 +356,14 @@ export default function App() {
   // all'obiettivo 1M€ — quanto MRR potenziale sta maturando nelle trattative.
   const [pipelineStats, setPipelineStats] = useState(null); // {leads, lordo, ponderato}
   const [inactivityDays, setInactivityDays] = useState(0);
-  // Decisioni da rivedere: solo il conteggio, non l'elenco. Serve al banner
-  // in home e al pallino sul tab — l'elenco vero lo carica la pagina
+  // Revisioni in scadenza: solo il conteggio, non l'elenco. Serve al banner
+  // in home e al badge sul tab — l'elenco vero lo carica la pagina
   // Decisioni quando ci arrivi. Un conteggio è una riga di JSON, tenerlo
   // qui non pesa; tenere qui tutte le decisioni sì.
+  //
+  // Conta le REVISIONI e non le decisioni: una stessa decisione può averne
+  // tre, e se hai saltato quella di un mese mentre arrivava quella di sei
+  // mesi sono due cose da scrivere, non una.
   const [decisioniDaRivedere, setDecisioniDaRivedere] = useState(0);
   const [backupStatus, setBackupStatus]     = useState(null); // null | "loading" | "done" | "error"
   const [deviceTzLabel, setDeviceTzLabel]   = useState(null); // {label,time} se il device è in un fuso diverso da Bucarest
@@ -991,7 +995,7 @@ export default function App() {
                 <div onClick={()=>setView("decisioni")}
                   style={{margin:"10px 16px 0",padding:"8px 12px",borderRadius:8,border:"1px solid #F59E0B40",background:"#F59E0B0D",color:"#F59E0B",fontSize:12,flexShrink:0,cursor:"pointer"}}
                   title="Decisioni la cui data di revisione è arrivata">
-                  ⚖️ {decisioniDaRivedere} decision{decisioniDaRivedere===1?"e":"i"} da rivedere — è arrivata la data che ti eri dato.
+                  ⚖️ {decisioniDaRivedere} revision{decisioniDaRivedere===1?"e":"i"} da fare — è arrivata la data che ti eri dato.
                 </div>
               )}
 

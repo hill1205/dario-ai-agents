@@ -7,12 +7,17 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 // è voluta: le Idee catturavano pensieri senza costo e senza seguito, e per
 // questo si accumulavano senza essere mai riguardate. Qui il costo di
 // scrittura è alto di proposito — dieci campi — e in cambio ogni voce ha
-// una data in cui torna a chiedere conto di sé.
+// almeno una data in cui torna a chiedere conto di sé.
 //
 // Due tempi:
 //   1. la decisione, scritta PRIMA di sapere com'è andata (si congela dopo
 //      24 ore: vedi lib/decisions-store.js);
-//   2. la revisione, sei domande fisse alla data prevista.
+//   2. fino a tre revisioni, ognuna con la sua data e il suo focus.
+//
+// Tre revisioni e non una perché non tutte le decisioni maturano allo
+// stesso ritmo: "comprare la macchina" si giudica una volta, "iscrivermi in
+// palestra" a un mese dice solo se hai continuato, a sei mesi si vede il
+// corpo, a un anno sai se è servito.
 //
 // I componenti di supporto stanno a livello di modulo e non dentro
 // DecisionsPage: definire un componente dentro un altro lo fa rimontare a
@@ -29,6 +34,8 @@ const VERDE = "#10B981";
 const ROSSO = "#EF4444";
 const AMBRA = "#F59E0B";
 const BLU   = "#3B82F6";
+
+const ORDINALI = ["Prima", "Seconda", "Terza"];
 
 const AMBITI = [
   { id:"business",  label:"💼 Business",  color:BLU },
@@ -57,16 +64,6 @@ function fiduciaLabel(n) {
 const oggiISO = () =>
   new Intl.DateTimeFormat("en-CA",{timeZone:"Europe/Bucharest",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
 
-// Scorciatoie per la data di revisione. Esistono perché il campo data è
-// l'attrito principale del form: se devi aprire un calendario e contare i
-// mesi, finisci per lasciarlo vuoto — e una decisione senza data di
-// revisione è una decisione che non rivedrai mai.
-const PRESET_REVISIONE = [
-  { label:"1 mese",  giorni:30  },
-  { label:"3 mesi",  giorni:90  },
-  { label:"6 mesi",  giorni:182 },
-  { label:"1 anno",  giorni:365 },
-];
 function dataFraGiorni(giorni) {
   const d = new Date(`${oggiISO()}T12:00:00Z`);
   d.setUTCDate(d.getUTCDate() + giorni);
@@ -82,12 +79,35 @@ function giorniDa(iso) {
   return Math.round((new Date(`${iso}T12:00:00Z`) - new Date(`${oggiISO()}T12:00:00Z`)) / 86400000);
 }
 
+// Scorciatoie per le date. Esistono perché il campo data è l'attrito
+// principale del form: se devi aprire un calendario e contare i mesi,
+// finisci per lasciarlo vuoto. I default per riga (1 mese / 6 mesi / 1
+// anno) sono presi dal caso d'uso tipico — "ho continuato?", "si vedono
+// cambiamenti?", "è servito?".
+const PRESET = [
+  { label:"1 sett", giorni:7   },
+  { label:"1 mese", giorni:30  },
+  { label:"3 mesi", giorni:90  },
+  { label:"6 mesi", giorni:182 },
+  { label:"1 anno", giorni:365 },
+];
+const PRESET_DEFAULT = [30, 182, 365];
+
+// Suggerimenti di focus, uno per riga, ispirati alla progressione naturale:
+// prima verifichi che sia stato fatto, poi che stia cambiando qualcosa,
+// poi che sia servito.
+const FOCUS_PLACEHOLDER = [
+  "Es. ho continuato o ho mollato dopo due settimane?",
+  "Es. si vedono cambiamenti concreti?",
+  "Es. col senno di poi mi ha portato benefici veri?",
+];
+
 const BOZZA_VUOTA = {
   titolo:"", contesto:"", obiettivo:"", alternative:"", decisione:"",
   motivazione:"", fiducia:7, rischi:"", ambito:"business",
-  data: "", dataRevisione:"",
+  data:"", revisioni:[{data:"",focus:""},{data:"",focus:""},{data:"",focus:""}],
 };
-const REVISIONE_VUOTA = {
+const ESITO_VUOTO = {
   rifaresti:"in-parte", previsto:"", sottovalutato:"",
   risultato:"", imparato:"", diverso:"",
 };
@@ -128,11 +148,71 @@ function Riga({ etichetta, testo }) {
   );
 }
 
+// ── Una riga "data + focus" nel form della decisione ────────────────────
+
+function RigaRevisione({ indice, valore, onChange, obbligatoria }) {
+  const set = (k) => (v) => onChange({...valore, [k]:v});
+  const attiva = Boolean(valore.data);
+
+  return (
+    <div style={{
+      background:"var(--c-panel2)", borderRadius:9, padding:11, marginBottom:8,
+      border:`1px solid ${attiva ? (obbligatoria?`${VIOLA}40`:"var(--c-border)") : "var(--c-border)"}`,
+      opacity: attiva || obbligatoria ? 1 : .75,
+    }}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:8,flexWrap:"wrap"}}>
+        <span style={{fontSize:11,fontWeight:700,color:attiva?"var(--c-text-muted)":"var(--c-text-faint)"}}>
+          {ORDINALI[indice]} revisione {obbligatoria
+            ? <span style={{color:VIOLA}}>· obbligatoria</span>
+            : <span style={{color:"var(--c-text-faintest)"}}>· facoltativa</span>}
+        </span>
+        <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+          {PRESET.map(p=>{
+            const val = dataFraGiorni(p.giorni);
+            const sel = valore.data===val;
+            return (
+              <button key={p.label} onClick={()=>set("data")(sel?"":val)}
+                style={{padding:"3px 8px",borderRadius:6,cursor:"pointer",fontSize:10,fontWeight:600,
+                  border:`1px solid ${sel?VIOLA:"var(--c-border)"}`,
+                  background:sel?`${VIOLA}18`:"transparent",
+                  color:sel?VIOLA:"var(--c-text-faint)"}}>
+                {p.label}
+              </button>
+            );
+          })}
+          {valore.data && !obbligatoria && (
+            <button onClick={()=>onChange({data:"",focus:""})}
+              style={{padding:"3px 8px",borderRadius:6,cursor:"pointer",fontSize:10,border:"1px solid var(--c-border)",background:"transparent",color:ROSSO}}>
+              rimuovi
+            </button>
+          )}
+        </div>
+      </div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        <input type="date" value={valore.data} min={oggiISO()}
+          onChange={e=>set("data")(e.target.value)}
+          style={{...inputStyle,flex:"0 1 150px"}}/>
+        <input value={valore.focus} onChange={e=>set("focus")(e.target.value)}
+          disabled={!attiva}
+          placeholder={FOCUS_PLACEHOLDER[indice]}
+          style={{...inputStyle,flex:"1 1 220px",opacity:attiva?1:.5}}/>
+      </div>
+    </div>
+  );
+}
+
 // ── Form nuova decisione ────────────────────────────────────────────────
 
 function FormDecisione({ bozza, setBozza, onSalva, onAnnulla, salvando, errore, modifica }) {
   const set = (k) => (v) => setBozza(prev=>({...prev,[k]:v}));
   const fid = fiduciaLabel(bozza.fiducia);
+
+  const setRevisione = (i) => (val) =>
+    setBozza(prev=>{
+      const revisioni = [...prev.revisioni];
+      revisioni[i] = val;
+      return {...prev, revisioni};
+    });
 
   return (
     <div style={{background:"var(--c-panel)",border:`1px solid ${VIOLA}40`,borderRadius:12,padding:16,marginBottom:16}}>
@@ -142,7 +222,7 @@ function FormDecisione({ bozza, setBozza, onSalva, onAnnulla, salvando, errore, 
       <div style={{fontSize:11,color:"var(--c-text-faint)",marginBottom:16,lineHeight:1.5}}>
         {modifica
           ? "Hai 24 ore dalla creazione per correggere. Dopo si congela."
-          : "Scrivila adesso, prima di sapere com'è andata. È il confronto tra questo testo e la revisione a valere qualcosa — non il testo da solo."}
+          : "Scrivila adesso, prima di sapere com'è andata. È il confronto tra questo testo e le revisioni a valere qualcosa — non il testo da solo."}
       </div>
 
       {errore && (
@@ -153,7 +233,7 @@ function FormDecisione({ bozza, setBozza, onSalva, onAnnulla, salvando, errore, 
 
       <Campo label="Titolo *">
         <input value={bozza.titolo} onChange={e=>set("titolo")(e.target.value)}
-          placeholder="Es. Smettere di fare outreach a freddo su LinkedIn"
+          placeholder="Es. Iscrivermi in palestra tre volte a settimana"
           style={inputStyle}/>
       </Campo>
 
@@ -216,29 +296,22 @@ function FormDecisione({ bozza, setBozza, onSalva, onAnnulla, salvando, errore, 
         </div>
       </Campo>
 
-      <Campo label="Rischi previsti" aiuto="Cosa può andare storto, secondo te, oggi. Alla revisione confronterai questa lista con quello che è andato storto davvero.">
+      <Campo label="Rischi previsti" aiuto="Cosa può andare storto, secondo te, oggi. Alle revisioni confronterai questa lista con quello che è andato storto davvero.">
         <AreaTesto value={bozza.rischi} onChange={set("rischi")} rows={3}
           placeholder={"- Se succede X, allora...\n- Il rischio grosso è..."}/>
       </Campo>
 
-      <Campo label="Data di revisione" aiuto="Quando torni a chiederti se è stata la scelta giusta. Lasciala vuota solo se davvero non c'è niente da rivedere.">
-        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>
-          {PRESET_REVISIONE.map(p=>{
-            const val = dataFraGiorni(p.giorni);
-            const attivo = bozza.dataRevisione===val;
-            return (
-              <button key={p.label} onClick={()=>set("dataRevisione")(attivo?"":val)}
-                style={{padding:"5px 11px",borderRadius:7,cursor:"pointer",fontSize:11,fontWeight:600,
-                  border:`1px solid ${attivo?VIOLA:"var(--c-border)"}`,
-                  background:attivo?`${VIOLA}18`:"transparent",
-                  color:attivo?VIOLA:"var(--c-text-faint)"}}>
-                {p.label}
-              </button>
-            );
-          })}
-        </div>
-        <input type="date" value={bozza.dataRevisione} min={oggiISO()}
-          onChange={e=>set("dataRevisione")(e.target.value)} style={inputStyle}/>
+      <Campo
+        label="Date di revisione"
+        aiuto="La prima è obbligatoria. Le altre due servono quando una decisione matura per gradi: a un mese sai solo se hai continuato, a sei mesi vedi i primi effetti, a un anno sai se è servita. Accanto a ogni data scrivi cosa vuoi verificare — te la ritroverai davanti quando arriva il momento.">
+        {bozza.revisioni.map((r,i)=>(
+          <RigaRevisione key={i} indice={i} valore={r} onChange={setRevisione(i)} obbligatoria={i===0}/>
+        ))}
+        <button
+          onClick={()=>setBozza(prev=>({...prev,revisioni:PRESET_DEFAULT.map((g,i)=>({data:dataFraGiorni(g),focus:prev.revisioni[i]?.focus||""}))}))}
+          style={{padding:"5px 11px",borderRadius:7,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-faint)",cursor:"pointer",fontSize:11}}>
+          ⚡ Riempi tutte e tre (1 mese / 6 mesi / 1 anno)
+        </button>
       </Campo>
 
       <div style={{display:"flex",gap:8,marginTop:18}}>
@@ -255,19 +328,80 @@ function FormDecisione({ bozza, setBozza, onSalva, onAnnulla, salvando, errore, 
   );
 }
 
-// ── Form revisione ──────────────────────────────────────────────────────
+// ── Esito di una revisione già compilata (sola lettura) ─────────────────
 
-function FormRevisione({ decisione, bozza, setBozza, onSalva, onAnnulla, salvando, errore }) {
+function EsitoRevisione({ rev, indice }) {
+  const rif = rifarestiInfo(rev.esito.rifaresti);
+  return (
+    <div style={{background:"var(--c-panel2)",border:`1px solid ${VERDE}30`,borderRadius:10,padding:13,marginTop:10}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,flexWrap:"wrap"}}>
+        <span style={{fontSize:12,fontWeight:700,color:"var(--c-text-strong)"}}>
+          🔍 {ORDINALI[indice]} revisione — {formattaData(rev.esito.data)}
+        </span>
+        <span style={{fontSize:11,fontWeight:700,color:rif.color,background:`${rif.color}18`,padding:"2px 8px",borderRadius:9}}>
+          {rif.label}
+        </span>
+      </div>
+      {rev.focus && (
+        <div style={{fontSize:11,color:"var(--c-text-faint)",fontStyle:"italic",marginBottom:10,lineHeight:1.4}}>
+          Volevi verificare: {rev.focus}
+        </div>
+      )}
+      <Riga etichetta="Risultato"              testo={rev.esito.risultato}/>
+      <Riga etichetta="Previsto correttamente" testo={rev.esito.previsto}/>
+      <Riga etichetta="Sottovalutato"          testo={rev.esito.sottovalutato}/>
+      <Riga etichetta="Imparato"               testo={rev.esito.imparato}/>
+      <Riga etichetta="Cosa farei di diverso"  testo={rev.esito.diverso}/>
+    </div>
+  );
+}
+
+// ── Form di compilazione di una revisione ───────────────────────────────
+
+function FormRevisione({ decisione, indice, bozza, setBozza, onSalva, onAnnulla, salvando, errore }) {
   const set = (k) => (v) => setBozza(prev=>({...prev,[k]:v}));
   const fid = fiduciaLabel(decisione.fiducia);
+  const rev = decisione.revisioni[indice];
+  // Le revisioni già compilate PRIMA di questa. Rimetterle davanti è il
+  // motivo per cui esistono tre date invece di una: a sei mesi non stai
+  // giudicando solo la decisione di febbraio, stai anche verificando se
+  // quello che avevi scritto al primo mese ha tenuto.
+  const precedenti = decisione.revisioni.slice(0, indice).filter(r=>r.esito);
 
   return (
     <div style={{background:"var(--c-panel2)",border:`1px solid ${AMBRA}40`,borderRadius:10,padding:14,marginTop:12}}>
-      <div style={{fontSize:13,fontWeight:700,color:"var(--c-text-strong)",marginBottom:4}}>🔍 Revisione</div>
-      <div style={{fontSize:11,color:"var(--c-text-faint)",marginBottom:14,lineHeight:1.5}}>
-        Prima di rispondere rileggi sopra cosa avevi scritto il {formattaData(decisione.data)}.
-        Eri a <strong style={{color:fid.color}}>{decisione.fiducia}/10</strong> di fiducia.
+      <div style={{fontSize:13,fontWeight:700,color:"var(--c-text-strong)",marginBottom:4}}>
+        🔍 {ORDINALI[indice]} revisione
       </div>
+      <div style={{fontSize:11,color:"var(--c-text-faint)",marginBottom:12,lineHeight:1.5}}>
+        Decisione presa il {formattaData(decisione.data)}, con fiducia{" "}
+        <strong style={{color:fid.color}}>{decisione.fiducia}/10</strong>. Rileggi sopra cosa avevi scritto prima di rispondere.
+      </div>
+
+      {rev?.focus && (
+        <div style={{background:`${AMBRA}12`,border:`1px solid ${AMBRA}30`,borderRadius:8,padding:"9px 11px",marginBottom:12}}>
+          <div style={{fontSize:10,fontWeight:700,color:AMBRA,textTransform:"uppercase",letterSpacing:.4,marginBottom:3}}>
+            Quello che volevi verificare qui
+          </div>
+          <div style={{fontSize:13,color:"var(--c-text)",lineHeight:1.4}}>{rev.focus}</div>
+        </div>
+      )}
+
+      {precedenti.length > 0 && (
+        <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:8,padding:"10px 11px",marginBottom:12}}>
+          <div style={{fontSize:10,fontWeight:700,color:"var(--c-text-faint)",textTransform:"uppercase",letterSpacing:.4,marginBottom:6}}>
+            Cosa avevi scritto alle revisioni precedenti
+          </div>
+          {precedenti.map((p,i)=>(
+            <div key={i} style={{marginBottom:i<precedenti.length-1?9:0,paddingBottom:i<precedenti.length-1?9:0,borderBottom:i<precedenti.length-1?"1px dashed var(--c-border)":"none"}}>
+              <div style={{fontSize:11,color:"var(--c-text-muted)",fontWeight:600,marginBottom:3}}>
+                {ORDINALI[i]} — {formattaData(p.esito.data)} · {rifarestiInfo(p.esito.rifaresti).label}
+              </div>
+              {p.esito.risultato && <div style={{fontSize:12,color:"var(--c-text)",lineHeight:1.45,whiteSpace:"pre-wrap"}}>{p.esito.risultato}</div>}
+            </div>
+          ))}
+        </div>
+      )}
 
       {errore && (
         <div style={{background:`${ROSSO}15`,border:`1px solid ${ROSSO}40`,borderRadius:8,padding:"8px 11px",fontSize:12,color:ROSSO,marginBottom:14}}>
@@ -323,27 +457,87 @@ function FormRevisione({ decisione, bozza, setBozza, onSalva, onAnnulla, salvand
   );
 }
 
+// ── Timeline compatta delle revisioni (dentro la card aperta) ───────────
+
+function TimelineRevisioni({ revisioni, onRivedi, onRimanda }) {
+  const oggi = oggiISO();
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:6,marginTop:12}}>
+      {revisioni.map((r,i)=>{
+        const fatta = Boolean(r.esito);
+        const scaduta = !fatta && r.data <= oggi;
+        const g = giorniDa(r.data);
+        const colore = fatta ? VERDE : scaduta ? AMBRA : "var(--c-text-faint)";
+        const stato = fatta
+          ? `compilata il ${formattaData(r.esito.data)}`
+          : scaduta
+            ? (g===0 ? "scade oggi" : `in ritardo di ${Math.abs(g)} giorni`)
+            : `fra ${g} giorni`;
+        return (
+          <div key={i} style={{display:"flex",alignItems:"center",gap:9,flexWrap:"wrap",
+            background:"var(--c-panel2)",border:`1px solid ${scaduta?`${AMBRA}40`:"var(--c-border)"}`,
+            borderRadius:8,padding:"7px 10px"}}>
+            <span style={{fontSize:13,flexShrink:0}}>{fatta?"✅":scaduta?"🔔":"⏳"}</span>
+            <div style={{flex:1,minWidth:120}}>
+              <div style={{fontSize:11,fontWeight:700,color:"var(--c-text-muted)"}}>
+                {ORDINALI[i]} · {formattaData(r.data)}{" "}
+                <span style={{fontWeight:500,color:colore}}>— {stato}</span>
+              </div>
+              {r.focus && <div style={{fontSize:11,color:"var(--c-text-faint)",lineHeight:1.35,marginTop:2}}>{r.focus}</div>}
+            </div>
+            <div style={{display:"flex",gap:5,flexShrink:0}}>
+              <button onClick={()=>onRivedi(i)}
+                style={{padding:"5px 10px",borderRadius:6,cursor:"pointer",fontSize:10,fontWeight:600,
+                  border:`1px solid ${fatta?"var(--c-border)":`${AMBRA}40`}`,
+                  background:fatta?"transparent":`${AMBRA}15`,
+                  color:fatta?"var(--c-text-faint)":AMBRA}}>
+                {fatta?"riscrivi":"compila"}
+              </button>
+              {!fatta && (
+                <button onClick={()=>onRimanda(i,30)}
+                  style={{padding:"5px 9px",borderRadius:6,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-faint)",cursor:"pointer",fontSize:10}}
+                  title="Sposta questa revisione di 30 giorni">
+                  +30g
+                </button>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ── Card decisione ──────────────────────────────────────────────────────
 
 function CardDecisione({
   d, aperta, onToggle, onRivedi, onRimanda, onModifica, onElimina,
-  revisioneAttiva, bozzaRevisione, setBozzaRevisione, salvaRevisione,
+  revisioneAttiva, bozzaEsito, setBozzaEsito, salvaEsito,
   chiudiRevisione, salvando, erroreRevisione,
 }) {
   const amb = ambitoInfo(d.ambito);
   const fid = fiduciaLabel(d.fiducia);
-  const giorni = giorniDa(d.dataRevisione);
+  const revisioni = d.revisioni || [];
+  const compilate = revisioni.filter(r=>r.esito).length;
+  const prossima = revisioni.find(r=>!r.esito);
+  const tutteFatte = revisioni.length > 0 && compilate === revisioni.length;
 
   // Il bordo sinistro è l'unico segnale che leggi senza aprire nulla:
-  // ambra = ti sta aspettando, verde = chiusa e archiviata, colore
+  // ambra = ti sta aspettando, verde = tutte le revisioni chiuse, colore
   // dell'ambito = in corso, nulla da fare per ora.
-  const bordo = d.daRivedere ? AMBRA : d.revisione ? VERDE : amb.color;
+  const bordo = d.daRivedere ? AMBRA : tutteFatte ? VERDE : amb.color;
 
   let stato;
-  if (d.revisione)          stato = { txt:`Rivista il ${formattaData(d.revisione.data)}`, color:VERDE };
-  else if (d.daRivedere)    stato = { txt: giorni === 0 ? "Da rivedere oggi" : `Da rivedere da ${Math.abs(giorni)} giorni`, color:AMBRA };
-  else if (d.dataRevisione) stato = { txt:`Revisione fra ${giorni} giorni`, color:"var(--c-text-faint)" };
-  else                      stato = { txt:"Nessuna revisione prevista", color:"var(--c-text-faintest)" };
+  if (d.daRivedere) {
+    const g = giorniDa(prossima?.data);
+    stato = { txt: g === 0 ? "Da rivedere oggi" : `Da rivedere da ${Math.abs(g)} giorni`, color:AMBRA };
+  } else if (tutteFatte) {
+    stato = { txt:"Tutte le revisioni fatte", color:VERDE };
+  } else if (prossima) {
+    stato = { txt:`Prossima revisione fra ${giorniDa(prossima.data)} giorni`, color:"var(--c-text-faint)" };
+  } else {
+    stato = { txt:"Nessuna revisione prevista", color:"var(--c-text-faintest)" };
+  }
 
   return (
     <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderLeft:`3px solid ${bordo}`,borderRadius:10,padding:14}}>
@@ -355,6 +549,9 @@ function CardDecisione({
               <span style={{fontSize:10,color:amb.color,fontWeight:600,background:`${amb.color}18`,padding:"2px 7px",borderRadius:9}}>{amb.label}</span>
               <span style={{fontSize:11,color:"var(--c-text-faint)"}}>{formattaData(d.data)}</span>
               <span style={{fontSize:11,color:fid.color}}>fiducia {d.fiducia}/10</span>
+              {revisioni.length>0 && (
+                <span style={{fontSize:11,color:"var(--c-text-faint)"}}>revisioni {compilate}/{revisioni.length}</span>
+              )}
               <span style={{fontSize:11,color:stato.color,fontWeight:600}}>· {stato.txt}</span>
             </div>
           </div>
@@ -371,61 +568,41 @@ function CardDecisione({
           <Riga etichetta="Motivazione" testo={d.motivazione}/>
           <Riga etichetta="Rischi previsti" testo={d.rischi}/>
 
-          <div style={{display:"flex",gap:14,flexWrap:"wrap",fontSize:11,color:"var(--c-text-faint)",marginTop:8,paddingTop:8,borderTop:"1px dashed var(--c-border)"}}>
-            <span>Fiducia dichiarata: <strong style={{color:fid.color}}>{d.fiducia}/10 — {fid.txt}</strong></span>
-            <span>Revisione: <strong style={{color:"var(--c-text-muted)"}}>{formattaData(d.dataRevisione)}</strong></span>
+          <div style={{fontSize:11,color:"var(--c-text-faint)",marginTop:8,paddingTop:8,borderTop:"1px dashed var(--c-border)"}}>
+            Fiducia dichiarata: <strong style={{color:fid.color}}>{d.fiducia}/10 — {fid.txt}</strong>
           </div>
 
-          {d.revisione && (
-            <div style={{background:"var(--c-panel2)",border:`1px solid ${VERDE}30`,borderRadius:10,padding:13,marginTop:14}}>
-              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,flexWrap:"wrap"}}>
-                <span style={{fontSize:12,fontWeight:700,color:"var(--c-text-strong)"}}>🔍 Revisione del {formattaData(d.revisione.data)}</span>
-                <span style={{fontSize:11,fontWeight:700,color:rifarestiInfo(d.revisione.rifaresti).color,background:`${rifarestiInfo(d.revisione.rifaresti).color}18`,padding:"2px 8px",borderRadius:9}}>
-                  {rifarestiInfo(d.revisione.rifaresti).label}
-                </span>
-              </div>
-              <Riga etichetta="Risultato"                testo={d.revisione.risultato}/>
-              <Riga etichetta="Previsto correttamente"   testo={d.revisione.previsto}/>
-              <Riga etichetta="Sottovalutato"            testo={d.revisione.sottovalutato}/>
-              <Riga etichetta="Imparato"                 testo={d.revisione.imparato}/>
-              <Riga etichetta="Cosa farei di diverso"    testo={d.revisione.diverso}/>
-            </div>
-          )}
+          <TimelineRevisioni revisioni={revisioni} onRivedi={onRivedi} onRimanda={onRimanda}/>
 
-          {revisioneAttiva ? (
+          {revisioni.map((r,i)=> r.esito && revisioneAttiva!==i
+            ? <EsitoRevisione key={i} rev={r} indice={i}/>
+            : null)}
+
+          {revisioneAttiva !== null && revisioni[revisioneAttiva] && (
             <FormRevisione
               decisione={d}
-              bozza={bozzaRevisione}
-              setBozza={setBozzaRevisione}
-              onSalva={salvaRevisione}
+              indice={revisioneAttiva}
+              bozza={bozzaEsito}
+              setBozza={setBozzaEsito}
+              onSalva={salvaEsito}
               onAnnulla={chiudiRevisione}
               salvando={salvando}
               errore={erroreRevisione}
             />
-          ) : (
-            <div style={{display:"flex",gap:7,flexWrap:"wrap",marginTop:14}}>
-              <button onClick={onRivedi}
-                style={{padding:"7px 13px",borderRadius:7,border:`1px solid ${AMBRA}40`,background:`${AMBRA}15`,color:AMBRA,cursor:"pointer",fontSize:11,fontWeight:600}}>
-                {d.revisione ? "🔄 Riscrivi la revisione" : "🔍 Fai la revisione"}
-              </button>
-              {!d.revisione && d.dataRevisione && (
-                <button onClick={()=>onRimanda(30)}
-                  style={{padding:"7px 13px",borderRadius:7,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-faint)",cursor:"pointer",fontSize:11}}>
-                  ⏭️ Rimanda 30 giorni
-                </button>
-              )}
-              {d.modificabile && (
-                <button onClick={onModifica}
-                  style={{padding:"7px 13px",borderRadius:7,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-muted)",cursor:"pointer",fontSize:11}}>
-                  ✏️ Correggi
-                </button>
-              )}
-              <button onClick={onElimina}
-                style={{padding:"7px 11px",borderRadius:7,border:"1px solid var(--c-border)",background:"transparent",color:ROSSO,cursor:"pointer",fontSize:11,marginLeft:"auto"}}>
-                🗑️
-              </button>
-            </div>
           )}
+
+          <div style={{display:"flex",gap:7,flexWrap:"wrap",marginTop:14}}>
+            {d.modificabile && (
+              <button onClick={onModifica}
+                style={{padding:"7px 13px",borderRadius:7,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-muted)",cursor:"pointer",fontSize:11}}>
+                ✏️ Correggi
+              </button>
+            )}
+            <button onClick={onElimina}
+              style={{padding:"7px 11px",borderRadius:7,border:"1px solid var(--c-border)",background:"transparent",color:ROSSO,cursor:"pointer",fontSize:11,marginLeft:"auto"}}>
+              🗑️
+            </button>
+          </div>
         </div>
       )}
     </div>
@@ -437,7 +614,7 @@ function CardDecisione({
 const FILTRI = [
   { id:"da_rivedere", label:"Da rivedere" },
   { id:"aperte",      label:"In corso" },
-  { id:"riviste",     label:"Riviste" },
+  { id:"riviste",     label:"Con revisioni" },
   { id:"tutte",       label:"Tutte" },
 ];
 
@@ -455,8 +632,9 @@ export default function DecisionsPage({ fontSize=14, theme="dark", isMobile=fals
   const [bozza, setBozza]             = useState(BOZZA_VUOTA);
   const [erroreForm, setErroreForm]   = useState(null);
 
-  const [revisioneId, setRevisioneId]         = useState(null);
-  const [bozzaRevisione, setBozzaRevisione]   = useState(REVISIONE_VUOTA);
+  // Quale revisione si sta compilando: {id, indice}. Null = nessuna.
+  const [revisioneAttiva, setRevisioneAttiva] = useState(null);
+  const [bozzaEsito, setBozzaEsito]           = useState(ESITO_VUOTO);
   const [erroreRevisione, setErroreRevisione] = useState(null);
 
   const [salvando, setSalvando] = useState(false);
@@ -490,43 +668,55 @@ export default function DecisionsPage({ fontSize=14, theme="dark", isMobile=fals
   const decisioni = dati?.decisioni || [];
   const filtrate = useMemo(()=>{
     if (filtro==="da_rivedere") return decisioni.filter(d=>d.daRivedere);
-    if (filtro==="aperte")      return decisioni.filter(d=>!d.revisione);
-    if (filtro==="riviste")     return decisioni.filter(d=>d.revisione);
+    if (filtro==="aperte")      return decisioni.filter(d=>(d.revisioni||[]).some(r=>!r.esito));
+    if (filtro==="riviste")     return decisioni.filter(d=>(d.revisioni||[]).some(r=>r.esito));
     return decisioni;
   },[decisioni,filtro]);
 
   // Statistica sul modo di decidere, non sulle singole decisioni: quanto
   // spesso, a mente fredda, rifaresti quello che hai fatto. È l'unico
-  // numero della pagina che parla di te e non delle circostanze — e serve
-  // qualche revisione prima che significhi qualcosa, quindi compare solo
-  // da tre in su.
+  // numero della pagina che parla di te e non delle circostanze.
+  //
+  // Conta l'ULTIMA revisione compilata di ogni decisione, non tutte: la
+  // palestra a un mese può essere "sì" e a un anno "no", e quello che vale
+  // è il giudizio più informato, non la media dei tuoi entusiasmi. Servono
+  // tre decisioni giudicate prima che il numero significhi qualcosa.
   const tassoRifarei = useMemo(()=>{
-    const riviste = decisioni.filter(d=>d.revisione);
-    if (riviste.length < 3) return null;
-    const si = riviste.filter(d=>d.revisione.rifaresti==="si").length;
-    return { perc: Math.round(si/riviste.length*100), su: riviste.length };
+    const giudizi = decisioni
+      .map(d=>[...(d.revisioni||[])].reverse().find(r=>r.esito))
+      .filter(Boolean);
+    if (giudizi.length < 3) return null;
+    const si = giudizi.filter(r=>r.esito.rifaresti==="si").length;
+    return { perc: Math.round(si/giudizi.length*100), su: giudizi.length };
   },[decisioni]);
 
   const apriNuova = () => {
-    setBozza({...BOZZA_VUOTA, data:oggiISO()});
+    setBozza({...BOZZA_VUOTA, data:oggiISO(), revisioni:[{data:"",focus:""},{data:"",focus:""},{data:"",focus:""}]});
     setModificaId(null); setErroreForm(null); setMostraForm(true);
   };
   const apriModifica = (d) => {
+    // Il form ha sempre tre righe: quelle non usate restano vuote.
+    const revisioni = [0,1,2].map(i=>({
+      data: d.revisioni?.[i]?.data || "",
+      focus: d.revisioni?.[i]?.focus || "",
+    }));
     setBozza({
       titolo:d.titolo, contesto:d.contesto, obiettivo:d.obiettivo,
       alternative:d.alternative, decisione:d.decisione, motivazione:d.motivazione,
-      fiducia:d.fiducia, rischi:d.rischi, ambito:d.ambito,
-      data:d.data, dataRevisione:d.dataRevisione||"",
+      fiducia:d.fiducia, rischi:d.rischi, ambito:d.ambito, data:d.data, revisioni,
     });
     setModificaId(d.id); setErroreForm(null); setMostraForm(true);
   };
 
   const salvaDecisione = async () => {
     setSalvando(true); setErroreForm(null);
+    // Le righe vuote non partono: il server tiene solo quelle con una data,
+    // ma filtrarle qui rende l'errore "serve la prima data" prevedibile.
+    const payload = {...bozza, revisioni: bozza.revisioni.filter(r=>r.data)};
     try {
       const res = modificaId
-        ? await fetch("/api/decisions",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({...bozza,id:modificaId,azione:"modifica"})})
-        : await fetch("/api/decisions",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(bozza)});
+        ? await fetch("/api/decisions",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({...payload,id:modificaId,azione:"modifica"})})
+        : await fetch("/api/decisions",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
       const d = await res.json();
       if (!res.ok) { setErroreForm(d.error || "Errore di salvataggio"); setSalvando(false); return; }
       setMostraForm(false); setModificaId(null); setBozza(BOZZA_VUOTA);
@@ -535,32 +725,36 @@ export default function DecisionsPage({ fontSize=14, theme="dark", isMobile=fals
     setSalvando(false);
   };
 
-  const apriRevisione = (d) => {
-    setBozzaRevisione(d.revisione ? {
-      rifaresti:d.revisione.rifaresti, previsto:d.revisione.previsto,
-      sottovalutato:d.revisione.sottovalutato, risultato:d.revisione.risultato,
-      imparato:d.revisione.imparato, diverso:d.revisione.diverso,
-    } : REVISIONE_VUOTA);
-    setErroreRevisione(null); setRevisioneId(d.id); setAperta(d.id);
+  const apriRevisione = (d, indice) => {
+    const esito = d.revisioni?.[indice]?.esito;
+    setBozzaEsito(esito ? {
+      rifaresti:esito.rifaresti, previsto:esito.previsto,
+      sottovalutato:esito.sottovalutato, risultato:esito.risultato,
+      imparato:esito.imparato, diverso:esito.diverso,
+    } : ESITO_VUOTO);
+    setErroreRevisione(null);
+    setRevisioneAttiva({id:d.id, indice});
+    setAperta(d.id);
   };
 
-  const salvaRevisione = async () => {
+  const salvaEsito = async () => {
+    if (!revisioneAttiva) return;
     setSalvando(true); setErroreRevisione(null);
     try {
       const res = await fetch("/api/decisions",{method:"PATCH",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({...bozzaRevisione,id:revisioneId,azione:"revisione"})});
+        body:JSON.stringify({...bozzaEsito,id:revisioneAttiva.id,indice:revisioneAttiva.indice,azione:"revisione"})});
       const d = await res.json();
       if (!res.ok) { setErroreRevisione(d.error || "Errore di salvataggio"); setSalvando(false); return; }
-      setRevisioneId(null); setBozzaRevisione(REVISIONE_VUOTA);
+      setRevisioneAttiva(null); setBozzaEsito(ESITO_VUOTO);
       await carica();
     } catch (e) { setErroreRevisione(e.message); }
     setSalvando(false);
   };
 
-  const rimanda = async (id, giorni) => {
+  const rimanda = async (id, indice, giorni) => {
     try {
       await fetch("/api/decisions",{method:"PATCH",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({id,azione:"rimanda",giorni})});
+        body:JSON.stringify({id,indice,azione:"rimanda",giorni})});
       await carica();
     } catch {}
   };
@@ -585,13 +779,13 @@ export default function DecisionsPage({ fontSize=14, theme="dark", isMobile=fals
           </button>
         </div>
         <div style={{display:"flex",gap:14,flexWrap:"wrap",fontSize:11,color:"var(--c-text-dim)",marginTop:7}}>
-          <span><strong style={{color:AMBRA}}>{dati?.daRivedere ?? 0}</strong> da rivedere</span>
+          <span><strong style={{color:AMBRA}}>{dati?.daRivedere ?? 0}</strong> revisioni da fare</span>
           <span><strong style={{color:"var(--c-text-muted)"}}>{dati?.inAttesa ?? 0}</strong> in attesa</span>
-          <span><strong style={{color:VERDE}}>{dati?.riviste ?? 0}</strong> riviste</span>
-          <span><strong style={{color:"var(--c-text-muted)"}}>{dati?.totali ?? 0}</strong> totali</span>
+          <span><strong style={{color:VERDE}}>{dati?.chiuse ?? 0}</strong> chiuse</span>
+          <span><strong style={{color:"var(--c-text-muted)"}}>{dati?.totali ?? 0}</strong> decisioni</span>
           {tassoRifarei && (
             <span style={{color:"var(--c-text-faint)"}}>
-              · rifaresti il <strong style={{color:VERDE}}>{tassoRifarei.perc}%</strong> su {tassoRifarei.su} riviste
+              · rifaresti il <strong style={{color:VERDE}}>{tassoRifarei.perc}%</strong> su {tassoRifarei.su} giudicate
             </span>
           )}
         </div>
@@ -633,7 +827,7 @@ export default function DecisionsPage({ fontSize=14, theme="dark", isMobile=fals
               <>
                 <div style={{fontSize:32,marginBottom:10}}>⚖️</div>
                 <div style={{fontSize:14,color:"var(--c-text-muted)",fontWeight:600,marginBottom:6}}>Nessuna decisione registrata</div>
-                <div style={{fontSize:12,lineHeight:1.6,maxWidth:420,margin:"0 auto"}}>
+                <div style={{fontSize:12,lineHeight:1.6,maxWidth:440,margin:"0 auto"}}>
                   Registra qui le scelte che, se sbagliate, ti costano tempo o soldi veri.
                   Non le micro-decisioni: quelle che fra sei mesi vorrai capire perché hai preso.
                 </div>
@@ -653,15 +847,15 @@ export default function DecisionsPage({ fontSize=14, theme="dark", isMobile=fals
               d={d}
               aperta={aperta===d.id}
               onToggle={()=>setAperta(aperta===d.id?null:d.id)}
-              onRivedi={()=>apriRevisione(d)}
-              onRimanda={(g)=>rimanda(d.id,g)}
+              onRivedi={(i)=>apriRevisione(d,i)}
+              onRimanda={(i,g)=>rimanda(d.id,i,g)}
               onModifica={()=>apriModifica(d)}
               onElimina={()=>elimina(d)}
-              revisioneAttiva={revisioneId===d.id}
-              bozzaRevisione={bozzaRevisione}
-              setBozzaRevisione={setBozzaRevisione}
-              salvaRevisione={salvaRevisione}
-              chiudiRevisione={()=>setRevisioneId(null)}
+              revisioneAttiva={revisioneAttiva?.id===d.id ? revisioneAttiva.indice : null}
+              bozzaEsito={bozzaEsito}
+              setBozzaEsito={setBozzaEsito}
+              salvaEsito={salvaEsito}
+              chiudiRevisione={()=>setRevisioneAttiva(null)}
               salvando={salvando}
               erroreRevisione={erroreRevisione}
             />
