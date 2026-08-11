@@ -10,6 +10,7 @@ import {
   SOTTOCAT_TRASPORTI, SOTTOCAT_AUTO, propagaSaldiAiMesiSuccessivi,
 } from "../lib/finance-ui";
 import { useUndoStack, UndoButton } from "../lib/undo";
+import PianoTasse from "./PianoTasse";
 
 const CAT_ENTRATE = ["Retainer","One-time","Consulenza","Bonus","Conversione","Altro"];
 const CAT_USCITE  = ["Keez / Commercialista","Software & Tools","Marketing","Hosting","Personale IAGREX","Tasse & Contributi","Trasporti","Conversione","Altro"];
@@ -145,6 +146,15 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
   };
 
   const monthData = allData[month] || { ...EMPTY_MONTH, saldi: getCarriedSaldi(allData, month) };
+
+  // Saldi IAGREX più recenti in assoluto (non del mese che stai guardando):
+  // servono al Piano Tasse, che deve partire dai soldi che ci sono davvero
+  // oggi anche se stai sfogliando un mese passato.
+  const saldiIagrexCorrenti = (() => {
+    const mesi = Object.keys(allData).filter(k=>/^\d{4}-\d{2}$/.test(k)).sort();
+    const ultimo = mesi[mesi.length-1];
+    return ultimo ? (allData[ultimo].saldi || {}) : {};
+  })();
 
   // Cronologia Annulla (vedi app/lib/undo.js): stato precedente messo da parte
   // prima di ogni salvataggio.
@@ -647,7 +657,7 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
       {/* Tabs */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:"1px solid var(--c-border)",flexShrink:0,background:"var(--c-bg)"}}>
         <div style={{display:"flex"}}>
-          {[["entrate","💚 Entrate"],["uscite","🔴 Uscite"],["saldi","🏦 Saldi"],["recap","📊 Recap"]].map(([t,label])=>(
+          {[["entrate","💚 Entrate"],["uscite","🔴 Uscite"],["saldi","🏦 Saldi"],["recap","📊 Recap"],["piano","🧾 Piano Tasse"]].map(([t,label])=>(
             <button key={t} onClick={()=>setTab(t)} style={{padding:"10px 16px",border:"none",background:"transparent",cursor:"pointer",fontSize:fs-2,fontWeight:tab===t?700:400,color:tab===t?"var(--c-text-strong)":"var(--c-text-faint)",borderBottom:tab===t?"2px solid #3B82F6":"2px solid transparent"}}>{label}</button>
           ))}
         </div>
@@ -907,6 +917,21 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
                 <CategoryBars data={entrateByCat} total={totEntrate} color="#10B981" fs={fs} fmt={fmt}/>
               </div>
             </div>
+          )}
+
+          {/* PIANO TASSE: proiezione di cassa su un debito rateizzato.
+              Vive qui (e non in Finanze personali) perché la copertura delle
+              rate dipende dai dividendi che IAGREX può distribuire, e perché
+              lo stesso strumento serve anche per le tasse rumene. */}
+          {tab==="piano" && (
+            <PianoTasse
+              allData={allData}
+              saveData={saveData}
+              fs={fs}
+              isMobile={isMobile}
+              eurRonRate={rate}
+              saldiIagrexCorrenti={saldiIagrexCorrenti}
+            />
           )}
         </div>
       )}

@@ -1,3 +1,9 @@
-node_modules/ 
-.next/
 node_modules/
+.next/
+
+# Segreti e variabili d'ambiente — MAI su GitHub
+.env
+.env.*
+*.local
+*.token
+.meta-token*
