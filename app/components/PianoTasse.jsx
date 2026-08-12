@@ -150,95 +150,55 @@ export function calcolaProiezione(piano, saldoIniziale) {
 
 // Curva del saldo proiettato. Ogni punto porta il valore e il mese scritti:
 // un grafico di sola forma non dice quando scatta il problema.
-// Costruito in HTML/CSS e non in SVG di proposito: la prima versione usava un
-// viewBox con preserveAspectRatio="none", quindi il disegno veniva stirato per
-// riempire lo spazio e su desktop (largo) i numeri risultavano deformati e
-// illeggibili. Con div e testo normale le cifre restano alla loro dimensione
-// reale su qualsiasi larghezza, e i mesi non si schiacciano mai.
-function GraficoSaldo({ righe, fs, isMobile }) {
-  if (righe.length < 1) return null;
-
-  const H = isMobile ? 150 : 190;          // altezza totale dell'area grafico
-  const LAB = isMobile ? 18 : 21;          // spazio riservato alle etichette
+function CurvaSaldo({ righe, fs, isMobile }) {
+  if (righe.length < 2) return null;
+  const W = 100, H = 46, padT = 12, padB = 14;
   const vals = righe.map(r => r.saldoFinale);
-  const maxPos = Math.max(...vals, 0);
-  const minNeg = Math.min(...vals, 0);
-  const span = (maxPos - minNeg) || 1;
-  // Le barre non usano tutta l'altezza: sopra serve posto per il numero della
-  // barra più alta, e sotto per quello della barra più bassa se va in negativo.
-  // Senza questo margine l'etichetta del mese migliore usciva dal riquadro.
-  const padBot = minNeg < 0 ? LAB + 4 : 0;
-  const HB = Math.max(20, H - LAB - padBot);
-  // Linea dello zero: in fondo se non ci sono saldi negativi, altrimenti
-  // alzata in proporzione a quanto si scende sotto.
-  const zeroTop = LAB + (maxPos / span) * HB;
+  const max = Math.max(...vals, 0);
+  const min = Math.min(...vals, 0);
+  const span = (max - min) || 1;
+  const x = i => (i / (righe.length - 1)) * (W - 10) + 5;
+  const y = v => padT + (1 - (v - min) / span) * (H - padT - padB);
+  const zeroY = y(0);
 
-  const colore = r => (r.critico ? "#EF4444" : r.attenzione ? "#F59E0B" : "#10B981");
+  const pts = righe.map((r, i) => [x(i), y(r.saldoFinale)]);
+  const linea = pts.map(([px, py], i) => `${i === 0 ? "M" : "L"}${px.toFixed(2)},${py.toFixed(2)}`).join(" ");
+  const area = `${linea} L${pts[pts.length - 1][0].toFixed(2)},${zeroY.toFixed(2)} L${pts[0][0].toFixed(2)},${zeroY.toFixed(2)} Z`;
 
   return (
-    <div style={{ background: "var(--c-panel)", border: "1px solid var(--c-border)", borderRadius: 10, padding: "14px 14px 10px", marginBottom: 16 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 14, gap: 10, flexWrap: "wrap" }}>
-        <div style={{ fontSize: fs - 3, fontWeight: 700, color: "var(--c-text-dim)" }}>📊 Saldo a fine mese</div>
-        <div style={{ display: "flex", gap: 12, fontSize: fs - 5, color: "var(--c-text-faint)" }}>
-          <span>🟢 ok</span><span>🟠 tirato</span><span>🔴 sotto zero</span>
-        </div>
+    <div style={{ background: "var(--c-panel)", border: "1px solid var(--c-border)", borderRadius: 10, padding: "14px 10px 8px", marginBottom: 16 }}>
+      <div style={{ fontSize: fs - 3, fontWeight: 700, color: "var(--c-text-dim)", marginBottom: 6, paddingLeft: 4 }}>
+        📉 Curva del saldo proiettato
       </div>
-
-      {/* overflow-x: con molti mesi (es. 20 rate trimestrali) le barre
-          resterebbero larghe pochi pixel e i numeri illeggibili. Meglio una
-          larghezza minima per colonna e lo scorrimento orizzontale. */}
-      <div style={{ overflowX: "auto", overflowY: "hidden", paddingBottom: 4 }}>
-        <div style={{ display: "flex", gap: isMobile ? 6 : 10, alignItems: "stretch", minWidth: "100%" }}>
-          {righe.map(r => {
-            const v = r.saldoFinale;
-            const positivo = v >= 0;
-            const altezza = Math.max(3, (Math.abs(v) / span) * HB);
-            const c = colore(r);
-            return (
-              <div key={r.ym} style={{ flex: "1 1 0", minWidth: isMobile ? 46 : 62, display: "flex", flexDirection: "column", alignItems: "center" }}>
-                {/* area barra, altezza fissa: la barra parte dalla linea
-                    dello zero verso l'alto o verso il basso */}
-                <div style={{ position: "relative", width: "100%", height: H }}>
-                  {minNeg < 0 && (
-                    <div style={{ position: "absolute", left: 0, right: 0, top: zeroTop, borderTop: "1px dashed var(--c-border)" }} />
-                  )}
-                  <div style={{
-                    position: "absolute",
-                    left: "50%", transform: "translateX(-50%)",
-                    width: isMobile ? 26 : 34,
-                    height: altezza,
-                    top: positivo ? zeroTop - altezza : zeroTop,
-                    background: c,
-                    opacity: 0.9,
-                    borderRadius: positivo ? "5px 5px 2px 2px" : "2px 2px 5px 5px",
-                  }} />
-                  {/* valore: sempre scritto, sopra la barra se positiva,
-                      sotto se negativa. Mai dentro la barra: con barre corte
-                      il testo non ci starebbe. */}
-                  <div style={{
-                    position: "absolute",
-                    left: 0, right: 0,
-                    top: positivo ? Math.max(0, zeroTop - altezza - LAB) : (zeroTop + altezza + 3),
-                    textAlign: "center",
-                    fontSize: isMobile ? fs - 4 : fs - 2,
-                    fontWeight: 800,
-                    color: c,
-                    whiteSpace: "nowrap",
-                  }}>
-                    {Math.round(v).toLocaleString("it-IT")}
-                  </div>
-                </div>
-                <div style={{ marginTop: 6, fontSize: isMobile ? fs - 5 : fs - 4, color: "var(--c-text-faint)", fontWeight: 600, whiteSpace: "nowrap" }}>
-                  {MESI_BREVI[parseInt(r.ym.split("-")[1], 10) - 1]}
-                </div>
-                <div style={{ fontSize: fs - 6, color: "var(--c-text-faintest)" }}>
-                  {r.ym.split("-")[0].slice(2)}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: "100%", height: isMobile ? 150 : 190, display: "block", overflow: "visible" }}>
+        <defs>
+          <linearGradient id="pt-grad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#3B82F6" stopOpacity="0.35" />
+            <stop offset="100%" stopColor="#3B82F6" stopOpacity="0.02" />
+          </linearGradient>
+        </defs>
+        {min < 0 && <line x1="0" y1={zeroY} x2={W} y2={zeroY} stroke="#EF4444" strokeWidth="0.3" strokeDasharray="1.5 1.5" vectorEffect="non-scaling-stroke" />}
+        <path d={area} fill="url(#pt-grad)" />
+        <path d={linea} fill="none" stroke="#3B82F6" strokeWidth="2" vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
+        {righe.map((r, i) => {
+          const [px, py] = pts[i];
+          const colore = r.critico ? "#EF4444" : r.attenzione ? "#F59E0B" : "#3B82F6";
+          const sopra = py > H / 2;
+          return (
+            <g key={r.ym}>
+              <circle cx={px} cy={py} r="2.4" fill={colore} stroke="var(--c-panel)" strokeWidth="0.8" vectorEffect="non-scaling-stroke" />
+              <text x={px} y={sopra ? py - 4 : py + 7} textAnchor="middle"
+                style={{ fontSize: isMobile ? 4.2 : 3.4, fontWeight: 700, fill: colore }}>
+                {Math.round(r.saldoFinale).toLocaleString("it-IT")}
+              </text>
+              <text x={px} y={H - 2} textAnchor="middle"
+                style={{ fontSize: isMobile ? 4 : 3.2, fill: "var(--c-text-faint)" }}>
+                {MESI_BREVI[parseInt(r.ym.split("-")[1], 10) - 1]}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
     </div>
   );
 }
@@ -633,7 +593,7 @@ export default function PianoTasse({ allData, saveData, fs = 14, isMobile = fals
         </div>
       )}
 
-      <GraficoSaldo righe={righe} fs={fs} isMobile={isMobile} />
+      <CurvaSaldo righe={righe} fs={fs} isMobile={isMobile} />
 
       {/* TABELLA PROIEZIONE */}
       <div style={{ fontSize: fs - 3, fontWeight: 700, color: "var(--c-text-dim)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>
