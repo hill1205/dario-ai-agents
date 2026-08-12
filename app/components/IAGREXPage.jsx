@@ -9,11 +9,34 @@ import {
   CashFlowMiniChart, CategoryBars, costoCambio,
   SOTTOCAT_TRASPORTI, SOTTOCAT_AUTO, propagaSaldiAiMesiSuccessivi,
 } from "../lib/finance-ui";
+import {
+  applicaRicorrenze, occorrenze, prossimaScadenza, debitoResiduo, totaleRate,
+  ratePagate, rateTotaliDi, pianoRate, maxirataInfo, importoCerto,
+  storicoRicorrenza, mediaStorico, daConfermare,
+} from "../lib/ricorrenze";
 import { useUndoStack, UndoButton } from "../lib/undo";
 import PianoTasse from "./PianoTasse";
 
 const CAT_ENTRATE = ["Retainer","One-time","Consulenza","Bonus","Conversione","Altro"];
-const CAT_USCITE  = ["Keez / Commercialista","Software & Tools","Marketing","Hosting","Personale IAGREX","Tasse & Contributi","Trasporti","Conversione","Altro"];
+const CAT_USCITE  = ["Keez / Commercialista","Software & Tools","Marketing","Hosting","Personale IAGREX","Tasse & Contributi","Trasporti","Finanziamenti","Abbonamenti","Conversione","Altro"];
+
+// Sottocategorie IAGREX (blocco 6). Su Bruno servono a separare "quanto costa
+// l'auto" da "quanto costano i taxi"; qui rispondono alla domanda equivalente
+// lato azienda: dentro "Software & Tools" cosa è AI e cosa è pubblicità, dentro
+// "Tasse & Contributi" cosa è imposta e cosa è dividendo. Senza questo, una
+// categoria da 2.000€/mese resta una scatola nera che non si può tagliare.
+const SOTTOCAT_IAGREX = {
+  "Software & Tools":       ["AI / LLM","Hosting & Dominio","Design","Automazioni","Ads manager"],
+  "Marketing":              ["Meta Ads","Google Ads","Contenuti","Eventi & Fiere","Lead generation"],
+  "Personale IAGREX":       ["Stipendi","Collaboratori","Formazione","Rimborsi"],
+  "Tasse & Contributi":     ["Imposta sul reddito","Contributi","Dividendi","Sanzioni e interessi"],
+  "Keez / Commercialista":  ["Contabilità mensile","Bilancio annuale","Consulenza extra"],
+  "Trasporti":              SOTTOCAT_TRASPORTI,
+};
+const ICONA_SOTTOCAT_IAGREX = {
+  "Software & Tools":"🧰", "Marketing":"📣", "Personale IAGREX":"👥",
+  "Tasse & Contributi":"🧾", "Keez / Commercialista":"📚", "Trasporti":"🚗",
+};
 const EUR_RON_FALLBACK = 5; // usato solo se il fetch del cambio live fallisce
 const OBIETTIVO_ANNUO = 1000000;
 
@@ -66,6 +89,33 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
   const [checkModal, setCheckModal] = useState(null);
   const [checkForm, setCheckForm]   = useState({});
   const [convForm, setConvForm]   = useState({});
+  // Rate e abbonamenti (blocco 3) e budget per categoria (blocco 4): stesse
+  // strutture di BrunoPage, storage nello stesso Doc ClickUp di IAGREX.
+  const [ricModal, setRicModal]   = useState(null);
+  const [ricForm, setRicForm]     = useState({});
+  const [estingueId, setEstingueId] = useState(null);
+  const [estingueForm, setEstingueForm] = useState({});
+  const [budgetModal, setBudgetModal] = useState(false);
+  const [budgetForm, setBudgetForm]   = useState({});
+  const [autoInfo, setAutoInfo]   = useState(null);
+  // MRR vero: somma dei budget mensili dei clienti attivi (database Notion
+  // Clienti, lo stesso che alimenta la pagina Clienti). Prima qui c'era
+  // totEntrate ribattezzato "MRR stimato": era lo stesso numero di "Entrate
+  // mese", quindi non diceva niente di nuovo.
+  const [mrrClienti, setMrrClienti] = useState(null);
+  const tabsRef       = useRef(null);
+  const chipAttivoRef = useRef(null);
+  // Riporta in vista il chip attivo quando la scheda cambia. Serve soprattutto
+  // su mobile: se apri "Rate e abbonamenti" dalla card in cima, quel chip è in
+  // mezzo alla riga e resterebbe fuori schermo, dando l'impressione che
+  // nessuna scheda sia selezionata. Scrolliamo il contenitore a mano invece di
+  // usare scrollIntoView, che trascinerebbe anche la pagina in verticale.
+  useEffect(() => {
+    const box = tabsRef.current, chip = chipAttivoRef.current;
+    if (!box || !chip) return;
+    const sx = chip.offsetLeft - box.offsetWidth / 2 + chip.offsetWidth / 2;
+    box.scrollTo({ left: Math.max(0, sx), behavior: "smooth" });
+  }, [tab]);
   // true finché non abbiamo la certezza di aver letto lo storico vero da
   // ClickUp. Finché resta true, blocchiamo il salvataggio: altrimenti un
   // "allData" ancora vuoto (perché il fetch è fallito, non perché lo
@@ -79,7 +129,23 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
   const [eurRonRate, setEurRonRate] = useState(null);
   const [rateIsLive, setRateIsLive] = useState(false);
 
-  useEffect(()=>{ loadData(); loadRate(); },[]);
+  useEffect(()=>{ loadData(); loadRate(); loadMrr(); },[]);
+
+  // MRR = contratti ricorrenti attivi, non incassi del mese. Se il fetch
+  // fallisce resta null e la card mostra "—": meglio nessun numero che un
+  // numero sbagliato su cui poi ragioni per l'obiettivo 1M€.
+  const loadMrr = async () => {
+    try {
+      const res = await fetch("/api/clients-data", { cache:"no-store" });
+      const j = await res.json();
+      if (!res.ok || !Array.isArray(j.clients)) return;
+      const attivi = j.clients.filter(c=>c.fase==="attivo");
+      setMrrClienti({
+        valore: attivi.reduce((s,c)=>s+(parseFloat(c.budget)||0),0),
+        n: attivi.length,
+      });
+    } catch {}
+  };
 
   // Ponte dalla Pipeline: se arrivi qui dal tasto "💰 Registra fatturazione
   // IAGREX" su un cliente, un draft con nome/budget già compilati ti aspetta
@@ -283,14 +349,175 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
     const k = e.sottocategoria || "Senza sottocategoria";
     acc[k]=(acc[k]||0)+toEur(e); return acc;
   },{});
-  const totTrasporti = Object.values(trasportiBySub).reduce((s,v)=>s+v,0);
   const totAuto = SOTTOCAT_AUTO.reduce((s,k)=>s+(trasportiBySub[k]||0),0);
+  // Dettaglio per sottocategoria di TUTTE le categorie che ne hanno una
+  // (blocco 6). Senza questo, "Software & Tools 1.800€" resta una scatola
+  // chiusa: il dettaglio è la differenza fra sapere quanto spendi e sapere
+  // cosa puoi tagliare.
+  const sottoByCat = {};
+  for (const e of monthData.uscite) {
+    if (!isReal(e) || !e.sottocategoria || !SOTTOCAT_IAGREX[e.categoria]) continue;
+    sottoByCat[e.categoria] = sottoByCat[e.categoria] || {};
+    sottoByCat[e.categoria][e.sottocategoria] = (sottoByCat[e.categoria][e.sottocategoria]||0) + toEur(e);
+  }
   // Totale commissioni bancarie del mese: per IAGREX arrivano dalle
   // conversioni UniCredit (tasso banca vs tasso BCE, vedi saveConversione).
   // Le conversioni sono escluse dalle uscite vere (isReal), ma la loro
   // commissione implicita è un costo reale: qui si somma su TUTTE le uscite.
   const toEurVal = (val, contoId) => { const v = parseFloat(val)||0; return contoCurrency(contoId)==="RON" ? v/rate : v; };
   const totCommissioniMese = monthData.uscite.reduce((s,e)=>s+toEurVal(e.commissioni,e.conto),0);
+
+  // ====================================================================
+  // BLOCCO 4 — Budget per categoria
+  // Le soglie stanno in allData.budgetCategorie (chiave non-mese: tutte le
+  // funzioni che iterano i mesi filtrano già con /^\d{4}-\d{2}$/).
+  // ====================================================================
+  const budgetCategorie = allData.budgetCategorie || {};
+  const budgetEntries = Object.entries(budgetCategorie).filter(([,v])=>parseFloat(v)>0);
+  const budgetSforati = budgetEntries.filter(([cat,bud])=>(usciteByCat[cat]||0) > parseFloat(bud));
+  const openBudgetModal = () => { setBudgetForm({...budgetCategorie}); setBudgetModal(true); };
+  const saveBudget = () => {
+    const cleaned = {};
+    Object.entries(budgetForm).forEach(([k,v])=>{ const n=parseFloat(v); if (n>0) cleaned[k]=round2(n); });
+    saveData({ ...allData, budgetCategorie: cleaned }, { etichetta:"Budget categorie IAGREX" });
+    setBudgetModal(false);
+  };
+  const budgetCatList = [...new Set([...CAT_USCITE, ...Object.keys(usciteByCat), ...Object.keys(budgetCategorie)])]
+    .filter(c=>c!=="Conversione");
+
+  // ====================================================================
+  // BLOCCO 3 — Rate, abbonamenti e spese fisse
+  // Motore condiviso con BrunoPage (lib/ricorrenze.js): funzioni pure, già
+  // testate. Qui c'è solo il collegamento all'interfaccia e allo storage.
+  // ====================================================================
+  const ricorrenze = allData.ricorrenze || [];
+  const oggiStr = localISODate();
+  const finanziamenti = ricorrenze.filter(r=>r.tipo==="finanziamento");
+  const abbonamenti   = ricorrenze.filter(r=>r.tipo==="abbonamento");
+  const speseFisse    = ricorrenze.filter(r=>r.tipo==="spesa");
+
+  // Importo atteso di una spesa a cifra variabile, nelle due valute che
+  // servono: quella del conto (per l'alert saldo) e l'euro (per budget e
+  // proiezione). `importoValuta` dice in quale delle due è scritto.
+  const attesoInfo = (r, storico) => {
+    const dich = parseFloat(r.importo)||0;
+    const ccyConto = contoCurrency(r.conto);
+    if (dich > 0) {
+      const inEuro = (r.importoValuta || ccyConto) === "€";
+      return {
+        eur:    inEuro ? dich : dich/rate,
+        nativo: (ccyConto==="RON" && inEuro) ? dich*rate : dich,
+        valuta: inEuro ? "€" : ccyConto,
+        stimato: false,
+      };
+    }
+    const media = mediaStorico(storico);
+    return { eur: toEurVal(media, r.conto), nativo: media, valuta: ccyConto, stimato: true };
+  };
+
+  const statsRicorrenza = (r) => {
+    const storico = storicoRicorrenza(allData, r.id);
+    const media   = mediaStorico(storico);
+    const ultimo  = storico.at(-1) || null;
+    const penultimo = storico.length>1 ? storico.at(-2) : null;
+    const deltaPct = (ultimo && penultimo && penultimo.importo>0)
+      ? Math.round(((ultimo.importo - penultimo.importo)/penultimo.importo)*100) : null;
+    const isRon    = contoCurrency(r.conto)==="RON";
+    return { storico, media, mediaEur: toEurVal(media, r.conto), ultimo,
+      ultimoEur: ultimo ? toEurVal(ultimo.importo, r.conto) : null, penultimo, deltaPct, isRon };
+  };
+
+  // Scadenze passate delle spese a cifra variabile senza un movimento
+  // corrispondente: la lista "quanto hai pagato al commercialista?".
+  const promemoriaSpese = speseFisse.flatMap(r=>{
+    const storico = storicoRicorrenza(allData, r.id);
+    const registrate = new Set(storico.map(s=>s.ym));
+    return daConfermare(r, oggiStr, registrate, { saltati: allData.ricorrenzeSaltate||[] })
+      .map(occ=>({ r, occ, atteso: attesoInfo(r, storico) }));
+  });
+
+  // Apre il form uscita già compilato: resta da scrivere solo l'importo.
+  const openRegistraSpesa = (r, occ) => {
+    setForm({
+      descrizione: r.nome,
+      importo: "",
+      categoria: r.categoria || "Altro",
+      sottocategoria: r.sottocategoria || "",
+      conto: r.conto,
+      data: occ.data,
+      ricorrenzaId: r.id,
+    });
+    setModal({ tipo:"uscita", mode:"add" });
+  };
+  const saltaPromemoria = (r, occ) => {
+    const id = `ric-${r.id}-${occ.ym}`;
+    saveData({ ...allData, ricorrenzeSaltate: [...new Set([...(allData.ricorrenzeSaltate||[]), id])] }, { etichetta:"Salta promemoria spesa" });
+  };
+
+  // Debito residuo in EUR: le rate sono nella valuta del conto che le paga.
+  const debitoTotale = finanziamenti.reduce((s,r)=>s+toEurVal(debitoResiduo(r, oggiStr), r.conto), 0);
+  const impegnoMensileEur = ricorrenze.reduce((s,r)=>{
+    if (r.attiva===false || r.chiusa) return s;
+    const p = prossimaScadenza(r, oggiStr);
+    if (!p) return s;
+    if (!importoCerto(r)) return s + attesoInfo(r, storicoRicorrenza(allData, r.id)).eur;
+    return s + toEurVal(p.importo || r.importo, r.conto);
+  }, 0);
+  const totAbbMeseEur = abbonamenti.filter(r=>r.attiva!==false&&!r.chiusa)
+    .reduce((s,r)=>s+toEurVal(r.importo,r.conto),0);
+  const maxirateInScadenza = finanziamenti
+    .map(r=>({ r, info: maxirataInfo(r, oggiStr) }))
+    .filter(x=>x.info && !x.info.scaduta);
+
+  // ====================================================================
+  // BLOCCO 5 — Patrimonio netto aziendale
+  // Liquidità sui conti (convertita in €) meno il debito ancora da pagare.
+  // ====================================================================
+  const liquiditaEur = Object.entries(monthData.saldi||{})
+    .reduce((s,[id,v])=>s+toEurVal(v, id), 0);
+  const patrimonioNetto = liquiditaEur - debitoTotale;
+
+  // Addebiti di questo mese non ancora scattati: senza, il 2 del mese la
+  // proiezione ignorerebbe la rata del 20.
+  const ricorrenzeResiduaMese = isCurrentMonthView
+    ? ricorrenze.filter(r=>r.attiva!==false && !r.chiusa).reduce((s,r)=>{
+        const p = prossimaScadenza(r, oggiStr);
+        if (!p || p.ym!==month) return s;
+        return s + (importoCerto(r)
+          ? toEurVal(p.importo || r.importo, r.conto)
+          : attesoInfo(r, storicoRicorrenza(allData, r.id)).eur);
+      },0)
+    : 0;
+
+  // Proiezione uscite a fine mese: run-rate dei giorni già passati più gli
+  // addebiti ricorrenti non ancora scattati. Dal giorno 3 in poi, perché su
+  // uno o due giorni il run-rate è rumore.
+  const proiezioneUscite = (isCurrentMonthView && giornoOggi >= 3 && totUscite > 0)
+    ? (totUscite/giornoOggi)*giorniNelMese
+    : null;
+
+  // Alert saldo insufficiente: addebiti previsti nei prossimi 7 giorni
+  // raggruppati per conto, confrontati col saldo attuale di quel conto.
+  const alertSaldi = (()=>{
+    const limite = new Date(); limite.setDate(limite.getDate()+7);
+    const limiteStr = `${limite.getFullYear()}-${pad2(limite.getMonth()+1)}-${pad2(limite.getDate())}`;
+    const perConto = {};
+    for (const r of ricorrenze) {
+      if (r.attiva===false || r.chiusa) continue;
+      const p = prossimaScadenza(r, oggiStr);
+      if (!p || p.data > limiteStr) continue;
+      const imp = importoCerto(r)
+        ? (parseFloat(p.importo || r.importo)||0)
+        : attesoInfo(r, storicoRicorrenza(allData, r.id)).nativo;
+      perConto[r.conto] = perConto[r.conto] || { totale:0, voci:[], data:p.data };
+      perConto[r.conto].totale += imp;
+      perConto[r.conto].voci.push(`${r.nome} ${fmt(imp)}${contoCurrency(r.conto)==="RON"?" RON":"€"} il ${p.data.slice(8)}/${p.data.slice(5,7)}`);
+      if (p.data < perConto[r.conto].data) perConto[r.conto].data = p.data;
+    }
+    return Object.entries(perConto)
+      .map(([conto,info])=>({ conto, ...info, saldo: parseFloat(monthData.saldi?.[conto])||0 }))
+      .filter(a=>a.saldo < a.totale);
+  })();
 
   const openAdd = (tipo) => { setForm({descrizione:"",importo:"",categoria:tipo==="entrata"?CAT_ENTRATE[0]:CAT_USCITE[0],cliente:"",conto:CONTI_IAGREX[0].id,data:localISODate()}); setModal({tipo,mode:"add"}); };
   const openEdit = (tipo,item) => { setForm({...item}); setModal({tipo,mode:"edit",item}); };
@@ -299,9 +526,10 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
   const saveItem = () => {
     if (!form.descrizione?.trim()||!form.importo) return;
     const item = {...form,importo:parseFloat(form.importo),id:modal.mode==="add"?genId():form.id};
-    // La sottocategoria ha senso solo dentro Trasporti (stessa regola di
-    // BrunoPage): se la categoria è un'altra o non è stata scelta, via.
-    if (item.categoria!=="Trasporti" || !item.sottocategoria) delete item.sottocategoria;
+    // La sottocategoria vale solo dentro le categorie che ne hanno una lista
+    // (SOTTOCAT_IAGREX): se la categoria è un'altra, o il valore non appartiene
+    // a quella lista, si butta invece di restare appiccicato al movimento.
+    if (!SOTTOCAT_IAGREX[item.categoria]?.includes(item.sottocategoria)) delete item.sottocategoria;
     const isUscita = modal.tipo==="uscita";
     const chiave = isUscita ? "uscite" : "entrate";
     // Un'uscita scala il conto, un'entrata lo accredita.
@@ -344,6 +572,9 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
     // il conto, un'entrata torna a scalarlo (logica inversa di saveItem).
     const reverse = (it, eraUscita) => {
       if (!it?.conto || updated.saldi[it.conto] === undefined) return;
+      // I movimenti storici generati dalle ricorrenze (noSaldo) non hanno mai
+      // toccato i saldi: annullarne l'effetto creerebbe un effetto dal nulla.
+      if (it.noSaldo) return;
       updated.saldi[it.conto] = round2((parseFloat(updated.saldi[it.conto])||0) + (eraUscita?1:-1)*parseFloat(it.importo));
     };
     reverse(item, tipo==="uscita");
@@ -363,11 +594,175 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
         updated.entrate = updated.entrate.filter(e=>e.id!==pair.id);
       }
     }
+    // Un addebito generato da una ricorrenza va anche marcato come "saltato":
+    // il suo id è deterministico, quindi senza questo tornerebbe alla prossima
+    // apertura della pagina come se non l'avessi mai cancellato.
+    if (item?.ricorrenzaId && item?.auto) {
+      const saltati = [...new Set([...(allData.ricorrenzeSaltate||[]), id])];
+      saveData({ ...allData, [month]: updated, ricorrenzeSaltate: saltati }, { etichetta:"Elimina addebito ricorrente" });
+      return;
+    }
     updateMonth(updated);
   };
 
   const updateSaldo = (contoId,val) => {
     updateMonth({...monthData,saldi:{...monthData.saldi,[contoId]:parseFloat(val)||0}});
+  };
+
+  // --- Generazione automatica degli addebiti ricorrenti -----------------
+  // Gira una volta per sessione (autoRunRef) ed è comunque idempotente lato
+  // motore: l'id del movimento è ric-<idRicorrenza>-<YYYY-MM>, quindi
+  // rilanciarla non può creare doppioni. skipPropagazione perché la
+  // propagazione dei saldi ai mesi successivi la fa già applicaRicorrenze.
+  const autoRunRef = useRef(false);
+  const generaAddebiti = useCallback((baseAll, lista) => {
+    return applicaRicorrenze(baseAll, lista, localISODate(), {
+      emptyMonth: EMPTY_MONTH,
+      carried: (all, ym) => ({ saldi: getCarriedSaldi(all, ym) }),
+      saltati: baseAll?.ricorrenzeSaltate || [],
+    });
+  }, []);
+  useEffect(()=>{
+    if (!loadOk || autoRunRef.current) return;
+    autoRunRef.current = true;
+    const lista = allDataRef.current?.ricorrenze || [];
+    if (!lista.length) return;
+    const { next, creati } = generaAddebiti(allDataRef.current, lista);
+    if (!creati.length) return;
+    setAutoInfo({
+      n: creati.length,
+      storici: creati.filter(c=>!c.toccaSaldi).length,
+      voci: creati.map(c=>`${c.item.descrizione} — ${fmt(c.item.importo)}${contoCurrency(c.item.conto)==="RON"?" RON":"€"} il ${c.item.data}`),
+    });
+    saveData(next, { skipPropagazione:true, etichetta:`Addebiti automatici (${creati.length})` });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[loadOk, generaAddebiti, saveData]);
+
+  // --- CRUD ricorrenze ---------------------------------------------------
+  const openRicAdd = (tipo) => {
+    setRicForm({
+      tipo, nome:"", ente:"", conto: CONTI_IAGREX[0].id, importo:"",
+      sottocategoria: "",
+      giorno: tipo==="finanziamento" ? 15 : new Date().getDate(),
+      dataInizio: localISODate(), rateTotali: "",
+      periodi: [], maxirata: null,
+      // Default: NON registrare gli arretrati. Un finanziamento partito anni
+      // fa creerebbe mesi che nell'app non sono mai esistiti, con saldi a zero
+      // e dentro solo la rata: il cash flow e il confronto anno-su-anno li
+      // leggerebbero come mesi veri.
+      registraArretrati: false,
+      importoFinanziato:"", taeg:"",
+      categoria: tipo==="finanziamento" ? "Finanziamenti"
+        : tipo==="spesa" ? "Keez / Commercialista" : "Software & Tools",
+      attiva:true,
+    });
+    setRicModal({ mode:"add", tipo });
+  };
+  const openRicEdit = (r) => {
+    setRicForm({ ...r, periodi: r.periodi || [],
+      maxirataImporto: r.maxirata?.importo || "", maxirataEntro: r.maxirata?.entro || "", maxirataAllaRata: r.maxirata?.allaRata || "" });
+    setRicModal({ mode:"edit", tipo:r.tipo });
+  };
+  const closeRicModal = () => { setRicModal(null); setRicForm({}); };
+
+  // Piano a scaglioni: periodi con rata diversa. Vuoto = rata unica.
+  const periodiForm = ricForm.periodi || [];
+  const addPeriodo = () => setRicForm(p=>({ ...p, periodi:[...(p.periodi||[]), { rate:"", importo:"" }] }));
+  const updPeriodo = (i, campo, val) => setRicForm(p=>({ ...p, periodi:(p.periodi||[]).map((x,j)=>j===i?{...x,[campo]:val}:x) }));
+  const delPeriodo = (i) => setRicForm(p=>({ ...p, periodi:(p.periodi||[]).filter((_,j)=>j!==i) }));
+  const periodiPuliti = periodiForm
+    .map(p=>({ rate: parseInt(p.rate,10)||0, importo: round2(parseFloat(p.importo)||0) }))
+    .filter(p=>p.rate>0 && p.importo>0);
+
+  const saveRicorrenza = () => {
+    if (!ricForm.nome?.trim() || !ricForm.dataInizio) return;
+    if (ricForm.tipo!=="spesa" && !(parseFloat(ricForm.importo)>0) && !periodiPuliti.length) return;
+    const g = parseInt(ricForm.giorno,10);
+    if (!(g>=1 && g<=31)) return;
+    const maxi = (parseFloat(ricForm.maxirataImporto)>0 && ricForm.maxirataEntro)
+      ? { importo: round2(parseFloat(ricForm.maxirataImporto)), entro: ricForm.maxirataEntro, allaRata: parseInt(ricForm.maxirataAllaRata,10)||0 }
+      : null;
+    const categoria = ricForm.categoria || (ricForm.tipo==="finanziamento" ? "Finanziamenti" : ricForm.tipo==="spesa" ? "Keez / Commercialista" : "Abbonamenti");
+    const r = {
+      id: ricModal.mode==="add" ? genId() : ricForm.id,
+      tipo: ricForm.tipo,
+      nome: ricForm.nome.trim(),
+      ente: (ricForm.ente||"").trim(),
+      conto: ricForm.conto,
+      importo: round2(parseFloat(ricForm.importo) || periodiPuliti[0]?.importo || 0),
+      giorno: g,
+      dataInizio: ricForm.dataInizio,
+      rateTotali: periodiPuliti.length
+        ? periodiPuliti.reduce((s,p)=>s+p.rate,0)
+        : (parseInt(ricForm.rateTotali,10) || 0),
+      periodi: periodiPuliti,
+      maxirata: maxi,
+      importoFinanziato: parseFloat(ricForm.importoFinanziato) || 0,
+      taeg: parseFloat(ricForm.taeg) || 0,
+      categoria,
+      sottocategoria: SOTTOCAT_IAGREX[categoria]?.includes(ricForm.sottocategoria) ? ricForm.sottocategoria : "",
+      // In quale valuta è scritto l'importo atteso di una spesa variabile.
+      importoValuta: ricForm.tipo==="spesa" ? (ricForm.importoValuta || contoCurrency(ricForm.conto)) : undefined,
+      attiva: ricForm.attiva !== false,
+      chiusa: ricForm.chiusa || null,
+      creata: ricForm.creata || new Date().toISOString(),
+    };
+    const lista = ricModal.mode==="add" ? [...ricorrenze, r] : ricorrenze.map(x=>x.id===r.id?r:x);
+    let saltatiBase = allData.ricorrenzeSaltate || [];
+    if (ricModal.mode==="add" && !ricForm.registraArretrati) {
+      const meseOra = getCurrentMonth();
+      const arretrati = occorrenze(r, oggiStr).filter(o=>o.ym < meseOra).map(o=>`ric-${r.id}-${o.ym}`);
+      saltatiBase = [...new Set([...saltatiBase, ...arretrati])];
+    }
+    const { next, creati } = generaAddebiti({ ...allData, ricorrenze: lista, ricorrenzeSaltate: saltatiBase }, lista);
+    if (creati.length) setAutoInfo({
+      n: creati.length,
+      storici: creati.filter(c=>!c.toccaSaldi).length,
+      voci: creati.map(c=>`${c.item.descrizione} — ${fmt(c.item.importo)}${contoCurrency(c.item.conto)==="RON"?" RON":"€"} il ${c.item.data}`),
+    });
+    saveData(next, { skipPropagazione:true, etichetta: ricModal.mode==="add" ? "Nuova ricorrenza IAGREX" : "Modifica ricorrenza IAGREX" });
+    closeRicModal();
+  };
+
+  const toggleRicAttiva = (r) => {
+    saveData({ ...allData, ricorrenze: ricorrenze.map(x=>x.id===r.id?{...x, attiva: x.attiva===false}:x) }, { etichetta:"Pausa/riattiva ricorrenza" });
+  };
+  const deleteRicorrenza = (r) => {
+    if (!confirm(`Eliminare "${r.nome}"? Gli addebiti già registrati restano fra le uscite (sono spese realmente avvenute): vanno cancellati a mano se non li vuoi.`)) return;
+    saveData({ ...allData, ricorrenze: ricorrenze.filter(x=>x.id!==r.id) }, { etichetta:"Elimina ricorrenza" });
+  };
+
+  // Estinzione anticipata: chiude il finanziamento a una data e, se indicato
+  // un conguaglio, registra l'uscita corrispondente nel mese di quella data.
+  const openEstingue = (r) => {
+    setEstingueForm({ data: localISODate(), importoEstinzione:"", motivo:"Estinzione anticipata" });
+    setEstingueId(r.id);
+  };
+  const confermaEstinzione = () => {
+    const r = ricorrenze.find(x=>x.id===estingueId);
+    if (!r || !estingueForm.data) return;
+    const lista = ricorrenze.map(x=>x.id===r.id
+      ? { ...x, chiusa: { data: estingueForm.data, motivo: estingueForm.motivo||"Estinzione anticipata", importoEstinzione: round2(parseFloat(estingueForm.importoEstinzione)||0) }, attiva:false }
+      : x);
+    let next = { ...allData, ricorrenze: lista };
+    const imp = parseFloat(estingueForm.importoEstinzione)||0;
+    if (imp > 0) {
+      const ym = estingueForm.data.slice(0,7);
+      const base = next[ym] || { ...EMPTY_MONTH, saldi: getCarriedSaldi(next, ym) };
+      const item = { id:genId(), descrizione:`${r.nome} — estinzione anticipata`, categoria:r.categoria||"Finanziamenti",
+        conto:r.conto, importo:round2(imp), data:estingueForm.data, ricorrenzaId:r.id, auto:true };
+      const mese = { ...base, uscite:[...(base.uscite||[]), item], entrate:[...(base.entrate||[])], saldi:{ ...(base.saldi||{}) } };
+      if (mese.saldi[r.conto] !== undefined) mese.saldi[r.conto] = round2((parseFloat(mese.saldi[r.conto])||0) - item.importo);
+      next[ym] = mese;
+      for (const k of Object.keys(next)) {
+        if (!/^\d{4}-\d{2}$/.test(k) || k <= ym) continue;
+        const md = next[k];
+        if (!md?.saldi || md.saldi[r.conto] === undefined) continue;
+        next[k] = { ...md, saldi:{ ...md.saldi, [r.conto]: round2((parseFloat(md.saldi[r.conto])||0) - item.importo) } };
+      }
+    }
+    saveData(next, { skipPropagazione:true, etichetta:"Estinzione finanziamento" });
+    setEstingueId(null); setEstingueForm({});
   };
 
   // --- Check estratto conto: log storico dei confronti saldo app vs saldo reale ---
@@ -570,6 +965,15 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
 
   return (
     <div style={{...themeVars,display:"flex",flexDirection:"column",height:"100%",overflow:"auto",background:"var(--c-bg)"}}>
+      {/* Le card cliccabili della testata hanno bisogno di un feedback al
+          tocco, altrimenti sembrano riquadri morti come prima. La classe
+          .card-link di BrunoPage vive nel suo <style>, che qui non è montato:
+          serve la sua copia locale, con un nome diverso per non collidere. */}
+      <style>{`
+        .card-link-iagrex { transition: background .12s ease, transform .12s ease; }
+        .card-link-iagrex:hover { background: var(--c-panel) !important; }
+        .card-link-iagrex:active { transform: scale(.985); }
+      `}</style>
 
       {/* Header */}
       <div style={{padding:"14px 20px",borderBottom:"1px solid var(--c-border)",flexShrink:0}}>
@@ -631,19 +1035,70 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
 
         <CashFlowMiniChart allData={allData} marginTop={12} toEur={toEur}/>
 
-        {/* Month summary */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,marginTop:10}}>
-          {[
-            {label:"Entrate mese",val:totEntrate,color:"#10B981",prefix:"+"},
-            {label:"Uscite mese", val:totUscite, color:"#EF4444",prefix:"-"},
-            {label:"Saldo netto",  val:saldoNetto,color:saldoNetto>=0?"#10B981":"#EF4444",prefix:saldoNetto>=0?"+":""},
-            {label:"MRR stimato",  val:totEntrate,color:"#3B82F6",prefix:""},
-          ].map(c=>(
-            <div key={c.label} style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:8,padding:"8px 12px"}}>
-              <div style={{fontSize:fs-4,color:"var(--c-text-faint)",marginBottom:3}}>{c.label}</div>
-              <div style={{fontSize:fs+1,fontWeight:800,color:c.color}}>{c.prefix}{fmt(c.val)}€</div>
-            </div>
-          ))}
+        {/* Sintesi del mese (blocco 1, ripreso da BrunoPage).
+            Prima qui c'erano quattro riquadri muti tutti della stessa
+            dimensione, uno dei quali ("MRR stimato") ripeteva le entrate del
+            mese. Ora c'è UNA cifra grande — quanto è avanzato — la barra di
+            dove sono finiti i soldi, e tre riquadri cliccabili che portano
+            alla scheda giusta: il numero fa venire la domanda, il tocco dà la
+            risposta senza passare dai chip. */}
+        <div style={{marginTop:12,background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:12,padding:"14px 16px"}}>
+          <div style={{fontSize:fs-4,color:"var(--c-text-faint)"}}>{saldoNetto>=0?"Avanzato questo mese":"Bruciato questo mese"}</div>
+          <div style={{display:"flex",alignItems:"baseline",gap:12,flexWrap:"wrap"}}>
+            <span style={{fontSize:isMobile?30:38,fontWeight:800,lineHeight:1.15,color:saldoNetto>=0?"#10B981":"#EF4444"}}>
+              {saldoNetto>=0?"+":"−"}{fmt(Math.abs(saldoNetto))}€
+            </span>
+            <span style={{fontSize:fs-2,color:"var(--c-text-muted)"}}>
+              {fmt(totEntrate)} fatturati · {fmt(totUscite)} usciti
+            </span>
+          </div>
+          {/* Barra delle categorie: le prime tre per peso, il resto in grigio.
+              Oltre le tre voci le fette diventano troppo sottili per essere
+              distinguibili, e la barra smette di dire qualcosa. */}
+          {totUscite>0 && (()=>{
+            const voci = Object.entries(usciteByCat).sort((a,b)=>b[1]-a[1]);
+            const primi = voci.slice(0,3);
+            const restoVal = voci.slice(3).reduce((s,[,v])=>s+v,0);
+            const colori = ["#8B5CF6","#10B981","#F97316"];
+            const fette = [...primi.map(([k,v],i)=>({k,v,c:colori[i]})), ...(restoVal>0?[{k:"Altro",v:restoVal,c:"#94A3B8"}]:[])];
+            return (
+              <>
+                <div style={{display:"flex",height:6,borderRadius:3,overflow:"hidden",margin:"12px 0 8px"}}>
+                  {fette.map(f=><div key={f.k} style={{width:`${(f.v/totUscite)*100}%`,background:f.c}}/>)}
+                </div>
+                <div style={{display:"flex",gap:14,flexWrap:"wrap",fontSize:fs-4,color:"var(--c-text-muted)"}}>
+                  {fette.map(f=>(
+                    <span key={f.k}>
+                      <span style={{display:"inline-block",width:8,height:8,borderRadius:2,background:f.c,marginRight:5}}/>
+                      {f.k} {fmt(f.v)}
+                    </span>
+                  ))}
+                </div>
+              </>
+            );
+          })()}
+          {/* Le tre cifre che NON si leggono dal mese corrente: quanto vale
+              davvero l'azienda al netto dei debiti, quanto è già impegnato
+              ogni mese, e quanto vale il ricorrente sotto contratto. */}
+          <div style={{display:"grid",gridTemplateColumns:isMobile?"repeat(2,1fr)":"repeat(3,1fr)",gap:8,marginTop:14}}>
+            {[
+              { label:"Patrimonio netto", val:`${fmt(patrimonioNetto)}€`, sub: debitoTotale>0?`liquidità ${fmt(liquiditaEur)}€ − debiti ${fmt(debitoTotale)}€`:"liquidità sui conti", vai:"saldi",
+                colore: patrimonioNetto>=0?"var(--c-text-strong)":"#EF4444" },
+              { label:"Rate e canoni", val:`${fmt(impegnoMensileEur)}€`, sub:"al mese, già impegnati", vai:"ricorrenti" },
+              { label:"MRR sotto contratto",
+                val: mrrClienti ? `${fmt(mrrClienti.valore)}€` : "—",
+                sub: mrrClienti ? `${mrrClienti.n} client${mrrClienti.n===1?"e":"i"} attiv${mrrClienti.n===1?"o":"i"} · ${fmt(mrrClienti.valore*12)}€/anno` : "clienti non raggiungibili",
+                vai:"entrate", colore:"#3B82F6" },
+            ].map(c=>(
+              <button key={c.label} onClick={()=>setTab(c.vai)} className="card-link-iagrex"
+                style={{display:"block",width:"100%",textAlign:"left",border:"none",cursor:"pointer",
+                  background:"var(--c-panel2)",borderRadius:12,padding:"10px 12px",minWidth:0,overflow:"hidden"}}>
+                <div style={{fontSize:fs-4,color:"var(--c-text-faint)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.label}</div>
+                <div style={{fontSize:fs+2,fontWeight:700,color:c.colore||"var(--c-text-strong)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.val}</div>
+                {c.sub && <div style={{fontSize:fs-5,color:"var(--c-text-faintest)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.sub}</div>}
+              </button>
+            ))}
+          </div>
         </div>
 
         {entrateAnnoScorso!=null && (
@@ -652,13 +1107,71 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
             {yoyDeltaPct!=null && <span style={{marginLeft:6,fontWeight:700,color:yoyDeltaPct>=0?"#10B981":"#EF4444"}}>{yoyDeltaPct>=0?"+":""}{yoyDeltaPct}%</span>}
           </div>
         )}
+
+        {/* Proiezione uscite di fine mese (blocco 4). Il run-rate da solo non
+            "vede" le rate non ancora scattate: senza sommarle, il 2 del mese
+            la proiezione ignorerebbe la rata del 20. */}
+        {proiezioneUscite!=null && (()=>{
+          const proiezioneTot = proiezioneUscite + ricorrenzeResiduaMese;
+          const sopra = proiezioneTot>totEntrate && totEntrate>0;
+          return (
+            <div style={{marginTop:8,fontSize:fs-4,color:"var(--c-text-faint)"}}>
+              🔮 A questo ritmo ({fmt(totUscite/giornoOggi)}€/giorno) chiudi il mese a ~<b style={{color:sopra?"#EF4444":"var(--c-text)"}}>{fmt(proiezioneTot)}€</b> di uscite
+              {ricorrenzeResiduaMese>0 && <span> (di cui {fmt(ricorrenzeResiduaMese)}€ di rate e canoni non ancora addebitati)</span>}
+              {sopra && <span style={{color:"#EF4444",fontWeight:700}}> — sopra il fatturato del mese ({fmt(totEntrate)}€)</span>}
+            </div>
+          );
+        })()}
+
+        {/* Avvisi delle spese ricorrenti: addebiti registrati in automatico,
+            conti che non coprono l'addebito in arrivo, spese a cifra variabile
+            da confermare. */}
+        {autoInfo && (
+          <div style={{marginTop:8,padding:"8px 10px",borderRadius:8,border:"1px solid #10B98140",background:"#10B9810D",color:"#10B981",fontSize:fs-4}}>
+            ✅ Registrat{autoInfo.n===1?"o":"i"} {autoInfo.n} addebit{autoInfo.n===1?"o":"i"} ricorrent{autoInfo.n===1?"e":"i"}
+            {autoInfo.storici>0 && <span style={{color:"var(--c-text-faint)"}}> ({autoInfo.storici} come storico, senza toccare i saldi dei mesi già chiusi)</span>}
+            <div style={{color:"var(--c-text-faint)",marginTop:2}}>{autoInfo.voci.join(" · ")}</div>
+          </div>
+        )}
+        {alertSaldi.map(a=>(
+          <div key={a.conto} style={{marginTop:8,padding:"8px 10px",borderRadius:8,border:"1px solid #EF444440",background:"#EF44440D",color:"#EF4444",fontSize:fs-4}}>
+            ⚠️ <b>{CONTI_IAGREX_BY_ID[a.conto]?.label||a.conto}</b>: nei prossimi 7 giorni sono attesi {fmt(a.totale)}{contoCurrency(a.conto)==="RON"?" RON":"€"} di addebiti ma il saldo è {fmt(a.saldo)}{contoCurrency(a.conto)==="RON"?" RON":"€"}.
+            <div style={{color:"var(--c-text-faint)",marginTop:2}}>{a.voci.join(" · ")}</div>
+          </div>
+        ))}
+        {promemoriaSpese.length>0 && (
+          <div style={{marginTop:8,padding:"8px 10px",borderRadius:8,border:"1px solid #06B6D440",background:"#06B6D40D",fontSize:fs-4,color:"#06B6D4"}}>
+            🧾 {promemoriaSpese.length} spes{promemoriaSpese.length===1?"a":"e"} a cifra variabile da confermare:
+            {promemoriaSpese.map(({r,occ,atteso})=>(
+              <div key={`${r.id}-${occ.ym}`} style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginTop:4}}>
+                <span style={{color:"var(--c-text)"}}>{r.nome} — scaduta il {occ.data.slice(8)}/{occ.data.slice(5,7)}{atteso.eur>0?` · attesi ~${fmt(atteso.nativo)}${atteso.valuta==="RON"?" RON":"€"}`:""}</span>
+                <button onClick={()=>openRegistraSpesa(r,occ)} style={{padding:"3px 10px",borderRadius:6,border:"none",background:"#06B6D4",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:600}}>Registra</button>
+                <button onClick={()=>saltaPromemoria(r,occ)} style={{padding:"3px 10px",borderRadius:6,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-faint)",cursor:"pointer",fontSize:11}}>Non pagata</button>
+              </div>
+            ))}
+          </div>
+        )}
+        {budgetSforati.length>0 && (
+          <div style={{marginTop:8,padding:"8px 10px",borderRadius:8,border:"1px solid #F59E0B40",background:"#F59E0B0D",color:"#F59E0B",fontSize:fs-4}}>
+            🎯 Budget sforato su {budgetSforati.map(([c])=>c).join(", ")} — <button onClick={()=>setTab("recap")} style={{background:"none",border:"none",color:"#F59E0B",textDecoration:"underline",cursor:"pointer",fontSize:fs-4,padding:0}}>vedi il recap</button>
+          </div>
+        )}
       </div>
 
-      {/* Tabs */}
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:"1px solid var(--c-border)",flexShrink:0,background:"var(--c-bg)"}}>
-        <div style={{display:"flex"}}>
-          {[["entrate","💚 Entrate"],["uscite","🔴 Uscite"],["saldi","🏦 Saldi"],["recap","📊 Recap"],["piano","🧾 Piano Tasse"]].map(([t,label])=>(
-            <button key={t} onClick={()=>setTab(t)} style={{padding:"10px 16px",border:"none",background:"transparent",cursor:"pointer",fontSize:fs-2,fontWeight:tab===t?700:400,color:tab===t?"var(--c-text-strong)":"var(--c-text-faint)",borderBottom:tab===t?"2px solid #3B82F6":"2px solid transparent"}}>{label}</button>
+      {/* Tabs a chip su una riga sola (blocco 2, come BrunoPage): su mobile la
+          riga scorre in orizzontale, su desktop ci stanno tutte in vista. Il
+          chip attivo viene riportato in vista quando cambi scheda da altrove
+          (es. dalle card in cima), che altrimenti resterebbe fuori schermo. */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,padding:"10px 16px",borderBottom:"1px solid var(--c-border)",flexShrink:0,background:"var(--c-bg)"}}>
+        <div ref={tabsRef}
+          style={{display:"flex",gap:6,alignItems:"center",overflowX:"auto",flexWrap:isMobile?"nowrap":"wrap",scrollbarWidth:"none",minWidth:0}}>
+          {[["entrate","Entrate"],["uscite","Uscite"],["saldi","Conti"],["ricorrenti","Rate e abbonamenti"],["recap","Recap"],["piano","Piano Tasse"]].map(([t,label])=>(
+            <button key={t} onClick={()=>setTab(t)}
+              ref={tab===t ? chipAttivoRef : null}
+              style={{padding:"6px 14px",borderRadius:16,border:"none",cursor:"pointer",fontSize:fs-2,whiteSpace:"nowrap",flexShrink:0,
+                fontWeight:tab===t?700:400,
+                background: tab===t ? "var(--c-text-strong)" : "transparent",
+                color: tab===t ? "var(--c-bg)" : "var(--c-text-faint)"}}>{label}</button>
           ))}
         </div>
         <button onClick={openConversione} title="Registra un cambio di valuta tra i due conti UniCredit senza contarlo come entrata/uscita reale"
@@ -828,6 +1341,20 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
                     {fmt((parseFloat(monthData.saldi?.unicredit_eur)||0)*(eurRonRate||EUR_RON_FALLBACK) + (parseFloat(monthData.saldi?.unicredit_ron)||0))} RON
                   </span>
                 </div>
+                {/* Patrimonio netto (blocco 5): la liquidità da sola dice
+                    quanto c'è sul conto oggi, non quanto è davvero tuo. Se ci
+                    sono finanziamenti aperti, il debito residuo va sottratto —
+                    altrimenti un conto pieno il giorno prima di una maxirata
+                    sembra una posizione forte e non lo è. */}
+                <div style={{padding:"10px 12px",borderTop:"1px solid var(--c-border)",background:"var(--c-panel)",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                  <div>
+                    <div style={{fontSize:fs-2,fontWeight:700,color:patrimonioNetto>=0?"#10B981":"#EF4444"}}>Patrimonio netto</div>
+                    <div style={{fontSize:fs-4,color:"var(--c-text-faintest)",marginTop:2}}>
+                      liquidità {fmt(liquiditaEur)}€ {debitoTotale>0 ? `− debiti ancora da pagare ${fmt(debitoTotale)}€` : "· nessun finanziamento aperto"}
+                    </div>
+                  </div>
+                  <span style={{fontSize:fs+1,fontWeight:800,color:patrimonioNetto>=0?"#10B981":"#EF4444"}}>{fmt(patrimonioNetto)}€</span>
+                </div>
               </div>
 
               {/* Check estratto conto: confronto a fine mese saldo app vs saldo reale */}
@@ -874,11 +1401,232 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
             </div>
           )}
 
+          {/* RATE E ABBONAMENTI (blocco 3) */}
+          {tab==="ricorrenti" && (()=>{
+            const ccy = (r) => contoCurrency(r.conto)==="RON" ? " RON" : "€";
+
+            const Riga = ({ r }) => {
+              const rateTot = rateTotaliDi(r);
+              const pagate  = Math.min(ratePagate(r, oggiStr), rateTot||Infinity);
+              const residuo = debitoResiduo(r, oggiStr);
+              const prossima= prossimaScadenza(r, oggiStr);
+              const scaglioni = (r.periodi||[]).length>1 ? pianoRate(r) : null;
+              const maxi    = maxirataInfo(r, oggiStr);
+              const rataOra = prossima?.importo || parseFloat(r.importo) || 0;
+              const pausa   = r.attiva===false && !r.chiusa;
+              const pct     = rateTot ? Math.round((pagate/rateTot)*100) : null;
+              const colore  = r.chiusa ? "#10B981" : pausa ? "var(--c-text-faint)"
+                : r.tipo==="finanziamento" ? "#EF4444" : r.tipo==="spesa" ? "#06B6D4" : "#3B82F6";
+              // Pagata nel mese che stai guardando? Il legame è il movimento
+              // con ricorrenzaId: la card diventa verde e si vede a colpo
+              // d'occhio cosa resta da pagare senza aprire nulla.
+              const pagamentoMese = storicoRicorrenza(allData, r.id).find(s=>s.ym===month);
+              const st = !importoCerto(r) ? statsRicorrenza(r) : null;
+              return (
+                <div style={{background: pagamentoMese ? "#10B9810F" : "var(--c-panel)", border:`1px solid ${pagamentoMese ? "#10B98150" : "var(--c-border)"}`, borderRadius:10, padding:"12px 14px", opacity:(pausa||r.chiusa)?0.65:1}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10,flexWrap:"wrap"}}>
+                    <div style={{minWidth:0}}>
+                      <div style={{fontSize:fs-1,fontWeight:700,color:"var(--c-text-strong)"}}>
+                        {r.nome}
+                        {pagamentoMese && <span style={{marginLeft:8,fontSize:fs-4,color:"#10B981",fontWeight:600}}>✅ pagata {pagamentoMese.data.slice(8)}/{pagamentoMese.data.slice(5,7)} · {fmt(pagamentoMese.importo)}{ccy(r)}</span>}
+                        {r.chiusa && <span style={{marginLeft:8,fontSize:fs-4,color:"#10B981",fontWeight:600}}>✅ estinto {r.chiusa.data}</span>}
+                        {pausa && <span style={{marginLeft:8,fontSize:fs-4,color:"var(--c-text-faint)",fontWeight:600}}>⏸ in pausa</span>}
+                      </div>
+                      <div style={{fontSize:fs-4,color:"var(--c-text-faint)",marginTop:3}}>
+                        {r.ente ? `${r.ente} · ` : ""}{CONTI_IAGREX_BY_ID[r.conto]?.label||r.conto} · ogni {r.giorno} del mese
+                        {` · ${r.categoria}`}{r.sottocategoria ? <span style={{color:"#F97316"}}> › {r.sottocategoria}</span> : ""}
+                        {rateTot ? ` · ${rateTot} rate` : ""}
+                        {scaglioni && <span style={{color:"#F59E0B"}}> · piano a scaglioni: {scaglioni.map(p=>`${p.rate}×${fmt(p.importo)}`).join(" poi ")}</span>}
+                      </div>
+                    </div>
+                    <div style={{textAlign:"right"}}>
+                      {(()=>{
+                        if (importoCerto(r)) return <div style={{fontSize:fs+1,fontWeight:800,color:colore}}>-{fmt(rataOra)}{ccy(r)}</div>;
+                        const a = attesoInfo(r, st.storico);
+                        // Senza importo atteso e senza storico non c'è nessuna
+                        // cifra onesta da mostrare: "~0" sarebbe inventato.
+                        if (!(a.eur > 0)) return <div style={{fontSize:fs,fontWeight:700,color:"var(--c-text-faintest)"}} title="Importo variabile: lo scrivi tu quando registri il pagamento">—</div>;
+                        return (
+                          <>
+                            <div style={{fontSize:fs+1,fontWeight:800,color:colore}}>~{fmt(a.nativo)}{ccy(r)}</div>
+                            {contoCurrency(r.conto)==="RON" && <div style={{fontSize:fs-5,color:"var(--c-text-faint)"}}>≈ {fmt(a.eur)}€{a.valuta==="€"?" (fisso in €)":""}</div>}
+                          </>
+                        );
+                      })()}
+                      {prossima && <div style={{fontSize:fs-5,color:"var(--c-text-faintest)",marginTop:2}}>prossimo: {prossima.data.slice(8)}/{prossima.data.slice(5,7)}</div>}
+                    </div>
+                  </div>
+
+                  {pct!=null && (
+                    <div style={{marginTop:10}}>
+                      <div style={{display:"flex",justifyContent:"space-between",fontSize:fs-5,color:"var(--c-text-faint)",marginBottom:4}}>
+                        <span>{pagate}/{rateTot} rate pagate ({pct}%)</span>
+                        <span title="Somma delle rate ancora da pagare: è quanto resta da sborsare, interessi inclusi">ancora da versare <b style={{color: residuo>0?"#EF4444":"#10B981"}}>{fmt(residuo)}{ccy(r)}</b></span>
+                      </div>
+                      <div style={{height:6,borderRadius:4,background:"var(--c-border)",overflow:"hidden"}}>
+                        <div style={{width:`${pct}%`,height:"100%",background:r.chiusa?"#10B981":"#F59E0B"}}/>
+                      </div>
+                      {rateTot>0 && !r.chiusa && (()=>{
+                        const ultima = occorrenze({ ...r, chiusa:null }, "2099-12-31").at(-1);
+                        // Costo del prestito: somma rate meno capitale
+                        // ricevuto. Sono due numeri facili da confondere,
+                        // quindi stanno scritti uno accanto all'altro.
+                        const tot = totaleRate(r);
+                        const capitale = parseFloat(r.importoFinanziato)||0;
+                        return (
+                          <div style={{fontSize:fs-5,color:"var(--c-text-faintest)",marginTop:4}}>
+                            {ultima && <>ultima rata: {ultima.data} · </>}
+                            somma rate {fmt(tot)}{ccy(r)}
+                            {capitale>0 && <> · capitale {fmt(capitale)}{ccy(r)} · <span style={{color:"#EF4444"}}>interessi e spese {fmt(round2(tot-capitale))}{ccy(r)}</span></>}
+                          </div>
+                        );
+                      })()}
+                      {maxi && !maxi.scaduta && (
+                        <div style={{fontSize:fs-5,color:"#F59E0B",marginTop:4}}>
+                          🎯 Puoi chiudere alla rata {maxi.allaRata||"?"} con una maxirata di <b>{fmt(maxi.importo)}{ccy(r)}</b> — da richiedere entro {maxi.entro} ({maxi.giorni} giorni)
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Andamento delle spese a cifra variabile: importi e mesi
+                      sempre scritti, non solo la forma della barra. */}
+                  {st && (st.storico.length===0 ? (
+                    <div style={{fontSize:fs-5,color:"var(--c-text-faintest)",marginTop:8}}>
+                      Nessun pagamento registrato ancora: al prossimo {r.giorno} del mese te lo ricordo io.
+                    </div>
+                  ) : (()=>{
+                    const ultimi = st.storico.slice(-12);
+                    const max = Math.max(...ultimi.map(x=>x.importo), 1);
+                    return (
+                      <div style={{marginTop:10}}>
+                        <div style={{fontSize:fs-5,color:"var(--c-text-faint)",marginBottom:6}}>
+                          Ultimo: <b style={{color:"var(--c-text)"}}>{fmt(st.ultimo.importo)}{ccy(r)}</b>
+                          {st.isRon && <b style={{color:"var(--c-text)"}}> ≈ {fmt(st.ultimoEur)}€</b>} ({getMonthLabel(st.ultimo.ym)})
+                          {st.deltaPct!=null && <span style={{marginLeft:6,fontWeight:700,color: st.deltaPct<=0?"#10B981":"#EF4444"}}>{st.deltaPct>=0?"+":""}{st.deltaPct}% sul mese prima</span>}
+                          <span style={{marginLeft:6,color:"var(--c-text-faintest)"}}>· media {fmt(st.media)}{ccy(r)}{st.isRon?` ≈ ${fmt(st.mediaEur)}€`:""}</span>
+                        </div>
+                        <div style={{display:"flex",alignItems:"flex-end",gap:4,height:56}}>
+                          {ultimi.map(x=>(
+                            <div key={x.ym} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2,minWidth:0}}>
+                              <span style={{fontSize:fs-6,color:"var(--c-text-faint)",whiteSpace:"nowrap"}}>{fmt(x.importo)}</span>
+                              <div title={`${x.data}: ${fmt(x.importo)}${ccy(r)}`}
+                                style={{width:"100%",height:Math.max(4, Math.round((x.importo/max)*26)),background: x.importo>st.media?"#EF4444":"#06B6D4",borderRadius:3}}/>
+                              <span style={{fontSize:fs-6,color:"var(--c-text-faintest)",whiteSpace:"nowrap"}}>{MESI_BREVI[Number(x.ym.slice(5,7))-1]}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })())}
+
+                  <div style={{display:"flex",gap:6,marginTop:10,flexWrap:"wrap"}}>
+                    <button onClick={()=>openRicEdit(r)} style={{padding:"4px 10px",borderRadius:6,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-dim)",cursor:"pointer",fontSize:11}}>✏️ Modifica</button>
+                    {!r.chiusa && <button onClick={()=>toggleRicAttiva(r)} style={{padding:"4px 10px",borderRadius:6,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-dim)",cursor:"pointer",fontSize:11}}>{pausa?"▶️ Riattiva":"⏸ Pausa"}</button>}
+                    {r.tipo==="finanziamento" && !r.chiusa && <button onClick={()=>openEstingue(r)} style={{padding:"4px 10px",borderRadius:6,border:"1px solid #10B98150",background:"#10B9811A",color:"#10B981",cursor:"pointer",fontSize:11,fontWeight:600}}>💸 Estingui</button>}
+                    <button onClick={()=>deleteRicorrenza(r)} style={{padding:"4px 10px",borderRadius:6,border:"1px solid #EF444440",background:"transparent",color:"#EF4444",cursor:"pointer",fontSize:11}}>🗑 Elimina</button>
+                  </div>
+                </div>
+              );
+            };
+
+            const Sezione = ({ titolo, colore, tipo, lista, vuoto }) => (
+              <div>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                  <div style={{fontSize:fs-3,fontWeight:700,color:colore,textTransform:"uppercase",letterSpacing:"0.08em"}}>{titolo}</div>
+                  <button onClick={()=>openRicAdd(tipo)} style={{padding:"5px 12px",borderRadius:7,border:"none",background:colore,color:"#fff",cursor:"pointer",fontSize:11,fontWeight:600}}>+ Aggiungi</button>
+                </div>
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  {lista.length===0
+                    ? <div style={{padding:16,textAlign:"center",color:"var(--c-text-faintest)",fontSize:fs-3,background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10}}>{vuoto}</div>
+                    : lista.map(r=><Riga key={r.id} r={r}/>)}
+                </div>
+              </div>
+            );
+
+            return (
+              <div style={{display:"flex",flexDirection:"column",gap:16}}>
+                <div style={{fontSize:fs-4,color:"var(--c-text-faintest)",background:"var(--c-panel2)",border:"1px solid var(--c-border)",borderRadius:8,padding:"8px 10px"}}>
+                  ℹ️ Ogni volta che apri Finanze IAGREX, gli addebiti già scaduti vengono registrati fra le Uscite. <b>I saldi dei conti cambiano solo dal mese corrente in poi</b>: le rate dei mesi passati entrano come storico ma non toccano i saldi, che avevi già scritto a mano dalla banca e che quindi le contengono già. Non possono generarsi doppioni.
+                </div>
+
+                <div style={{display:"grid",gridTemplateColumns:isMobile?"repeat(2,1fr)":"repeat(4,1fr)",gap:8}}>
+                  {[
+                    { label:"Debito residuo", val:debitoTotale, color:"#EF4444" },
+                    { label:"Impegno mensile", val:impegnoMensileEur, color:"#F59E0B" },
+                    { label:"Abbonamenti/mese", val:totAbbMeseEur, color:"#3B82F6" },
+                    { label:"Patrimonio netto", val:patrimonioNetto, color:patrimonioNetto>=0?"#10B981":"#EF4444" },
+                  ].map(c=>(
+                    <div key={c.label} style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,padding:"10px 12px",minWidth:0}}>
+                      <div style={{fontSize:fs-4,color:"var(--c-text-faint)",marginBottom:4,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.label}</div>
+                      <div style={{fontSize:isMobile?fs:fs+2,fontWeight:800,color:c.color,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{fmt(c.val)}€</div>
+                    </div>
+                  ))}
+                </div>
+                {totAbbMeseEur>0 && (
+                  <div style={{fontSize:fs-4,color:"var(--c-text-faint)",marginTop:-8}}>
+                    📅 Gli abbonamenti costano a IAGREX <b style={{color:"#3B82F6"}}>{fmt(totAbbMeseEur*12)}€ all&apos;anno</b>
+                    {totEntrate>0 && <span> — il {Math.round((totAbbMeseEur/totEntrate)*100)}% del fatturato di questo mese.</span>}
+                  </div>
+                )}
+                {maxirateInScadenza.length>0 && (
+                  <div style={{fontSize:fs-4,color:"#F59E0B",background:"#F59E0B0D",border:"1px solid #F59E0B40",borderRadius:8,padding:"8px 10px"}}>
+                    🎯 {maxirateInScadenza.length} finestra{maxirateInScadenza.length>1?"e":""} di maxirata ancora aperta: {maxirateInScadenza.map(({r,info})=>`${r.nome} entro ${info.entro} (${info.giorni}g)`).join(" · ")}
+                  </div>
+                )}
+
+                <Sezione titolo="🏦 Finanziamenti & debiti" colore="#EF4444" tipo="finanziamento" lista={finanziamenti}
+                  vuoto="Nessun finanziamento aziendale. Qui vanno leasing, prestiti e rateizzazioni: rata, giorno di addebito e numero di rate." />
+                <Sezione titolo="🧾 Spese fisse (importo variabile)" colore="#06B6D4" tipo="spesa" lista={speseFisse}
+                  vuoto="Commercialista, contributi, utenze dell'ufficio: quelle che paghi ogni mese ma con una cifra diversa. Non le registro da solo — te le ricordo alla scadenza e tu scrivi quanto hai pagato." />
+                <Sezione titolo="🔁 Abbonamenti & software" colore="#3B82F6" tipo="abbonamento" lista={abbonamenti}
+                  vuoto="Nessun abbonamento. Aggiungi qui i tool ricorrenti (AI, hosting, ads manager, CRM): te li segna da solo ogni mese." />
+              </div>
+            );
+          })()}
+
           {/* RECAP: dove vanno i soldi, mese per mese */}
           {tab==="recap" && (
             <div>
               <div style={{fontSize:fs-1,fontWeight:700,color:"var(--c-text-strong)",marginBottom:16}}>
                 📊 Recap {getMonthLabel(month)}
+              </div>
+
+              {/* Budget mensile per categoria (blocco 4): barre spesa/soglia
+                  con alert di sforamento. La spesa è quella del mese che stai
+                  guardando, già in EUR. */}
+              <div style={{marginBottom:24}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                  <div style={{fontSize:fs-3,fontWeight:700,color:"#F59E0B",textTransform:"uppercase",letterSpacing:"0.08em"}}>
+                    🎯 Budget mensile{budgetSforati.length>0 && <span style={{color:"#EF4444"}}> — {budgetSforati.length} sforat{budgetSforati.length===1?"o":"i"}</span>}
+                  </div>
+                  <button onClick={openBudgetModal} style={{padding:"4px 10px",borderRadius:6,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-dim)",cursor:"pointer",fontSize:11}}>
+                    {budgetEntries.length>0?"✏️ Modifica":"➕ Imposta budget"}
+                  </button>
+                </div>
+                {budgetEntries.length===0 && (
+                  <div style={{fontSize:fs-2,color:"var(--c-text-faintest)",padding:"4px 0 8px"}}>
+                    Nessun budget impostato — definisci una soglia mensile per le categorie che vuoi tenere d&apos;occhio (Software &amp; Tools e Marketing sono quelle che crescono senza che te ne accorga).
+                  </div>
+                )}
+                {budgetEntries.sort((a,b)=>((usciteByCat[b[0]]||0)/b[1])-((usciteByCat[a[0]]||0)/a[1])).map(([cat,bud])=>{
+                  const spesa = usciteByCat[cat]||0;
+                  const pct = (spesa/bud)*100;
+                  const color = pct>100 ? "#EF4444" : pct>80 ? "#F59E0B" : "#10B981";
+                  return (
+                    <div key={cat} style={{marginBottom:10}}>
+                      <div style={{display:"flex",justifyContent:"space-between",fontSize:fs-2,marginBottom:4}}>
+                        <span style={{color:"var(--c-text)"}}>{pct>100?"⚠️ ":""}{cat}</span>
+                        <span style={{color,fontWeight:600}}>
+                          {fmt(spesa)}€ / {fmt(bud)}€ · {Math.round(pct)}%{pct>100 && ` · sforato di ${fmt(spesa-bud)}€`}
+                        </span>
+                      </div>
+                      <div style={{height:8,background:"var(--c-border)",borderRadius:4,overflow:"hidden"}}>
+                        <div style={{height:"100%",width:`${Math.min(pct,100)}%`,background:color,borderRadius:4}}/>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
 
               <div style={{marginBottom:24}}>
@@ -894,20 +1642,29 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
                   </div>
                 ) : <div style={{marginBottom:10}}/>}
                 <CategoryBars data={usciteByCat} total={totUscite} color="#EF4444" fs={fs} fmt={fmt}/>
-                {/* Dettaglio Trasporti: costi auto vs corse Bolt/Uber. */}
-                {totTrasporti>0 && (
-                  <div style={{marginTop:14,padding:"10px 12px",background:"var(--c-bg)",border:"1px solid var(--c-border)",borderRadius:8}}>
-                    <div style={{fontSize:fs-3,fontWeight:700,color:"var(--c-text-dim)",marginBottom:8}}>
-                      🚗 Dettaglio Trasporti — auto: <span style={{color:"#F97316"}}>{fmt(totAuto)}€</span> · totale: {fmt(totTrasporti)}€
-                    </div>
-                    {Object.entries(trasportiBySub).sort((a,b)=>b[1]-a[1]).map(([sc,val])=>(
-                      <div key={sc} style={{display:"flex",justifyContent:"space-between",fontSize:fs-3,marginBottom:4}}>
-                        <span style={{color:"var(--c-text)"}}>{SOTTOCAT_AUTO.includes(sc)?"🚗 ":sc==="Bolt/Uber"?"🚕 ":"· "}{sc}</span>
-                        <span style={{color:"var(--c-text-dim)",fontWeight:600}}>{fmt(val)}€</span>
+                {/* Dettaglio per sottocategoria, una scheda per categoria che
+                    ne ha una. Trasporti tiene la riga in più "auto vs Bolt",
+                    perché lì la domanda è specifica. */}
+                {Object.entries(sottoByCat).sort((a,b)=>{
+                  const tot = (o)=>Object.values(o).reduce((s,v)=>s+v,0);
+                  return tot(b[1])-tot(a[1]);
+                }).map(([cat,voci])=>{
+                  const totCat = Object.values(voci).reduce((s,v)=>s+v,0);
+                  return (
+                    <div key={cat} style={{marginTop:14,padding:"10px 12px",background:"var(--c-bg)",border:"1px solid var(--c-border)",borderRadius:8}}>
+                      <div style={{fontSize:fs-3,fontWeight:700,color:"var(--c-text-dim)",marginBottom:8}}>
+                        {ICONA_SOTTOCAT_IAGREX[cat]||"·"} Dettaglio {cat} — totale: {fmt(totCat)}€
+                        {cat==="Trasporti" && totAuto>0 && <span> · auto: <span style={{color:"#F97316"}}>{fmt(totAuto)}€</span></span>}
                       </div>
-                    ))}
-                  </div>
-                )}
+                      {Object.entries(voci).sort((a,b)=>b[1]-a[1]).map(([sc,val])=>(
+                        <div key={sc} style={{display:"flex",justifyContent:"space-between",fontSize:fs-3,marginBottom:4}}>
+                          <span style={{color:"var(--c-text)"}}>{SOTTOCAT_AUTO.includes(sc)?"🚗 ":sc==="Bolt/Uber"?"🚕 ":"· "}{sc}</span>
+                          <span style={{color:"var(--c-text-dim)",fontWeight:600}}>{fmt(val)}€ <span style={{color:"var(--c-text-faintest)",fontWeight:400}}>({Math.round((val/totCat)*100)}%)</span></span>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })}
               </div>
 
               <div>
@@ -966,13 +1723,13 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
                     </button>
                   ))}
                 </div>
-                {/* Sottocategoria: solo per Trasporti — stessa logica di
-                    BrunoPage, per sapere quanto costa l'auto vs Bolt/Uber. */}
-                {modal.tipo==="uscita" && form.categoria==="Trasporti" && (
+                {/* Sottocategoria: per tutte le categorie che ne hanno una
+                    (blocco 6), non più solo Trasporti. */}
+                {modal.tipo==="uscita" && SOTTOCAT_IAGREX[form.categoria] && (
                   <div style={{marginTop:8}}>
-                    <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:6}}>Sottocategoria 🚗</div>
+                    <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:6}}>Sottocategoria {ICONA_SOTTOCAT_IAGREX[form.categoria]||""}</div>
                     <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                      {SOTTOCAT_TRASPORTI.map(sc=>(
+                      {SOTTOCAT_IAGREX[form.categoria].map(sc=>(
                         <button key={sc} onClick={()=>setForm(p=>({...p,sottocategoria:p.sottocategoria===sc?"":sc}))}
                           style={{padding:"4px 10px",borderRadius:6,border:`1px solid ${form.sottocategoria===sc?"#F97316":"var(--c-border)"}`,background:form.sottocategoria===sc?"#F9731620":"transparent",color:form.sottocategoria===sc?"#F97316":"var(--c-text-faint)",cursor:"pointer",fontSize:11}}>
                           {sc}
@@ -1089,6 +1846,343 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
           </div>
         </div>
       )}
+
+      {/* Modal Budget categorie */}
+      {budgetModal && (
+        <div style={{position:"fixed",inset:0,background:"#00000090",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setBudgetModal(false)}>
+          <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:16,padding:24,width:"100%",maxWidth:400,maxHeight:"90vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:15,fontWeight:700,color:"var(--c-text-strong)",marginBottom:6}}>🎯 Budget mensile per categoria</div>
+            <div style={{fontSize:11,color:"var(--c-text-faint)",marginBottom:20}}>
+              Soglia di spesa mensile in €. Lascia vuota una categoria per non tenerla d&apos;occhio. La soglia vale per tutti i mesi, non solo per quello che stai guardando.
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              {budgetCatList.map(cat=>(
+                <div key={cat} style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{flex:1,fontSize:12,color:"var(--c-text-dim)"}}>{cat}</span>
+                  <input type="number" min="0" placeholder="—" value={budgetForm[cat]??""}
+                    onChange={e=>setBudgetForm(p=>({...p,[cat]:e.target.value}))}
+                    style={{width:100,padding:"6px 8px",borderRadius:6,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:12,outline:"none",textAlign:"right"}}/>
+                  <span style={{fontSize:11,color:"var(--c-text-faintest)"}}>€</span>
+                </div>
+              ))}
+            </div>
+            <div style={{display:"flex",gap:8,marginTop:20}}>
+              <button onClick={()=>setBudgetModal(false)} style={{flex:1,padding:10,borderRadius:8,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-faint)",cursor:"pointer",fontSize:13}}>Annulla</button>
+              <button onClick={saveBudget} style={{flex:2,padding:10,borderRadius:8,border:"none",background:"#F59E0B",color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700}}>Salva budget</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Ricorrenza (finanziamento / spesa fissa / abbonamento) */}
+      {ricModal && (()=>{
+        const isFin = ricForm.tipo==="finanziamento";
+        const isSpesa = ricForm.tipo==="spesa";
+        const ccy = contoCurrency(ricForm.conto);
+        // Anteprima: si costruisce una ricorrenza "finta" con i valori del
+        // form e la si passa alle stesse funzioni usate a regime, così
+        // l'anteprima non può divergere da quello che succede davvero.
+        const anteprima = (ricForm.dataInizio && ricForm.giorno && (parseFloat(ricForm.importo)>0 || periodiPuliti.length))
+          ? (()=>{
+              const finto = { ...ricForm, periodi: periodiPuliti,
+                rateTotali: periodiPuliti.length ? periodiPuliti.reduce((s,p)=>s+p.rate,0) : (parseInt(ricForm.rateTotali,10)||0),
+                importo: parseFloat(ricForm.importo) || periodiPuliti[0]?.importo || 0, chiusa:null };
+              const passate = occorrenze(finto, oggiStr);
+              const rateTot = rateTotaliDi(finto);
+              const ultima = rateTot ? occorrenze(finto, "2099-12-31").at(-1) : null;
+              const meseOra = getCurrentMonth();
+              const storiche = passate.filter(o=>o.ym < meseOra).length;
+              const tot = totaleRate(finto);
+              const capitale = parseFloat(ricForm.importoFinanziato)||0;
+              return { passate: passate.length, storiche, ultima, totaleRate: tot, capitale,
+                residuoOggi: debitoResiduo({ ...finto, tipo:"finanziamento" }, oggiStr),
+                interessi: (capitale>0 && tot>0) ? round2(tot-capitale) : 0 };
+            })()
+          : null;
+        return (
+        <div style={{position:"fixed",inset:0,background:"#00000090",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={closeRicModal}>
+          <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:16,padding:24,width:"100%",maxWidth:420,maxHeight:"90vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:15,fontWeight:700,color:"var(--c-text-strong)",marginBottom:6}}>
+              {ricModal.mode==="add" ? (isSpesa?"Nuova":"Nuovo") : "Modifica"} {isFin ? "finanziamento 🏦" : isSpesa ? "spesa fissa 🧾" : "abbonamento 🔁"}
+            </div>
+            <div style={{fontSize:11,color:"var(--c-text-faint)",marginBottom:20}}>
+              {isSpesa
+                ? "L'importo cambia ogni mese, quindi non la registro da solo: alla scadenza te la ricordo con il form già pronto e tu scrivi solo la cifra pagata."
+                : "L'addebito verrà registrato da solo fra le Uscite ogni mese, nel giorno indicato, scalando il conto scelto."}
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:12}}>
+              <div>
+                <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:4}}>Nome *</div>
+                <input type="text" value={ricForm.nome||""} onChange={e=>setRicForm(p=>({...p,nome:e.target.value}))}
+                  placeholder={isFin?"es. Leasing attrezzatura":isSpesa?"es. Commercialista Keez, contributi":"es. Claude, Meta Business, hosting"}
+                  style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:13,outline:"none"}}/>
+              </div>
+              <div>
+                <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:4}}>{isFin?"Ente erogante":"Fornitore"}</div>
+                <input type="text" value={ricForm.ente||""} onChange={e=>setRicForm(p=>({...p,ente:e.target.value}))}
+                  placeholder={isFin?"es. UniCredit Leasing":isSpesa?"es. Keez, ANAF":"es. Anthropic"}
+                  style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:13,outline:"none"}}/>
+              </div>
+              <div>
+                <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:4}}>Addebitato su 🏦</div>
+                <select value={ricForm.conto||""} onChange={e=>setRicForm(p=>({...p,conto:e.target.value}))}
+                  style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:13,outline:"none"}}>
+                  {CONTI_IAGREX.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
+                </select>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                <div>
+                  <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:4}}>{isFin?"Rata":isSpesa?"Importo atteso":"Canone"} {ccy} {isSpesa?"":"*"}</div>
+                  <input type="number" step="0.01" value={ricForm.importo||""} onChange={e=>setRicForm(p=>({...p,importo:e.target.value}))} placeholder={isSpesa?"350":"99"}
+                    style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:13,outline:"none"}}/>
+                </div>
+                <div>
+                  <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:4}}>Giorno del mese *</div>
+                  <input type="number" min="1" max="31" value={ricForm.giorno||""} onChange={e=>setRicForm(p=>({...p,giorno:e.target.value}))}
+                    style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:13,outline:"none"}}/>
+                </div>
+              </div>
+              {/* Valuta dell'importo atteso: su un conto in RON i due casi sono
+                  opposti — il software si paga in euro anche se addebitato sul
+                  conto RON, il commercialista è fisso in RON. Senza questa
+                  scelta uno dei due verrebbe convertito al contrario. */}
+              {isSpesa && contoCurrency(ricForm.conto)==="RON" && (
+                <div>
+                  <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:6}}>L&apos;importo atteso qui sopra è in...</div>
+                  <div style={{display:"flex",gap:6}}>
+                    {[["RON","RON — es. commercialista, contributi"],["€","€ — es. tool fatturato in euro"]].map(([v,label])=>{
+                      const sel = (ricForm.importoValuta || "RON") === v;
+                      return (
+                        <button key={v} onClick={()=>setRicForm(p=>({...p,importoValuta:v}))}
+                          style={{flex:1,padding:"6px 10px",borderRadius:6,border:`1px solid ${sel?"#06B6D4":"var(--c-border)"}`,background:sel?"#06B6D420":"transparent",color:sel?"#06B6D4":"var(--c-text-faint)",cursor:"pointer",fontSize:10,textAlign:"left"}}>
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {parseFloat(ricForm.importo)>0 && (
+                    <div style={{fontSize:10,color:"var(--c-text-faintest)",marginTop:6}}>
+                      {(ricForm.importoValuta||"RON")==="€"
+                        ? <>Al cambio di oggi sono circa <b style={{color:"var(--c-text)"}}>{fmt(parseFloat(ricForm.importo)*rate)} RON</b>.</>
+                        : <>Al cambio di oggi sono circa <b style={{color:"var(--c-text)"}}>{fmt(parseFloat(ricForm.importo)/rate)}€</b>.</>}
+                    </div>
+                  )}
+                </div>
+              )}
+              {isSpesa && (
+                <div style={{fontSize:10,color:"var(--c-text-faintest)",marginTop:-6}}>
+                  L&apos;importo atteso è facoltativo: serve solo alla proiezione di fine mese e all&apos;alert saldo. Lascialo vuoto dove la cifra non si può prevedere.
+                </div>
+              )}
+              {parseInt(ricForm.giorno,10)>28 && (
+                <div style={{fontSize:10,color:"var(--c-text-faintest)",marginTop:-6}}>
+                  Nei mesi più corti l&apos;addebito slitta all&apos;ultimo giorno disponibile (a febbraio il 28).
+                </div>
+              )}
+              <div>
+                <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:4}}>Data {isFin?"prima rata":"primo addebito"} *</div>
+                <input type="date" value={ricForm.dataInizio||""} onChange={e=>setRicForm(p=>({...p,dataInizio:e.target.value}))}
+                  style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:13,outline:"none"}}/>
+                <div style={{fontSize:10,color:"var(--c-text-faintest)",marginTop:4}}>
+                  I saldi cambiano solo da {getMonthLabel(getCurrentMonth())} in poi, mai sui mesi passati.
+                </div>
+              </div>
+
+              {/* Arretrati: scelta esplicita, default NO. Registrarli su un
+                  contratto vecchio crea mesi che nell'app non sono mai
+                  esistiti (saldi a zero, dentro solo la rata) e falsa cash
+                  flow e confronto anno-su-anno. */}
+              {!isSpesa && ricModal.mode==="add" && anteprima?.storiche>0 && (
+                <div style={{border:`1px solid ${ricForm.registraArretrati?"#F59E0B60":"var(--c-border)"}`,borderRadius:8,padding:"10px 12px",background:ricForm.registraArretrati?"#F59E0B0D":"transparent"}}>
+                  <label style={{display:"flex",alignItems:"flex-start",gap:8,cursor:"pointer"}}>
+                    <input type="checkbox" checked={!!ricForm.registraArretrati} onChange={e=>setRicForm(p=>({...p,registraArretrati:e.target.checked}))} style={{marginTop:2}}/>
+                    <span>
+                      <span style={{fontSize:11,color:"var(--c-text-dim)",fontWeight:600}}>Registra anche i {anteprima.storiche} addebiti arretrati</span>
+                      <span style={{display:"block",fontSize:10,color:"var(--c-text-faintest)",marginTop:3}}>
+                        {ricForm.registraArretrati
+                          ? `Verranno creati ${anteprima.storiche} movimenti nei mesi passati, creando anche i mesi che nell'app non esistono ancora (con saldi a zero). Utile solo se vuoi lo storico completo.`
+                          : "Lasciato spento: si parte dal mese corrente. Rate pagate e debito residuo restano comunque esatti, perché si calcolano dalle date del piano."}
+                      </span>
+                    </span>
+                  </label>
+                </div>
+              )}
+              {isFin && (
+                <>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                    <div>
+                      <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:4}}>Numero rate totali</div>
+                      <input type="number" min="1" disabled={periodiPuliti.length>0}
+                        value={periodiPuliti.length ? periodiPuliti.reduce((s,p)=>s+p.rate,0) : (ricForm.rateTotali||"")}
+                        onChange={e=>setRicForm(p=>({...p,rateTotali:e.target.value}))} placeholder="48"
+                        title={periodiPuliti.length ? "Calcolato dagli scaglioni qui sotto" : ""}
+                        style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:periodiPuliti.length?"var(--c-text-faint)":"var(--c-text)",fontSize:13,outline:"none"}}/>
+                    </div>
+                    <div>
+                      <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:4}}>Importo finanziato {ccy}</div>
+                      <input type="number" step="0.01" value={ricForm.importoFinanziato||""} onChange={e=>setRicForm(p=>({...p,importoFinanziato:e.target.value}))} placeholder="18000"
+                        style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:13,outline:"none"}}/>
+                    </div>
+                    <div>
+                      <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:4}}>TAEG % (facoltativo)</div>
+                      <input type="number" step="0.01" value={ricForm.taeg||""} onChange={e=>setRicForm(p=>({...p,taeg:e.target.value}))} placeholder="7,5"
+                        style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:13,outline:"none"}}/>
+                    </div>
+                  </div>
+                  <div style={{fontSize:10,color:"var(--c-text-faintest)",marginTop:-6}}>
+                    &quot;Importo finanziato&quot; = il capitale che ti è stato prestato (quello sul contratto), non la somma delle rate: la differenza sono gli interessi.
+                  </div>
+
+                  {/* Piano a scaglioni: rate che cambiano importo a metà piano.
+                      Con una rata sola il debito residuo verrebbe sovrastimato. */}
+                  <div style={{border:"1px solid var(--c-border)",borderRadius:8,padding:"10px 12px"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <div style={{fontSize:11,color:"var(--c-text-dim)",fontWeight:600}}>📐 Piano a scaglioni (facoltativo)</div>
+                      <button onClick={addPeriodo} style={{padding:"3px 9px",borderRadius:6,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-dim)",cursor:"pointer",fontSize:11}}>+ periodo</button>
+                    </div>
+                    <div style={{fontSize:10,color:"var(--c-text-faintest)",marginTop:4}}>
+                      Usalo se la rata cambia durante il piano (es. 48 rate da 317,52 poi 36 da 238,74). Se lo compili, &quot;Numero rate totali&quot; viene calcolato da qui.
+                    </div>
+                    {periodiForm.map((p,i)=>(
+                      <div key={i} style={{display:"grid",gridTemplateColumns:"1fr 1fr auto",gap:8,alignItems:"center",marginTop:8}}>
+                        <input type="number" min="1" value={p.rate||""} onChange={e=>updPeriodo(i,"rate",e.target.value)} placeholder={i===0?"48 rate":"36 rate"}
+                          style={{width:"100%",padding:"7px 9px",borderRadius:6,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:12,outline:"none"}}/>
+                        <input type="number" step="0.01" value={p.importo||""} onChange={e=>updPeriodo(i,"importo",e.target.value)} placeholder={`rata ${ccy}`}
+                          style={{width:"100%",padding:"7px 9px",borderRadius:6,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:12,outline:"none"}}/>
+                        <button onClick={()=>delPeriodo(i)} style={{width:26,height:26,borderRadius:6,border:"1px solid #EF444440",background:"transparent",color:"#EF4444",cursor:"pointer",fontSize:12}}>×</button>
+                      </div>
+                    ))}
+                    {periodiPuliti.length>0 && (
+                      <div style={{fontSize:10,color:"var(--c-text-faint)",marginTop:8}}>
+                        Totale: <b style={{color:"var(--c-text)"}}>{periodiPuliti.reduce((s,p)=>s+p.rate,0)} rate</b> · {periodiPuliti.map(p=>`${p.rate}×${fmt(p.importo)}`).join(" + ")}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Maxirata: chiusura anticipata a metà piano. Ha una
+                      finestra di richiesta che scade: senza promemoria si perde. */}
+                  <div style={{border:"1px solid var(--c-border)",borderRadius:8,padding:"10px 12px"}}>
+                    <div style={{fontSize:11,color:"var(--c-text-dim)",fontWeight:600}}>🎯 Opzione maxirata (facoltativo)</div>
+                    <div style={{fontSize:10,color:"var(--c-text-faintest)",marginTop:4,marginBottom:8}}>
+                      Se il contratto permette di chiudere in anticipo con una maxirata: ti avviso quando la finestra si avvicina.
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                      <div>
+                        <div style={{fontSize:10,color:"var(--c-text-faint)",marginBottom:3}}>Importo {ccy}</div>
+                        <input type="number" step="0.01" value={ricForm.maxirataImporto||""} onChange={e=>setRicForm(p=>({...p,maxirataImporto:e.target.value}))} placeholder="7238,37"
+                          style={{width:"100%",padding:"7px 9px",borderRadius:6,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:12,outline:"none"}}/>
+                      </div>
+                      <div>
+                        <div style={{fontSize:10,color:"var(--c-text-faint)",marginBottom:3}}>Da richiedere entro</div>
+                        <input type="date" value={ricForm.maxirataEntro||""} onChange={e=>setRicForm(p=>({...p,maxirataEntro:e.target.value}))}
+                          style={{width:"100%",padding:"7px 9px",borderRadius:6,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:12,outline:"none"}}/>
+                      </div>
+                    </div>
+                    <div style={{marginTop:8}}>
+                      <div style={{fontSize:10,color:"var(--c-text-faint)",marginBottom:3}}>Alla rata numero</div>
+                      <input type="number" min="1" value={ricForm.maxirataAllaRata||""} onChange={e=>setRicForm(p=>({...p,maxirataAllaRata:e.target.value}))} placeholder="48"
+                        style={{width:"100%",padding:"7px 9px",borderRadius:6,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:12,outline:"none"}}/>
+                    </div>
+                  </div>
+                  <div style={{fontSize:10,color:"var(--c-text-faintest)",marginTop:-6}}>
+                    Senza il numero di rate non si può calcolare il debito residuo: l&apos;addebito funziona lo stesso, ma resta a tempo indeterminato.
+                  </div>
+                </>
+              )}
+              <div>
+                <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:4}}>Categoria dell&apos;uscita</div>
+                <select value={ricForm.categoria||""} onChange={e=>setRicForm(p=>({...p,categoria:e.target.value,sottocategoria:""}))}
+                  style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:13,outline:"none"}}>
+                  {[...new Set([...CAT_USCITE.filter(c=>c!=="Conversione"), ricForm.categoria].filter(Boolean))].map(c=><option key={c} value={c}>{c}</option>)}
+                </select>
+                {/* Sottocategoria sulla ricorrenza: così ogni addebito nasce
+                    già taggato e il Recap può separarli senza che tu debba
+                    ricordartene ogni volta. */}
+                {SOTTOCAT_IAGREX[ricForm.categoria] && (
+                  <div style={{marginTop:8}}>
+                    <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:6}}>Sottocategoria {ICONA_SOTTOCAT_IAGREX[ricForm.categoria]||""}</div>
+                    <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                      {SOTTOCAT_IAGREX[ricForm.categoria].map(sc=>(
+                        <button key={sc} onClick={()=>setRicForm(p=>({...p,sottocategoria:p.sottocategoria===sc?"":sc}))}
+                          style={{padding:"4px 10px",borderRadius:6,border:`1px solid ${ricForm.sottocategoria===sc?"#F97316":"var(--c-border)"}`,background:ricForm.sottocategoria===sc?"#F9731620":"transparent",color:ricForm.sottocategoria===sc?"#F97316":"var(--c-text-faint)",cursor:"pointer",fontSize:11}}>
+                          {sc}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+              {isSpesa && (
+                <div style={{background:"var(--c-bg)",border:"1px solid var(--c-border)",borderRadius:8,padding:"8px 10px",fontSize:12,color:"var(--c-text-dim)"}}>
+                  Ogni {ricForm.giorno||"—"} del mese ti comparirà il promemoria in cima a Finanze IAGREX, col tasto <b style={{color:"var(--c-text)"}}>Registra</b>: form già compilato, ti resta da scrivere l&apos;importo. Nessun movimento nasce senza la tua conferma.
+                </div>
+              )}
+              {!isSpesa && anteprima && (
+                <div style={{background:"var(--c-bg)",border:"1px solid var(--c-border)",borderRadius:8,padding:"8px 10px",fontSize:12,color:"var(--c-text-dim)"}}>
+                  {(ricModal.mode==="add" && !ricForm.registraArretrati && anteprima.storiche>0)
+                    ? <>Rate già maturate: <b style={{color:"var(--c-text)"}}>{anteprima.passate}</b> — gli arretrati non verranno registrati fra le uscite, si parte da {getMonthLabel(getCurrentMonth())}.</>
+                    : <>Verranno registrati subito <b style={{color:"var(--c-text)"}}>{anteprima.passate}</b> addebiti già maturati
+                        {anteprima.storiche>0 && <>, di cui <b style={{color:"var(--c-text)"}}>{anteprima.storiche}</b> come storico senza toccare i saldi</>}</>}
+                  {anteprima.ultima && <> · ultima rata <b style={{color:"var(--c-text)"}}>{anteprima.ultima.data}</b></>}
+                  {anteprima.totaleRate>0 && (
+                    <div style={{marginTop:6}}>
+                      Somma di tutte le rate: <b style={{color:"var(--c-text)"}}>{fmt(anteprima.totaleRate)}{ccy}</b>
+                      {anteprima.capitale>0
+                        ? <> = capitale <b style={{color:"var(--c-text)"}}>{fmt(anteprima.capitale)}{ccy}</b> + interessi e spese <b style={{color:"#EF4444"}}>{fmt(anteprima.interessi)}{ccy}</b></>
+                        : <span style={{color:"var(--c-text-faintest)"}}> — non è il capitale finanziato: compila &quot;Importo finanziato&quot; per vedere quanto sono gli interessi.</span>}
+                      {isFin && anteprima.residuoOggi>0 && (
+                        <div style={{marginTop:4}}>Resterebbero da versare <b style={{color:"#EF4444"}}>{fmt(anteprima.residuoOggi)}{ccy}</b> da oggi in poi.</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            <div style={{display:"flex",gap:8,marginTop:20}}>
+              <button onClick={closeRicModal} style={{flex:1,padding:10,borderRadius:8,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-faint)",cursor:"pointer",fontSize:13}}>Annulla</button>
+              <button onClick={saveRicorrenza} style={{flex:2,padding:10,borderRadius:8,border:"none",background:isFin?"#EF4444":isSpesa?"#06B6D4":"#3B82F6",color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700}}>Salva</button>
+            </div>
+          </div>
+        </div>
+        );
+      })()}
+
+      {/* Modal Estinzione anticipata */}
+      {estingueId && (()=>{
+        const r = ricorrenze.find(x=>x.id===estingueId);
+        if (!r) return null;
+        const residuo = debitoResiduo(r, oggiStr);
+        const ccy = contoCurrency(r.conto)==="RON" ? " RON" : "€";
+        return (
+        <div style={{position:"fixed",inset:0,background:"#00000090",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setEstingueId(null)}>
+          <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:16,padding:24,width:"100%",maxWidth:400}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:15,fontWeight:700,color:"var(--c-text-strong)",marginBottom:6}}>💸 Estingui &quot;{r.nome}&quot;</div>
+            <div style={{fontSize:11,color:"var(--c-text-faint)",marginBottom:20}}>
+              Da questa data non verranno più generate rate. Debito residuo a oggi: <b style={{color:"#EF4444"}}>{fmt(residuo)}{ccy}</b>.
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:12}}>
+              <div>
+                <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:4}}>Data estinzione *</div>
+                <input type="date" value={estingueForm.data||""} onChange={e=>setEstingueForm(p=>({...p,data:e.target.value}))}
+                  style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:13,outline:"none"}}/>
+              </div>
+              <div>
+                <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:4}}>Importo pagato per chiudere {contoCurrency(r.conto)}</div>
+                <input type="number" step="0.01" value={estingueForm.importoEstinzione||""} onChange={e=>setEstingueForm(p=>({...p,importoEstinzione:e.target.value}))} placeholder={fmt(residuo)}
+                  style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"1px solid var(--c-border)",background:"var(--c-bg)",color:"var(--c-text)",fontSize:13,outline:"none"}}/>
+                <div style={{fontSize:10,color:"var(--c-text-faintest)",marginTop:4}}>
+                  Se lo indichi, viene registrata un&apos;uscita di quell&apos;importo che scala il conto. Lascia vuoto se si chiude senza conguaglio.
+                </div>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:8,marginTop:20}}>
+              <button onClick={()=>setEstingueId(null)} style={{flex:1,padding:10,borderRadius:8,border:"1px solid var(--c-border)",background:"transparent",color:"var(--c-text-faint)",cursor:"pointer",fontSize:13}}>Annulla</button>
+              <button onClick={confermaEstinzione} style={{flex:2,padding:10,borderRadius:8,border:"none",background:"#10B981",color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700}}>Conferma estinzione</button>
+            </div>
+          </div>
+        </div>
+        );
+      })()}
 
       {/* Modal Check estratto conto */}
       {checkModal && (
