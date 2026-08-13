@@ -32,6 +32,10 @@ export const PAGINE = {
   gratitudine: "2kxuu4g1-1412",
   decisioni:   "2kxuu4g1-1432",
   apprendimento: "2kxuu4g1-1452",
+  // Chiavi PUBBLICHE dei passkey registrati (vedi lib/passkey-store.js).
+  // Non e' materiale segreto: una chiave pubblica verifica una firma, non la
+  // produce. La chiave privata resta nel chip sicuro del telefono.
+  passkey:     "2kxuu4g1-1472",
 };
 
 // 45 secondi: abbastanza da coprire un ricaricamento della pagina e i

@@ -61,6 +61,21 @@ export default function Login() {
           Dario AI Agents
         </h1>
 
+        {/* Campo utente, apparentemente inutile visto che l'utente è uno solo.
+            Serve ai gestori di password: senza una coppia utente+password
+            Chrome e il portachiavi di iOS non si offrono di salvare le
+            credenziali e poi non le ricompilano — che era esattamente il
+            comodo che si perdeva passando dalla Basic Auth. È readOnly
+            perché non c'è niente da scegliere. */}
+        <input
+          type="text" name="username" value="dario" readOnly autoComplete="username"
+          style={{
+            width: "100%", boxSizing: "border-box", padding: "12px 14px", marginBottom: 10,
+            borderRadius: 10, border: "1px solid #1E293B", background: "#0B0B14",
+            color: "#64748B", fontSize: 16, outline: "none",
+          }}
+        />
+
         <label htmlFor="pw" style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#94A3B8", marginBottom: 6 }}>
           Password
         </label>

@@ -1,7 +1,10 @@
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
-import { gettoneAtteso, confrontoCostante, COOKIE_SESSIONE, DURATA_COOKIE_S } from "../../lib/sessione";
+import {
+  gettoneAtteso, confrontoCostante, tipoSessione, creaGettoneSblocco,
+  COOKIE_SESSIONE, COOKIE_SBLOCCO, DURATA_COOKIE_S, DURATA_SBLOCCO_S, leggiCookie,
+} from "../../lib/sessione";
 
 // Scambia la password con un cookie di sessione. E' l'unico punto dell'app in
 // cui la password viaggia — una volta per dispositivo, invece che a ogni
@@ -30,7 +33,24 @@ export async function POST(request) {
     return Response.json({ error: "Password errata" }, { status: 401 });
   }
 
-  const gettone = await gettoneAtteso(password);
+  // LA PASSWORD NON DECLASSA UN DISPOSITIVO PROTETTO.
+  //
+  // Sulla schermata di sblocco c'è sempre "usa la password", perché nessuno
+  // deve poter restare chiuso fuori se il Face ID fa i capricci. Ma se questo
+  // dispositivo ha il lucchetto biometrico, entrare con la password deve
+  // rilasciare uno sblocco temporaneo e LASCIARE il gettone in variante bio:
+  // se lo riportassimo a "normale", il primo che conosce la password
+  // spegnerebbe il lucchetto per sempre con un login.
+  const gia = await tipoSessione(leggiCookie(request, COOKIE_SESSIONE), password);
+  const protetto = gia === "bio";
+
+  const gettone = protetto ? undefined : await gettoneAtteso(password);
+  if (protetto) {
+    const h = new Headers({ "Content-Type": "application/json" });
+    h.append("Set-Cookie", `${COOKIE_SBLOCCO}=${await creaGettoneSblocco(password)}; Path=/; Max-Age=${DURATA_SBLOCCO_S}; HttpOnly; Secure; SameSite=Lax`);
+    return new Response(JSON.stringify({ success: true, sbloccato: true }), { status: 200, headers: h });
+  }
+
   return new Response(JSON.stringify({ success: true }), {
     status: 200,
     headers: {

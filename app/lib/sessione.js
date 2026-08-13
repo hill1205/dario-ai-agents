@@ -35,27 +35,146 @@
 const ETICHETTA = "dario-ai-agents-sessione-v1";
 export const COOKIE_SESSIONE = "dario_sess";
 
+// --- Il lucchetto biometrico -----------------------------------------------
+//
+// IL PROBLEMA CHE RISOLVE
+// Un cookie che dura un anno rende comoda l'apertura ma lascia l'app
+// PERMANENTEMENTE sbloccata su quel dispositivo: chi prende il telefono
+// sbloccato e tocca l'icona vede saldi, clienti e fatturato. La password una
+// volta l'anno non e' una protezione, e' un fastidio rimandato.
+//
+// COME FUNZIONA, E PERCHE' NON SERVE UN ELENCO DI DISPOSITIVI
+// Registrare un passkey su un dispositivo ne cambia il gettone di sessione:
+// da quello normale a una VARIANTE "bio". Il middleware, vedendo la variante
+// bio, pretende anche uno sblocco recente. Quindi:
+//   - il telefono (che ha registrato il Face ID) e' protetto;
+//   - il computer (che non l'ha fatto) resta automatico, come voluto.
+// Senza che il server debba sapere che dispositivo sta parlando.
+//
+// E soprattutto: la variante non si puo' DECLASSARE. Chi ha in mano il
+// telefono possiede il gettone bio, ma per ottenere quello normale — e
+// scavalcare il lucchetto — dovrebbe calcolare un HMAC di cui non ha la
+// chiave, cioe' conoscere la password. Cancellare i cookie non aiuta: lo
+// slogga e basta.
+const ETICHETTA_BIO = "dario-ai-agents-sessione-bio-v1";
+export const COOKIE_SBLOCCO = "dario_unlock";
+export const COOKIE_CHALLENGE = "dario_chal";
+
+// Ogni apertura, con 30 secondi di tolleranza.
+//
+// La tolleranza serve a un caso concreto: esci dall'app per copiare un numero
+// da WhatsApp e rientri: senza, ti chiederebbe il dito ogni volta. Trenta
+// secondi coprono quel rimbalzo e non coprono un telefono lasciato sul
+// tavolo. E' l'unica manopola di tutto il sistema: portarla a 900 vuol dire
+// "richiedi il dito dopo 15 minuti di inattivita'".
+export const DURATA_SBLOCCO_S = 30;
+
+// Le challenge vivono due minuti: il tempo di guardare il telefono e
+// appoggiare il dito, non abbastanza da essere riusate se intercettate.
+export const DURATA_CHALLENGE_S = 120;
+
 // Un anno: la password si inserisce una volta per dispositivo e non se ne
 // parla piu'. Una scadenza corta qui vorrebbe dire ritrovarsi la richiesta di
 // password sul telefono senza capire perche', che e' esattamente il tipo di
 // attrito che fa smettere di aprire l'app.
 export const DURATA_COOKIE_S = 365 * 24 * 60 * 60;
 
-let cache = null; // { password, gettone } — evita di rifare l'HMAC a ogni richiesta
+// Legge un cookie dall'header, invece di affidarsi a request.cookies.
+//
+// Nelle route handler dell'App Router `request.cookies` c'e' solo se il
+// runtime consegna una NextRequest, e non e' garantito: con l'optional
+// chaining sarebbe tornato `undefined` senza un errore, cioe' "non
+// autenticato" su una richiesta perfettamente valida — un guasto muto, il
+// peggior tipo. L'header Cookie invece c'e' sempre, in ogni runtime.
+export function leggiCookie(request, nome) {
+  const grezzo = request.headers?.get?.("cookie") || "";
+  for (const pezzo of grezzo.split(";")) {
+    const i = pezzo.indexOf("=");
+    if (i < 0) continue;
+    if (pezzo.slice(0, i).trim() === nome) return pezzo.slice(i + 1).trim();
+  }
+  return null;
+}
 
-export async function gettoneAtteso(password) {
+const cache = new Map(); // "password|messaggio" -> hmac, per non rifarlo a ogni richiesta
+
+async function hmac(password, messaggio) {
   if (!password) return null;
-  if (cache && cache.password === password) return cache.gettone;
+  const k = `${password}|${messaggio}`;
+  const gia = cache.get(k);
+  if (gia) return gia;
 
   const enc = new TextEncoder();
   const chiave = await crypto.subtle.importKey(
     "raw", enc.encode(password), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
   );
-  const firma = await crypto.subtle.sign("HMAC", chiave, enc.encode(ETICHETTA));
-  const gettone = [...new Uint8Array(firma)].map(b => b.toString(16).padStart(2, "0")).join("");
+  const firma = await crypto.subtle.sign("HMAC", chiave, enc.encode(messaggio));
+  const esa = [...new Uint8Array(firma)].map(b => b.toString(16).padStart(2, "0")).join("");
 
-  cache = { password, gettone };
-  return gettone;
+  // La cache tiene solo gettoni a messaggio fisso (sessione/bio). Le firme di
+  // sblocco e challenge hanno un messaggio diverso ogni volta, quindi non
+  // vanno accumulate: gonfierebbero la memoria dell'istanza per niente.
+  if (messaggio === ETICHETTA || messaggio === ETICHETTA_BIO) cache.set(k, esa);
+  return esa;
+}
+
+export const gettoneAtteso = (password) => hmac(password, ETICHETTA);
+export const gettoneBio = (password) => hmac(password, ETICHETTA_BIO);
+
+// Quale sessione e' questa: nessuna, normale, o "protetta dal biometrico".
+export async function tipoSessione(valoreCookie, password) {
+  if (!valoreCookie || !password) return "nessuna";
+  if (confrontoCostante(valoreCookie, await gettoneAtteso(password))) return "normale";
+  if (confrontoCostante(valoreCookie, await gettoneBio(password))) return "bio";
+  return "nessuna";
+}
+
+/* ------------------------------------------------- gettone di sblocco ----- */
+// Formato "<scadenzaMs>.<firma>": la scadenza viaggia in chiaro ma e' firmata
+// insieme al resto, quindi spostarla in avanti invalida la firma. Cosi' il
+// middleware verifica uno sblocco recente senza tenere da nessuna parte un
+// elenco di sessioni aperte — che su Vercel, dove ogni istanza ha la sua
+// memoria, non funzionerebbe comunque.
+
+export async function creaGettoneSblocco(password, durataS = DURATA_SBLOCCO_S) {
+  const scadenza = Date.now() + durataS * 1000;
+  const firma = await hmac(password, `sblocco|${scadenza}`);
+  return `${scadenza}.${firma}`;
+}
+
+export async function sbloccoValido(valore, password) {
+  if (!valore || !password) return false;
+  const i = String(valore).indexOf(".");
+  if (i < 0) return false;
+  const scadenza = Number(String(valore).slice(0, i));
+  const firma = String(valore).slice(i + 1);
+  if (!Number.isFinite(scadenza) || Date.now() > scadenza) return false;
+  return confrontoCostante(firma, await hmac(password, `sblocco|${scadenza}`));
+}
+
+/* ------------------------------------------------------- challenge -------- */
+// Il challenge e' il numero casuale che l'autenticatore firma: serve a
+// impedire che una firma catturata una volta venga rigiocata per sempre.
+// Va ricordato tra la richiesta e la risposta, e anche qui si evita uno stato
+// sul server firmandolo e rimandandolo al browser in un cookie.
+
+export async function creaGettoneChallenge(password, challengeB64url) {
+  const scadenza = Date.now() + DURATA_CHALLENGE_S * 1000;
+  const firma = await hmac(password, `chal|${challengeB64url}|${scadenza}`);
+  return `${scadenza}.${challengeB64url}.${firma}`;
+}
+
+export async function challengeValido(valore, challengeRicevuto, password) {
+  if (!valore || !password) return false;
+  const parti = String(valore).split(".");
+  if (parti.length !== 3) return false;
+  const [scadenzaS, atteso, firma] = parti;
+  const scadenza = Number(scadenzaS);
+  if (!Number.isFinite(scadenza) || Date.now() > scadenza) return false;
+  // Il challenge tornato indietro dentro clientDataJSON deve essere QUELLO
+  // che abbiamo emesso, non uno qualsiasi con una firma valida.
+  if (!confrontoCostante(atteso, challengeRicevuto)) return false;
+  return confrontoCostante(firma, await hmac(password, `chal|${atteso}|${scadenza}`));
 }
 
 // Confronto a tempo costante: stesso ragionamento che c'era sulla password in

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { cookieValido, COOKIE_SESSIONE } from "./app/lib/sessione";
+import { tipoSessione, sbloccoValido, COOKIE_SESSIONE, COOKIE_SBLOCCO } from "./app/lib/sessione";
 
 // L'app è deployata su un URL Vercel pubblico e mostra patrimonio, saldi,
 // clienti e fatturato: senza questo middleware chiunque conoscesse l'URL
@@ -55,24 +55,47 @@ export async function middleware(request) {
   }
 
   // La pagina di login e il suo endpoint devono essere raggiungibili senza
-  // essere già autenticati, altrimenti non ci si autentica mai.
+  // essere già autenticati, altrimenti non ci si autentica mai. Stessa cosa
+  // per la schermata di sblocco e per le API dei passkey: sono proprio gli
+  // strumenti con cui ci si sblocca, tenerli dietro al lucchetto vorrebbe
+  // dire chiudersi fuori con la chiave dentro.
   if (pathname === "/login" || pathname === "/api/login") return NextResponse.next();
+  if (pathname === "/sblocca" || pathname.startsWith("/api/passkey/")) return NextResponse.next();
 
-  const cookie = request.cookies.get(COOKIE_SESSIONE)?.value;
-  if (await cookieValido(cookie, password)) return NextResponse.next();
+  const sessione = await tipoSessione(request.cookies.get(COOKIE_SESSIONE)?.value, password);
 
-  // Le chiamate API rispondono 401 in JSON: una redirect verso una pagina HTML
-  // arriverebbe a una fetch() che si aspetta dati e produrrebbe un errore di
-  // parsing invece di un messaggio comprensibile. Il client, vedendo 401,
-  // manda l'utente al login da solo (vedi fetchWithRetry in app/page.jsx).
-  if (pathname.startsWith("/api/")) {
-    return NextResponse.json({ error: "Sessione scaduta", login: "/login" }, { status: 401 });
+  if (sessione === "nessuna") return alLogin(request, "/login");
+
+  // Sessione normale (il computer): si entra e basta, come chiesto.
+  if (sessione === "normale") return NextResponse.next();
+
+  // Sessione "bio" (il telefono, dove è stato registrato il Face ID): oltre
+  // alla sessione serve uno sblocco recente.
+  //
+  // È QUI che il lucchetto diventa vero. La schermata di sblocco da sola
+  // sarebbe apparenza: chi prende il telefono e apre l'indirizzo da Safari
+  // scavalcherebbe la grafica e vedrebbe i dati lo stesso, perché il cookie
+  // di sessione è ancora buono. Facendolo rispettare qui, la risposta non
+  // esce proprio dal server — né dall'icona né da Safari.
+  if (await sbloccoValido(request.cookies.get(COOKIE_SBLOCCO)?.value, password)) {
+    return NextResponse.next();
   }
+  return alLogin(request, "/sblocca");
+}
 
-  // Navigazione normale: si va al login, ricordando dove si stava andando.
+// API → 401 in JSON; navigazione → redirect alla pagina giusta.
+// Una redirect verso una pagina HTML dentro una fetch() che si aspetta dati
+// produrrebbe un errore di parsing incomprensibile invece di un messaggio
+// utile; il client, vedendo il 401, si manda da solo dove serve (vedi
+// fetchWithRetry in app/page.jsx).
+function alLogin(request, dove) {
+  const { pathname, search } = request.nextUrl;
+  if (pathname.startsWith("/api/")) {
+    return NextResponse.json({ error: "Sessione scaduta o bloccata", login: dove }, { status: 401 });
+  }
   const url = request.nextUrl.clone();
-  url.pathname = "/login";
-  url.search = `?da=${encodeURIComponent(pathname + request.nextUrl.search)}`;
+  url.pathname = dove;
+  url.search = `?da=${encodeURIComponent(pathname + search)}`;
   return NextResponse.redirect(url);
 }
 

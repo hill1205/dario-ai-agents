@@ -10,6 +10,7 @@ import LearningPage from "./components/LearningPage";
 import SimulatorPage from "./components/SimulatorPage";
 import CalculatorPage from "./components/CalculatorPage";
 import HabitsPage from "./components/HabitsPage";
+import LucchettoSettings from "./components/LucchettoSettings";
 
 const DONE_STATUSES = ["complete","completed","done","chiuso","closed","fatto","completato","completata"];
 
@@ -956,6 +957,7 @@ export default function App() {
         </button>
         <div style={{fontSize:9,color:"#334155",marginTop:6,lineHeight:1.4}}>Unisce ClickUp (to-do, routine, streak, finanze, peso) e Notion (pipeline) in un unico file.</div>
       </div>
+      <LucchettoSettings theme={theme}/>
     </div>
   );
 
