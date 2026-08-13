@@ -72,15 +72,29 @@ const THEMES = {
 // Retry silenzioso: un blip di rete non deve subito accendere il banner
 // di errore. Un solo ritentativo dopo mezzo secondo copre la maggior
 // parte dei timeout momentanei senza allungare troppo il caricamento.
+// Sessione scaduta: il middleware risponde 401 alle chiamate API invece di
+// mandare una redirect, perche' una pagina HTML che arriva dentro una fetch()
+// diventerebbe un errore di parsing incomprensibile. Al 401 ci pensiamo qui,
+// una volta sola per tutte le chiamate: si va al login ricordando dov'eravamo.
+// Senza questo, un cookie scaduto si manifesterebbe come una dashboard piena
+// di errori invece che come una richiesta di password.
+function alLogin() {
+  if (typeof window === "undefined") return;
+  const da = encodeURIComponent(window.location.pathname + window.location.search);
+  window.location.replace(`/login?da=${da}`);
+}
+
 async function fetchWithRetry(url, opts={}) {
   try {
     const r = await fetch(url, opts);
+    if (r.status === 401) { alLogin(); return null; }
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     return await r.json();
   } catch {
     await new Promise(res=>setTimeout(res,500));
     try {
       const r2 = await fetch(url, opts);
+      if (r2.status === 401) { alLogin(); return null; }
       if (!r2.ok) throw new Error(`HTTP ${r2.status}`);
       return await r2.json();
     } catch { return null; }
