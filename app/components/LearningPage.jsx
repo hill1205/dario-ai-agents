@@ -145,11 +145,36 @@ const inputStyle = {
   fontFamily:"inherit", resize:"vertical",
 };
 
+// Limiti di lunghezza che il server applica davvero (MAX_TITOLO e
+// MAX_BREVE in lib/learning-store.js). Il form li ripete qui perche' il
+// taglio silenzioso e' peggio del limite: scrivevi un concetto lungo, il
+// server salvava i primi 300 caratteri senza dire niente e te ne accorgevi
+// settimane dopo rileggendo (successo il 10/08 con Fibonacci). Se cambiano
+// di la', vanno cambiati anche qui.
+const LIMITE_BREVE = 300;
+const LIMITE_TITOLO = 140;
+
+// Avviso di lunghezza. Non blocca la scrittura — bloccare un incolla a
+// meta' e' un altro modo di perdere testo in silenzio — ma dall'80% del
+// limite dice quanto spazio resta, e oltre il limite dice a chiare lettere
+// cosa verra' salvato e dove spostare il resto.
+function Contatore({ testo, limite, suggerimento }) {
+  const n = (testo || "").length;
+  if (n < limite * 0.8) return null;
+  const oltre = n > limite;
+  return (
+    <div style={{fontSize:10,color:oltre?ROSSO:AMBRA,marginTop:3,lineHeight:1.4}}>
+      {n}/{limite} caratteri
+      {oltre && ` — verranno salvati solo i primi ${limite}.${suggerimento ? " " + suggerimento : ""}`}
+    </div>
+  );
+}
+
 // Lista di stringhe modificabile (concetti, applicazioni, domande).
 // Una riga per elemento invece di un textarea con gli a-capo: l'AI
 // restituisce già una lista, e tenerla strutturata permette di spuntare le
 // domande una per una invece di riscrivere tutto il blocco.
-function ListaModificabile({ valori, onChange, placeholder, colore }) {
+function ListaModificabile({ valori, onChange, placeholder, colore, suggerimento }) {
   const set = (i,v) => onChange(valori.map((x,j)=>j===i?v:x));
   const aggiungi = () => onChange([...valori, ""]);
   const rimuovi = (i) => onChange(valori.filter((_,j)=>j!==i));
@@ -158,8 +183,11 @@ function ListaModificabile({ valori, onChange, placeholder, colore }) {
       {valori.map((v,i)=>(
         <div key={i} style={{display:"flex",gap:6,marginBottom:6,alignItems:"flex-start"}}>
           <span style={{color:colore,fontSize:14,lineHeight:"32px",flexShrink:0}}>•</span>
-          <textarea rows={1} value={v} onChange={e=>set(i,e.target.value)} placeholder={placeholder}
-            style={{...inputStyle,padding:"7px 10px",minHeight:34}}/>
+          <div style={{flex:1,minWidth:0}}>
+            <textarea rows={1} value={v} onChange={e=>set(i,e.target.value)} placeholder={placeholder}
+              style={{...inputStyle,padding:"7px 10px",minHeight:34}}/>
+            <Contatore testo={v} limite={LIMITE_BREVE} suggerimento={suggerimento}/>
+          </div>
           <button onClick={()=>rimuovi(i)} type="button"
             style={{width:28,height:32,borderRadius:6,border:"none",background:"var(--c-border)",color:ROSSO,cursor:"pointer",fontSize:13,flexShrink:0}}>×</button>
         </div>
@@ -326,6 +354,7 @@ function FormArgomento({ bozza, setBozza, categorie, onSalva, onAnnulla, salvand
         <input value={bozza.titolo} onChange={e=>set("titolo")(e.target.value)}
           placeholder="Es. Come funziona il lifetime value di un cliente"
           style={inputStyle}/>
+        <Contatore testo={bozza.titolo} limite={LIMITE_TITOLO}/>
       </Campo>
 
       <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
@@ -374,11 +403,13 @@ function FormArgomento({ bozza, setBozza, categorie, onSalva, onAnnulla, salvand
       )}
 
       <Campo label="Concetti fondamentali" aiuto="Le idee che bisogna aver capito. Una per riga.">
-        <ListaModificabile valori={bozza.concetti} onChange={set("concetti")} placeholder="Il concetto è che..." colore={CIANO}/>
+        <ListaModificabile valori={bozza.concetti} onChange={set("concetti")} placeholder="Il concetto è che..." colore={CIANO}
+          suggerimento="Se hai molto da scrivere, il posto giusto sono gli Appunti qui sotto: lì non c'è limite."/>
       </Campo>
 
       <Campo label="Applicazioni pratiche" aiuto="Cosa ci fai, in concreto, nel tuo lavoro.">
-        <ListaModificabile valori={bozza.applicazioni} onChange={set("applicazioni")} placeholder="Posso usarlo per..." colore={VERDE}/>
+        <ListaModificabile valori={bozza.applicazioni} onChange={set("applicazioni")} placeholder="Posso usarlo per..." colore={VERDE}
+          suggerimento="Se hai molto da scrivere, il posto giusto sono gli Appunti qui sotto: lì non c'è limite."/>
       </Campo>
 
       <Campo label="Risorse utili">
@@ -388,7 +419,8 @@ function FormArgomento({ bozza, setBozza, categorie, onSalva, onAnnulla, salvand
       <Campo label="Domande aperte" aiuto="Quello che non hai ancora capito. Potrai spuntarle una a una quando trovi la risposta.">
         <ListaModificabile valori={bozza.domande.map(d=>typeof d==="string"?d:d.q)}
           onChange={(v)=>set("domande")(v.map((q,i)=>({q,risposta:bozza.domande[i]?.risposta||""})))}
-          placeholder="Non ho capito come..." colore={AMBRA}/>
+          placeholder="Non ho capito come..." colore={AMBRA}
+          suggerimento="Una domanda più lunga di così probabilmente sono due domande: spezzala."/>
       </Campo>
 
       {!modifica && (
