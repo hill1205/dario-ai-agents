@@ -1,3 +1,5 @@
+import { codificaPayload, decodificaPayload } from "../../lib/doc-payload";
+
 const CLICKUP_API_KEY = process.env.CLICKUP_API_KEY;
 const WORKSPACE_ID = "90121769473";
 const DOC_ID = "2kxuu4g1-612";
@@ -20,12 +22,12 @@ async function readWeightDoc() {
   const content = data.content || "";
   const match = content.match(/WEIGHT_DATA_JSON:(.*?)(:?$|\n)/s);
   if (!match) return []; // pagina esistente ma senza storico ancora: caso legittimo
-  try { return JSON.parse(match[1].trim()); }
+  try { return decodificaPayload(match[1]) || []; }
   catch { throw new Error("Formato dati peso non riconosciuto (JSON malformato nel Doc)"); }
 }
 
 async function writeWeightDoc(entries) {
-  const json = JSON.stringify(entries);
+  const json = codificaPayload(entries);
   const ultimo = entries[entries.length - 1];
   const content = `STORICO PESO DARIO\n\nObiettivo: ${OBIETTIVO_PESO} kg\nPeso iniziale: ${PESO_INIZIALE} kg\nUltimo peso: ${ultimo?.peso || "N/D"} kg (${ultimo?.data || ""})\n\nWEIGHT_DATA_JSON:${json}`;
   const res = await fetch(

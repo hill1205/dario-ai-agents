@@ -1,5 +1,7 @@
 export const dynamic = "force-dynamic";
 
+import { decodificaPayload } from "../../lib/doc-payload";
+
 const CLICKUP_API_KEY = process.env.CLICKUP_API_KEY;
 const WORKSPACE_ID = "90121769473";
 // Stesso Doc/pagina usato dal tab IAGREX (app/api/iagrex-finance/route.js):
@@ -76,7 +78,7 @@ async function fetchFinanceData() {
   const content = page.content || "";
   const match = content.match(/IAGREX_FINANCE_JSON:([\s\S]*)/);
   if (!match) return {}; // pagina esistente ma ancora senza dati: caso legittimo, non un errore
-  try { return JSON.parse(match[1].trim()); }
+  try { return decodificaPayload(match[1]) || {}; }
   catch { throw new Error("Formato dati finanziari non riconosciuto (JSON malformato nel Doc)"); }
 }
 

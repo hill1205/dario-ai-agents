@@ -1,5 +1,7 @@
 export const dynamic = "force-dynamic";
 
+import { codificaPayload, decodificaPayload } from "../../lib/doc-payload";
+
 const CLICKUP_API_KEY = process.env.CLICKUP_API_KEY;
 const WORKSPACE_ID = "90121769473";
 // Doc dedicato allo storico streak routine, separato dal Doc "peso" perché
@@ -21,12 +23,12 @@ async function readStreakDoc() {
   const content = data.content || "";
   const match = content.match(/STREAK_DATA_JSON:([\s\S]*)/);
   if (!match) return []; // pagina esistente ma senza storico ancora: caso legittimo
-  try { return JSON.parse(match[1].trim()); }
+  try { return decodificaPayload(match[1]) || []; }
   catch { throw new Error("Formato dati streak non riconosciuto (JSON malformato nel Doc)"); }
 }
 
 async function writeStreakDoc(days) {
-  const json = JSON.stringify(days);
+  const json = codificaPayload(days);
   const content = `STORICO STREAK ROUTINE DARIO\n\nNon modificare a mano: viene letto/scritto dalla dashboard.\n\nSTREAK_DATA_JSON:${json}`;
   const res = await fetch(
     `https://api.clickup.com/api/v3/workspaces/${WORKSPACE_ID}/docs/${DOC_ID}/pages/${PAGE_ID}`,

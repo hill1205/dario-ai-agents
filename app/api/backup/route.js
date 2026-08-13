@@ -1,5 +1,7 @@
 export const dynamic = "force-dynamic";
 
+import { decodificaPayload } from "../../lib/doc-payload";
+
 // Backup unico di tutti i dati sparsi tra ClickUp e Notion. Nato dal
 // problema reale: pipeline lead/clienti vive su Notion, to-do/routine/
 // streak/finanze/peso vivono in liste e Doc separati su ClickUp, e non
@@ -75,8 +77,7 @@ async function fetchDoc({ docId, pageId, marker }) {
   const content = page.content || "";
   const idx = content.indexOf(marker);
   if (idx === -1) return null; // pagina esistente ma senza dati ancora: caso legittimo
-  const raw = content.slice(idx + marker.length).trim();
-  return JSON.parse(raw);
+  return decodificaPayload(content.slice(idx + marker.length));
 }
 
 async function fetchNotionPipeline() {

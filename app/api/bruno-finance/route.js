@@ -1,5 +1,7 @@
 export const dynamic = "force-dynamic";
 
+import { codificaPayload, decodificaPayload } from "../../lib/doc-payload";
+
 const CLICKUP_API_KEY = process.env.CLICKUP_API_KEY;
 const WORKSPACE_ID = "90121769473";
 const DOC_ID  = "2kxuu4g1-712";
@@ -21,7 +23,7 @@ export async function GET() {
     const content = page.content || "";
     const match = content.match(/BRUNO_FINANCE_JSON:([\s\S]*)/);
     if (!match) return Response.json({ data: {} }); // pagina vuota ma raggiunta: caso legittimo
-    const data = JSON.parse(match[1].trim());
+    const data = decodificaPayload(match[1]) || {};
     return Response.json({ data });
   } catch (e) {
     return Response.json({ error: e.message }, { status: 500 });
@@ -31,7 +33,7 @@ export async function GET() {
 export async function POST(request) {
   try {
     const { data } = await request.json();
-    const content = `BRUNO_FINANCE_JSON:${JSON.stringify(data)}`;
+    const content = `BRUNO_FINANCE_JSON:${codificaPayload(data)}`;
     const res = await fetch(BASE, {
       method: "PUT",
       headers: { Authorization: CLICKUP_API_KEY, "Content-Type": "application/json" },

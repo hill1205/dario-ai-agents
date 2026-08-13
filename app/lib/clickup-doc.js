@@ -9,6 +9,8 @@
 // secondo scarso quando va bene, secondi interi quando la funzione Vercel
 // parte fredda. Da qui la cache.
 
+import { codificaPayload, decodificaPayload } from "./doc-payload";
+
 const CLICKUP_API_KEY = process.env.CLICKUP_API_KEY;
 const WORKSPACE_ID = "90121769473";
 
@@ -74,17 +76,15 @@ export async function leggiJson(pageId, marcatore, { forza = false } = {}) {
 
   let dati = [];
   if (match) {
-    const grezzo = match[1].trim();
-    if (grezzo) {
-      try {
-        const parsed = JSON.parse(grezzo);
-        dati = Array.isArray(parsed) ? parsed : [];
-      } catch {
-        // Errore esplicito e non lista vuota: un JSON rotto che si legge
-        // come "nessun dato" verrebbe cancellato alla prima scrittura.
-        throw new Error(`Formato dati non riconosciuto (${marcatore} malformato nel Doc)`);
-      }
+    let parsed;
+    try {
+      parsed = decodificaPayload(match[1]);
+    } catch {
+      // Errore esplicito e non lista vuota: un JSON rotto che si legge
+      // come "nessun dato" verrebbe cancellato alla prima scrittura.
+      throw new Error(`Formato dati non riconosciuto (${marcatore} malformato nel Doc)`);
     }
+    dati = Array.isArray(parsed) ? parsed : [];
   }
 
   cache.set(pageId, { dati, scadenza: Date.now() + TTL_MS });
@@ -97,7 +97,7 @@ export async function leggiJson(pageId, marcatore, { forza = false } = {}) {
 // con la semplice invalidazione la cache sarebbe morta a ogni caricamento.
 export async function scriviJson(pageId, intestazione, marcatore, dati) {
   if (!CLICKUP_API_KEY) throw new Error("CLICKUP_API_KEY non configurata");
-  const content = `${intestazione}\n\n${marcatore}:${JSON.stringify(dati)}`;
+  const content = `${intestazione}\n\n${marcatore}:${codificaPayload(dati)}`;
   const res = await fetchConRetry(
     `https://api.clickup.com/api/v3/workspaces/${WORKSPACE_ID}/docs/${DOC_ID}/pages/${pageId}`,
     {
