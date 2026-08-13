@@ -1,16 +1,19 @@
 export const dynamic = "force-dynamic";
 
-import { decodificaPayload } from "../../lib/doc-payload";
+import { creaArchivio } from "../../lib/clickup-doc";
 
-const CLICKUP_API_KEY = process.env.CLICKUP_API_KEY;
-const WORKSPACE_ID = "90121769473";
 // Stesso Doc/pagina usato dal tab IAGREX (app/api/iagrex-finance/route.js):
 // dati reali inseriti da Dario (entrate/uscite/saldi conto), non testo libero
 // interpretato da un'AI. Questo endpoint alimenta solo la card "Finanze"
 // della home con lo stesso numero mostrato nel tab IAGREX, per avere
 // un'unica fonte di verità invece di due sistemi scollegati.
-const DOC_ID = "2kxuu4g1-752";
-const PAGE_ID = "2kxuu4g1-972";
+const archivio = creaArchivio({
+  docId: "2kxuu4g1-752",
+  pageId: "2kxuu4g1-972",
+  marcatore: "IAGREX_FINANCE_JSON",
+  vuoto: {},
+  senzaCache: true, // stesso motivo di /api/iagrex-finance: qui si legge quello che il tab risalva per intero
+});
 const OBIETTIVO_ANNUALE = 1000000;
 
 // Stessi conti/valute di IAGREXPage.jsx: gli importi sono registrati nella
@@ -68,18 +71,11 @@ function getMonthLabel(ym) {
 // in dashboard: il frontend deve poter distinguere "nessun dato" da
 // "i dati non si sono caricati".
 async function fetchFinanceData() {
-  if (!CLICKUP_API_KEY) throw new Error("CLICKUP_API_KEY non configurata");
-  const res = await fetch(
-    `https://api.clickup.com/api/v3/workspaces/${WORKSPACE_ID}/docs/${DOC_ID}/pages/${PAGE_ID}?content_format=text/plain`,
-    { headers: { Authorization: CLICKUP_API_KEY }, cache: "no-store" }
-  );
-  if (!res.ok) throw new Error(`ClickUp doc error: ${res.status}`);
-  const page = await res.json();
-  const content = page.content || "";
-  const match = content.match(/IAGREX_FINANCE_JSON:([\s\S]*)/);
-  if (!match) return {}; // pagina esistente ma ancora senza dati: caso legittimo, non un errore
-  try { return decodificaPayload(match[1]) || {}; }
-  catch { throw new Error("Formato dati finanziari non riconosciuto (JSON malformato nel Doc)"); }
+  // Non ingoiare gli errori di ClickUp: un errore di autenticazione che
+  // diventasse "0€" muto in dashboard sarebbe peggio di un errore visibile.
+  // archivio.leggi() lancia, la GET risponde 500 e il frontend distingue
+  // "nessun dato" da "i dati non si sono caricati".
+  return archivio.leggi();
 }
 
 export async function GET() {

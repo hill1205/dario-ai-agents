@@ -1,6 +1,6 @@
 export const dynamic = "force-dynamic";
 
-import { decodificaPayload } from "../../lib/doc-payload";
+import { creaArchivio } from "../../lib/clickup-doc";
 
 // Backup unico di tutti i dati sparsi tra ClickUp e Notion. Nato dal
 // problema reale: pipeline lead/clienti vive su Notion, to-do/routine/
@@ -25,26 +25,26 @@ const TASK_LIST_IDS = {
   sospeso: "901218950377",
 };
 const DOCS = {
-  streak:         { docId: "2kxuu4g1-952", pageId: "2kxuu4g1-1272", marker: "STREAK_DATA_JSON:" },
-  bruno_finance:  { docId: "2kxuu4g1-712", pageId: "2kxuu4g1-952",  marker: "BRUNO_FINANCE_JSON:" },
-  iagrex_finance: { docId: "2kxuu4g1-752", pageId: "2kxuu4g1-972",  marker: "IAGREX_FINANCE_JSON:" },
-  weight:         { docId: "2kxuu4g1-612", pageId: "2kxuu4g1-312",  marker: "WEIGHT_DATA_JSON:" },
-  habits:         { docId: "2kxuu4g1-972", pageId: "2kxuu4g1-1372", marker: "HABITS_DATA_JSON:" },
-  mood:           { docId: "2kxuu4g1-972", pageId: "2kxuu4g1-1392", marker: "MOOD_DATA_JSON:" },
+  streak:         { docId: "2kxuu4g1-952", pageId: "2kxuu4g1-1272", marcatore: "STREAK_DATA_JSON" },
+  bruno_finance:  { docId: "2kxuu4g1-712", pageId: "2kxuu4g1-952",  marcatore: "BRUNO_FINANCE_JSON", vuoto: {} },
+  iagrex_finance: { docId: "2kxuu4g1-752", pageId: "2kxuu4g1-972",  marcatore: "IAGREX_FINANCE_JSON", vuoto: {} },
+  weight:         { docId: "2kxuu4g1-612", pageId: "2kxuu4g1-312",  marcatore: "WEIGHT_DATA_JSON" },
+  habits:         { docId: "2kxuu4g1-972", pageId: "2kxuu4g1-1372", marcatore: "HABITS_DATA_JSON" },
+  mood:           { docId: "2kxuu4g1-972", pageId: "2kxuu4g1-1392", marcatore: "MOOD_DATA_JSON" },
   // Il diario della sera e' l'unico dato dell'app che non si puo'
   // ricostruire da nessun'altra parte: le finanze stanno anche in banca, le
   // routine anche su ClickUp, ma una sera scritta e persa e' persa.
-  gratitudine:    { docId: "2kxuu4g1-972", pageId: "2kxuu4g1-1412", marker: "GRATITUDE_DATA_JSON:" },
+  gratitudine:    { docId: "2kxuu4g1-972", pageId: "2kxuu4g1-1412", marcatore: "GRATITUDE_DATA_JSON" },
   // Registro decisioni (07/08). Vale lo stesso ragionamento del diario:
   // il "perché" di una scelta non è ricostruibile da nessun'altra fonte.
   // Il fatturato di una decisione lo ritrovi in banca, il ragionamento che
   // ti ci ha portato no.
-  decisioni:      { docId: "2kxuu4g1-972", pageId: "2kxuu4g1-1432", marker: "DECISIONS_DATA_JSON:" },
+  decisioni:      { docId: "2kxuu4g1-972", pageId: "2kxuu4g1-1432", marcatore: "DECISIONS_DATA_JSON" },
   // Percorso di apprendimento (07/08). Le spiegazioni scritte con parole
   // proprie per alzare il livello sono l'unico contenuto di questa pagina
   // che non esiste da nessun'altra parte: gli appunti li puoi rifare,
   // quelle no.
-  apprendimento:  { docId: "2kxuu4g1-972", pageId: "2kxuu4g1-1452", marker: "LEARNING_DATA_JSON:" },
+  apprendimento:  { docId: "2kxuu4g1-972", pageId: "2kxuu4g1-1452", marcatore: "LEARNING_DATA_JSON" },
 };
 
 async function safe(label, fn) {
@@ -66,18 +66,10 @@ async function fetchTaskList(listId) {
   return data.tasks || [];
 }
 
-async function fetchDoc({ docId, pageId, marker }) {
-  if (!CLICKUP_API_KEY) throw new Error("CLICKUP_API_KEY non configurata");
-  const res = await fetch(
-    `https://api.clickup.com/api/v3/workspaces/${WORKSPACE_ID}/docs/${docId}/pages/${pageId}?content_format=text/plain`,
-    { headers: { Authorization: CLICKUP_API_KEY }, cache: "no-store" }
-  );
-  if (!res.ok) throw new Error(`ClickUp doc ${docId} error: ${res.status}`);
-  const page = await res.json();
-  const content = page.content || "";
-  const idx = content.indexOf(marker);
-  if (idx === -1) return null; // pagina esistente ma senza dati ancora: caso legittimo
-  return decodificaPayload(content.slice(idx + marker.length));
+// Un backup deve leggere il Doc adesso, non una copia in cache di 40
+// secondi fa: forza=true.
+function fetchDoc(sorgente) {
+  return creaArchivio(sorgente).leggi({ forza: true });
 }
 
 async function fetchNotionPipeline() {

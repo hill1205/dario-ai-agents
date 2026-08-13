@@ -14,6 +14,12 @@
 set -euo pipefail
 
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Prima del build, la guardia sullo storage: e' istantanea e fallisce con un
+# messaggio chiaro, mentre un dato corrotto su ClickUp lo scopri settimane
+# dopo. Vedi scripts/guardia-storage.sh.
+bash "$SRC/scripts/guardia-storage.sh"
+
 # La destinazione è sovrascrivibile: capita che una sessione precedente lasci
 # /tmp/dario-build-check di proprietà di un altro utente del sandbox, e da lì in
 # poi rsync fallisce con "Permission denied". In quel caso:

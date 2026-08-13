@@ -7,7 +7,10 @@
 // della cartella BEA — quindi una task creata li' spariva dalla vista e il
 // link "apri" portava su ClickUp, fuori dal posto dove Dario lavora davvero.
 // Tutto in TO DO DAILY, contesto nel titolo, zero tap.
+import { codificaPayload, decodificaPayload } from "../../lib/doc-payload";
+
 export const dynamic = "force-dynamic";
+
 // Il default di Vercel taglierebbe a 10s: con download immagine + Claude si
 // sta larghi, ma se Telegram non riceve 200 in tempo RITENTA lo stesso update
 // e ti ritrovi la task doppia. 60s rende il retry un caso teorico.
@@ -48,6 +51,9 @@ const CONTEXT_PREFIX = { hoc: "[HOC] ", iagrex: "[IAGREX] ", personale: "" };
 const STATE_LIST_ID = "901218950377"; // IN SOSPESO
 const STATE_TASK_NAME = "⚙️ STATO BOT TELEGRAM — non modificare";
 const STATE_MARKER = "TELEGRAM_STATE_JSON:";
+// Lo stato vive in una descrizione di task, non in un Doc, quindi non passa
+// da creaArchivio — ma usa la stessa codifica: le descrizioni ClickUp sono
+// markdown esattamente come le pagine dei Doc.
 
 let cachedStateTaskId = null;
 
@@ -110,7 +116,7 @@ async function getStateTaskId() {
   }
   const created = await cu(`/list/${STATE_LIST_ID}/task`, {
     method: "POST",
-    body: JSON.stringify({ name: STATE_TASK_NAME, description: `${STATE_MARKER}{"processed":[]}` }),
+    body: JSON.stringify({ name: STATE_TASK_NAME, description: `${STATE_MARKER}${codificaPayload({ processed: [] })}` }),
   });
   if (!created.ok) throw new Error(`Creazione task di stato fallita: ${created.status}`);
   return (cachedStateTaskId = (await created.json()).id);
@@ -124,7 +130,7 @@ async function readProcessed() {
   const idx = raw.indexOf(STATE_MARKER);
   if (idx === -1) return [];
   try {
-    return JSON.parse(raw.slice(idx + STATE_MARKER.length).trim()).processed || [];
+    return (decodificaPayload(raw.slice(idx + STATE_MARKER.length)) || {}).processed || [];
   } catch {
     // Meglio ripartire da zero che bloccare il bot: si perde al massimo la
     // deduplica di qualche update, non un messaggio.
@@ -140,7 +146,7 @@ async function writeProcessed(processed) {
   const res = await cu(`/task/${id}`, {
     method: "PUT",
     body: JSON.stringify({
-      description: `Stato interno del bot Telegram. Non modificare a mano.\n\n${STATE_MARKER}${JSON.stringify({ processed: processed.slice(-200) })}`,
+      description: `Stato interno del bot Telegram. Non modificare a mano.\n\n${STATE_MARKER}${codificaPayload({ processed: processed.slice(-200) })}`,
     }),
   });
   if (!res.ok) throw new Error(`Scrittura stato fallita: ${res.status}`);

@@ -1,45 +1,22 @@
 export const dynamic = "force-dynamic";
 
-import { codificaPayload, decodificaPayload } from "../../lib/doc-payload";
+import { creaArchivio } from "../../lib/clickup-doc";
 
-const CLICKUP_API_KEY = process.env.CLICKUP_API_KEY;
-const WORKSPACE_ID = "90121769473";
 // Doc dedicato allo storico streak routine, separato dal Doc "peso" perché
 // concettualmente e' un dato diverso (non fisico). Creato apposta per
 // smettere di tenere lo streak solo in localStorage: prima viveva solo nel
 // browser, quindi cambiando dispositivo o svuotando la cache lo streak
 // spariva anche se le routine erano state completate regolarmente.
-const DOC_ID = "2kxuu4g1-952";
-const PAGE_ID = "2kxuu4g1-1272";
+const archivio = creaArchivio({
+  docId: "2kxuu4g1-952",
+  pageId: "2kxuu4g1-1272",
+  marcatore: "STREAK_DATA_JSON",
+  vuoto: [],
+  intestazione: "STORICO STREAK ROUTINE DARIO\n\nNon modificare a mano: viene letto/scritto dalla dashboard.",
+});
 
-async function readStreakDoc() {
-  if (!CLICKUP_API_KEY) throw new Error("CLICKUP_API_KEY non configurata");
-  const res = await fetch(
-    `https://api.clickup.com/api/v3/workspaces/${WORKSPACE_ID}/docs/${DOC_ID}/pages/${PAGE_ID}?content_format=text/plain`,
-    { headers: { Authorization: CLICKUP_API_KEY }, cache: "no-store" }
-  );
-  if (!res.ok) throw new Error(`ClickUp doc error: ${res.status}`);
-  const data = await res.json();
-  const content = data.content || "";
-  const match = content.match(/STREAK_DATA_JSON:([\s\S]*)/);
-  if (!match) return []; // pagina esistente ma senza storico ancora: caso legittimo
-  try { return decodificaPayload(match[1]) || []; }
-  catch { throw new Error("Formato dati streak non riconosciuto (JSON malformato nel Doc)"); }
-}
-
-async function writeStreakDoc(days) {
-  const json = codificaPayload(days);
-  const content = `STORICO STREAK ROUTINE DARIO\n\nNon modificare a mano: viene letto/scritto dalla dashboard.\n\nSTREAK_DATA_JSON:${json}`;
-  const res = await fetch(
-    `https://api.clickup.com/api/v3/workspaces/${WORKSPACE_ID}/docs/${DOC_ID}/pages/${PAGE_ID}`,
-    {
-      method: "PUT",
-      headers: { Authorization: CLICKUP_API_KEY, "Content-Type": "application/json" },
-      body: JSON.stringify({ content }),
-    }
-  );
-  if (!res.ok) throw new Error(`ClickUp doc write error: ${res.status}`);
-}
+const readStreakDoc = (opts) => archivio.leggi(opts);
+const writeStreakDoc = (days) => archivio.scrivi(days);
 
 // Calcola lo streak corrente: numero di giorni consecutivi (fino a oggi o
 // ieri) in cui "completed" è true. Se manca il giorno di oggi lo streak
@@ -81,7 +58,7 @@ export async function POST(request) {
   try {
     const { data, completed } = await request.json();
     const day = data || bucharestDate(0);
-    const days = await readStreakDoc();
+    const days = await readStreakDoc({ forza: true });
     const idx = days.findIndex((d) => d.data === day);
     if (idx >= 0) days[idx].completed = !!completed;
     else days.push({ data: day, completed: !!completed });

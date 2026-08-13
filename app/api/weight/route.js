@@ -1,45 +1,26 @@
-import { codificaPayload, decodificaPayload } from "../../lib/doc-payload";
+import { creaArchivio } from "../../lib/clickup-doc";
 
-const CLICKUP_API_KEY = process.env.CLICKUP_API_KEY;
-const WORKSPACE_ID = "90121769473";
-const DOC_ID = "2kxuu4g1-612";
-const PAGE_ID = "2kxuu4g1-312";
 const OBIETTIVO_PESO = 85;
 const PESO_INIZIALE = 121.6;
 
-async function readWeightDoc() {
-  // Come per revenue: non ingoiare gli errori di ClickUp restituendo un
-  // array vuoto come se il peso non fosse mai stato registrato — quello
-  // farebbe sparire lo storico dalla dashboard invece di segnalare che il
-  // dato non si è caricato.
-  if (!CLICKUP_API_KEY) throw new Error("CLICKUP_API_KEY non configurata");
-  const res = await fetch(
-    `https://api.clickup.com/api/v3/workspaces/${WORKSPACE_ID}/docs/${DOC_ID}/pages/${PAGE_ID}?content_format=text/plain`,
-    { headers: { Authorization: CLICKUP_API_KEY }, cache: "no-store" }
-  );
-  if (!res.ok) throw new Error(`ClickUp doc error: ${res.status}`);
-  const data = await res.json();
-  const content = data.content || "";
-  const match = content.match(/WEIGHT_DATA_JSON:(.*?)(:?$|\n)/s);
-  if (!match) return []; // pagina esistente ma senza storico ancora: caso legittimo
-  try { return decodificaPayload(match[1]) || []; }
-  catch { throw new Error("Formato dati peso non riconosciuto (JSON malformato nel Doc)"); }
-}
+// Storico peso. Non ingoiare gli errori di ClickUp restituendo un array
+// vuoto come se il peso non fosse mai stato registrato: quello farebbe
+// sparire lo storico dalla dashboard invece di segnalare che il dato non
+// si e' caricato — per questo archivio.leggi() lancia e la route risponde
+// 500.
+const archivio = creaArchivio({
+  docId: "2kxuu4g1-612",
+  pageId: "2kxuu4g1-312",
+  marcatore: "WEIGHT_DATA_JSON",
+  vuoto: [],
+  intestazione: (entries) => {
+    const ultimo = entries[entries.length - 1];
+    return `STORICO PESO DARIO\n\nObiettivo: ${OBIETTIVO_PESO} kg\nPeso iniziale: ${PESO_INIZIALE} kg\nUltimo peso: ${ultimo?.peso || "N/D"} kg (${ultimo?.data || ""})`;
+  },
+});
 
-async function writeWeightDoc(entries) {
-  const json = codificaPayload(entries);
-  const ultimo = entries[entries.length - 1];
-  const content = `STORICO PESO DARIO\n\nObiettivo: ${OBIETTIVO_PESO} kg\nPeso iniziale: ${PESO_INIZIALE} kg\nUltimo peso: ${ultimo?.peso || "N/D"} kg (${ultimo?.data || ""})\n\nWEIGHT_DATA_JSON:${json}`;
-  const res = await fetch(
-    `https://api.clickup.com/api/v3/workspaces/${WORKSPACE_ID}/docs/${DOC_ID}/pages/${PAGE_ID}`,
-    {
-      method: "PUT",
-      headers: { Authorization: CLICKUP_API_KEY, "Content-Type": "application/json" },
-      body: JSON.stringify({ content }),
-    }
-  );
-  if (!res.ok) throw new Error(`ClickUp doc write error: ${res.status}`);
-}
+const readWeightDoc = (opts) => archivio.leggi(opts);
+const writeWeightDoc = (entries) => archivio.scrivi(entries);
 
 export async function GET() {
   try {
@@ -60,7 +41,7 @@ export async function POST(request) {
     if (!data || peso === undefined || peso === null || peso === "" || isNaN(pesoNum)) {
       return Response.json({ error: "Missing data or peso" }, { status: 400 });
     }
-    const entries = await readWeightDoc();
+    const entries = await readWeightDoc({ forza: true });
     entries.push({ data, peso: pesoNum });
     entries.sort((a, b) => new Date(a.data) - new Date(b.data));
     await writeWeightDoc(entries);
