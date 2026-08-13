@@ -1,5 +1,18 @@
-export const runtime = "edge";
 export const dynamic = "force-dynamic";
+
+// NIENTE runtime = "edge" qui.
+//
+// C'era, per "stare vicino al middleware". Non serviva a niente: questa route
+// usa solo Web Crypto e TextEncoder, che su Node 18+ sono globali esattamente
+// come su Edge. In cambio faceva comparire a ogni build l'avviso "Using edge
+// runtime on a page currently disables static generation for that page" —
+// innocuo (una route di login non e' statica per definizione, e c'e' gia'
+// force-dynamic), ma un avviso che si impara a ignorare e' un avviso che
+// nascondera' quello vero il giorno che arriva.
+//
+// Cosi' resta anche coerente con le route in /api/passkey, che girano su Node
+// perche' devono parlare con ClickUp. L'unica cosa che sta davvero su Edge e'
+// il middleware, che non si puo' scegliere.
 
 import {
   gettoneAtteso, confrontoCostante, tipoSessione, creaGettoneSblocco,
