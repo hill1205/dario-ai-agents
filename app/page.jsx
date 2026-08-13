@@ -107,6 +107,15 @@ function dueDateInfo(dueDateMs) {
   if (!dueDateMs) return null;
   const d = new Date(Number(dueDateMs));
   if (isNaN(d.getTime())) return null;
+  // Guardia sulle date corrotte lato ClickUp. Il task "Attendere Simona per
+  // fatture Opencode" aveva due_date = -62085822264000 (anno 2 d.C.): isNaN
+  // non scatta perche' la data e' formalmente valida, ma en-CA la rende come
+  // "2-07-31" — anno NON paddato — e new Date("2-07-31") la reinterpreta come
+  // 2031-07-31. Risultato: in home compariva un badge "📅 31 lug" del tutto
+  // inventato, senza nessun segnale di scaduta. Fuori da questa finestra la
+  // data non e' un dato, e' spazzatura: meglio nessun badge che uno falso.
+  const anno = d.getUTCFullYear();
+  if (anno < 2000 || anno > 2100) return null;
   const dayStr = d.toLocaleDateString("en-CA", { timeZone: "Europe/Bucharest" });
   const today = todayBucharest();
   const diffDays = Math.round((new Date(dayStr) - new Date(today)) / 86400000);
@@ -589,7 +598,29 @@ export default function App() {
       // copre il caso parziale: mostriamo le liste arrivate e avvisiamo sulle
       // altre, perché una card vuota per errore è indistinguibile da
       // "niente da fare" ed è il modo più facile per perdersi delle task.
-      if (tRes && !tRes.error)  setHomeData(tRes);
+      if (tRes && !tRes.error) {
+        setHomeData(tRes);
+        // Gli override locali valgono solo finche' non sappiamo cosa dice
+        // ClickUp. Appena lo sappiamo vanno buttati, altrimenti restano
+        // incollati fino a mezzanotte (e' il residuo del bug outreach: la
+        // task risultava spuntata in dashboard e "da fare" su ClickUp perche'
+        // checkedTasks vince sempre sullo stato del server e nessuno lo
+        // ripuliva mai). Teniamo solo gli id NON presenti nella risposta:
+        // sono le spunte ancora in volo su task che ClickUp non ci ha
+        // restituito (es. gia' chiuse, che con include_closed=false spariscono).
+        setCheckedTasks(prev => {
+          const noti = new Set(
+            ["todo","routine","sospeso","claudia","annarita"]
+              .flatMap(k => tRes[k] || [])
+              .map(t => t?.id)
+              .filter(Boolean)
+          );
+          const next = {};
+          for (const [id, v] of Object.entries(prev)) if (!noti.has(id)) next[id] = v;
+          try { localStorage.setItem("dario-checked-tasks",JSON.stringify({date:todayBucharest(),tasks:next})); } catch {}
+          return next;
+        });
+      }
       else                      setHomeData({todo:[],routine:[],sospeso:[],claudia:[],annarita:[]});
       if (wgRes&&!wgRes.error) setWeightData(wgRes);
       // Lo streak vive ora sul Doc ClickUp (persiste cross-dispositivo):
@@ -644,18 +675,23 @@ export default function App() {
       const cur = checkedTasks[t.id] ?? DONE_STATUSES.includes((t.status?.status||"").toLowerCase());
       return cur;
     });
-    if (!allDone) return;
     const today = todayBucharest();
-    if (streakHistory.some(d=>d.data===today && d.completed)) return; // già segnato oggi
+    const segnatoOggi = streakHistory.some(d=>d.data===today && d.completed);
+    // Lo streak deve poter anche SCENDERE. Prima l'effetto usciva subito con
+    // "if (!allDone) return", quindi il POST partiva solo con completed:true:
+    // se spuntavi tutte le routine e poi ne toglievi una (errore, ripensamento)
+    // il giorno restava segnato come completato per sempre. La route accetta
+    // gia' completed:false, semplicemente non veniva mai chiamata cosi'.
+    if (allDone === segnatoOggi) return; // niente da comunicare al server
     (async ()=>{
       try {
-        const res = await fetch("/api/streak",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({data:today,completed:true})});
+        const res = await fetch("/api/streak",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({data:today,completed:allDone})});
         const data = await res.json();
         if (res.ok) {
           setRoutineStreak(data.streak||0);
           setStreakHistory(prev=>{
             const next = prev.filter(d=>d.data!==today);
-            next.push({data:today,completed:true});
+            next.push({data:today,completed:allDone});
             return next;
           });
         }

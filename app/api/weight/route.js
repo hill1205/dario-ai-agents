@@ -42,7 +42,14 @@ export async function POST(request) {
       return Response.json({ error: "Missing data or peso" }, { status: 400 });
     }
     const entries = await readWeightDoc({ forza: true });
-    entries.push({ data, peso: pesoNum });
+    // Una pesata al giorno: se c'e' gia' una voce per quella data la si
+    // AGGIORNA invece di aggiungerne una seconda. Prima ogni POST faceva
+    // push(), quindi due pesate lo stesso giorno (o un doppio tap sul
+    // bottone) lasciavano due voci sulla stessa data — due punti sovrapposti
+    // sul grafico e un "ultimo peso" che dipendeva dall'ordinamento.
+    const esistente = entries.findIndex((e) => e.data === data);
+    if (esistente >= 0) entries[esistente] = { ...entries[esistente], data, peso: pesoNum };
+    else entries.push({ data, peso: pesoNum });
     entries.sort((a, b) => new Date(a.data) - new Date(b.data));
     await writeWeightDoc(entries);
     return Response.json({ success: true, entries });

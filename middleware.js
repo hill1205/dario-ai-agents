@@ -19,6 +19,25 @@ import { NextResponse } from "next/server";
 // sicurezza. Vedi UnprotectedBanner in app/layout.jsx.
 const USERNAME = process.env.APP_USERNAME || "dario";
 
+// Confronto a tempo costante. Con `pass === password` il tempo di risposta
+// dipende da quanti caratteri iniziali combaciano, e in teoria la password si
+// ricostruisce un carattere alla volta misurando le risposte. Su un'app
+// personale è un rischio remoto (serve un attaccante che sappia l'URL e che
+// misuri migliaia di richieste attraverso la rete e il rumore di Vercel), ma
+// costa sei righe e toglie la classe di attacco dal tavolo. Non si usa
+// crypto.timingSafeEqual perché il middleware gira su Edge Runtime, dove il
+// modulo node:crypto non è disponibile.
+function confrontoCostante(a, b) {
+  const sa = String(a ?? "");
+  const sb = String(b ?? "");
+  // La lunghezza resta osservabile: è informazione di scarso valore rispetto
+  // al contenuto, e mascherarla richiederebbe un hash che qui non serve.
+  if (sa.length !== sb.length) return false;
+  let diff = 0;
+  for (let i = 0; i < sa.length; i++) diff |= sa.charCodeAt(i) ^ sb.charCodeAt(i);
+  return diff === 0;
+}
+
 export function middleware(request) {
   const password = process.env.APP_PASSWORD;
 
@@ -48,7 +67,7 @@ export function middleware(request) {
       const idx = decoded.indexOf(":");
       const user = decoded.slice(0, idx);
       const pass = decoded.slice(idx + 1);
-      if (user === USERNAME && pass === password) return NextResponse.next();
+      if (user === USERNAME && confrontoCostante(pass, password)) return NextResponse.next();
     } catch {
       // header malformato: cade nella richiesta di credenziali qui sotto
     }

@@ -325,7 +325,12 @@ export async function salvaRevisione(id, indice, body) {
   if (idx < 0) return { ok: false, status: 404, errore: "Decisione non trovata." };
 
   const revisioni = [...(lista[idx].revisioni || [])];
-  const i = Number(indice);
+  // Come in rimandaRevisione: se il client manda la data, quella vince
+  // sull'indice, che dopo un riordino puo' puntare alla revisione sbagliata.
+  const perData = body?.dataRevisione
+    ? revisioni.findIndex((r) => r.data === body.dataRevisione)
+    : -1;
+  const i = perData >= 0 ? perData : Number(indice);
   if (!Number.isInteger(i) || i < 0 || i >= revisioni.length) {
     return { ok: false, status: 400, errore: "Revisione non trovata." };
   }
@@ -345,14 +350,22 @@ export async function salvaRevisione(id, indice, body) {
 // risposto, il trimestre non e' chiuso). L'alternativa sarebbe compilare
 // una revisione vuota per far sparire il banner, che e' il modo piu' rapido
 // per rendere inutile tutto il registro.
-export async function rimandaRevisione(id, indice, giorni = 30) {
+// `dataRevisione` (opzionale) identifica la revisione per data invece che per
+// posizione. Serve perche' questa funzione RIORDINA l'array subito dopo aver
+// cambiato la data: rimandando la prima di sei mesi puo' finire dopo la
+// seconda, e l'indice che il client ha in mano diventa sbagliato all'istante.
+// Due "rimanda" di fila senza ricaricare colpivano la revisione sbagliata.
+// La data e' l'identificatore stabile; l'indice resta accettato come ripiego
+// per non rompere una scheda aperta da prima del deploy.
+export async function rimandaRevisione(id, indice, giorni = 30, dataRevisione = null) {
   const n = Math.min(365, Math.max(1, Math.round(Number(giorni)) || 30));
   const lista = (await readDoc({ forza: true })).map(migra);
   const idx = lista.findIndex((d) => d.id === id);
   if (idx < 0) return { ok: false, status: 404, errore: "Decisione non trovata." };
 
   const revisioni = [...(lista[idx].revisioni || [])];
-  const i = Number(indice);
+  const perData = dataRevisione ? revisioni.findIndex((r) => r.data === dataRevisione) : -1;
+  const i = perData >= 0 ? perData : Number(indice);
   if (!Number.isInteger(i) || i < 0 || i >= revisioni.length) {
     return { ok: false, status: 400, errore: "Revisione non trovata." };
   }

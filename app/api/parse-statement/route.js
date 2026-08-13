@@ -98,19 +98,50 @@ function detectDelimiter(firstLine) {
   return Object.entries(counts).sort((a,b)=>b[1]-a[1])[0][0];
 }
 
+// Due liste per campo: `esatte` vuole l'uguaglianza, `parziali` accetta il
+// contenimento.
+//
+// Prima erano una lista sola confrontata sempre con includes(), e ci finivano
+// dentro parole cortissime come "in" e "out": una colonna chiamata "Origin",
+// "Card Ending" o "Point in time" veniva letta come colonna ENTRATA, e da lì
+// gli importi venivano presi dalla casella sbagliata. Le parole ambigue ora
+// stanno tra le esatte, dove non possono fare danni.
 const HEADER_KEYWORDS = {
-  data: ["data","date","transaction date","booking date","value date","completed date"],
-  descrizione: ["descrizione","description","dettagli","details","narrative","memo","causale","merchant","payee","reference","type"],
-  importo: ["importo","amount","valore","value"],
-  entrata: ["entrata","credit","in","money in","accredito"],
-  uscita: ["uscita","debit","out","money out","addebito"],
-  saldo: ["saldo","balance","running balance"],
+  data: {
+    esatte: ["data","date"],
+    parziali: ["transaction date","booking date","value date","completed date","data operazione","data valuta"],
+  },
+  descrizione: {
+    esatte: ["type","memo","note"],
+    parziali: ["descrizione","description","dettagli","details","narrative","causale","merchant","payee","reference"],
+  },
+  importo: {
+    esatte: ["importo","amount","valore","value"],
+    parziali: ["importo operazione","transaction amount"],
+  },
+  entrata: {
+    esatte: ["in","entrata","credit","entrate","avere"],
+    parziali: ["money in","paid in","accredito"],
+  },
+  uscita: {
+    esatte: ["out","uscita","debit","uscite","dare"],
+    parziali: ["money out","paid out","addebito"],
+  },
+  saldo: {
+    esatte: ["saldo","balance"],
+    parziali: ["running balance","saldo contabile"],
+  },
 };
 
 function matchHeader(headerCell) {
   const h = headerCell.toLowerCase().trim();
-  for (const [key, words] of Object.entries(HEADER_KEYWORDS)) {
-    if (words.some(w => h === w || h.includes(w))) return key;
+  // Prima passata su tutte le corrispondenze esatte: "date" deve vincere su
+  // chiunque contenga "date" nel mezzo.
+  for (const [key, { esatte }] of Object.entries(HEADER_KEYWORDS)) {
+    if (esatte.some(w => h === w)) return key;
+  }
+  for (const [key, { parziali }] of Object.entries(HEADER_KEYWORDS)) {
+    if (parziali.some(w => h.includes(w))) return key;
   }
   return null;
 }

@@ -1,6 +1,6 @@
 export const dynamic = "force-dynamic";
 
-import { creaArchivio } from "../../lib/clickup-doc";
+import { creaArchivio, ConflittoVersione } from "../../lib/clickup-doc";
 
 const archivio = creaArchivio({
   docId: "2kxuu4g1-752",
@@ -19,7 +19,11 @@ export async function GET() {
   // i mesi con un oggetto vuoto. Meglio un errore esplicito (status 500)
   // che il frontend puo' controllare prima di lasciarti salvare.
   try {
-    return Response.json({ data: await archivio.leggi() });
+    // `rev` viaggia insieme ai dati: la pagina se lo tiene e lo rimanda al
+    // salvataggio, così il server può accorgersi se nel frattempo ha scritto
+    // qualcun altro (l'altro dispositivo) invece di lasciarlo sovrascrivere.
+    const { dati, rev } = await archivio.leggiConRev();
+    return Response.json({ data: dati, rev });
   } catch (e) {
     return Response.json({ error: e.message }, { status: 500 });
   }
@@ -27,10 +31,19 @@ export async function GET() {
 
 export async function POST(request) {
   try {
-    const { data } = await request.json();
-    await archivio.scrivi(data);
-    return Response.json({ success: true });
+    const { data, rev } = await request.json();
+    const nuovaRev = await archivio.scrivi(data, { revAttesa: rev });
+    return Response.json({ success: true, rev: nuovaRev });
   } catch (e) {
+    if (e instanceof ConflittoVersione || e.conflitto) {
+      // 409 e non 500: non è un guasto, è "qualcuno ha salvato prima di te".
+      // Il frontend lo distingue e propone di ricaricare invece di far
+      // sparire in silenzio le modifiche dell'altro dispositivo.
+      return Response.json(
+        { error: e.message, conflitto: true, revTrovata: e.revTrovata },
+        { status: 409 }
+      );
+    }
     return Response.json({ error: e.message }, { status: 500 });
   }
 }

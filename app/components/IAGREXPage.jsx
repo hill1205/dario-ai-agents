@@ -80,6 +80,8 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
   const [vistaUscite, setVistaUscite]   = useState("recenti");
   const [loading, setLoading]     = useState(true);
   const [saveStatus, setSaveStatus] = useState(null);
+  // Versione dei dati caricati (vedi REV in app/lib/clickup-doc.js).
+  const [rev, setRev] = useState(null);
   const [modal, setModal]         = useState(null);
   const [form, setForm]           = useState({});
   const [convModal, setConvModal] = useState(false);
@@ -186,7 +188,10 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
     try {
       const res = await fetch("/api/iagrex-finance");
       const j = await res.json();
-      if (res.ok) { setAllData(j.data||{}); setLoadOk(true); }
+      // rev = versione dei dati appena letti. Ce la teniamo e la rimandiamo
+      // a ogni salvataggio: se nel frattempo ha salvato l'altro dispositivo,
+      // il server risponde 409 invece di lasciarci sovrascrivere.
+      if (res.ok) { setAllData(j.data||{}); setRev(j.rev ?? 0); setLoadOk(true); }
       else { setLoadError(j.error || `Errore ${res.status}`); setLoadOk(false); }
     } catch (e) { setLoadError(e.message); setLoadOk(false); }
     setLoading(false);
@@ -227,6 +232,10 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
   const { snapshot, undo, voci: undoVoci } = useUndoStack("iagrex");
   const allDataRef = useRef(allData);
   useEffect(()=>{ allDataRef.current = allData; },[allData]);
+  // saveData è memoizzata: senza il ref leggerebbe il valore di rev catturato
+  // alla creazione della callback, cioè quello di due salvataggi fa.
+  const revRef = useRef(null);
+  useEffect(()=>{ revRef.current = rev; },[rev]);
 
   const saveData = useCallback(async (newAllData, opts={}) => {
     if (!loadOk) {
@@ -248,11 +257,30 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
       const res = await fetch("/api/iagrex-finance", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ data: datiFinali }),
+        body: JSON.stringify({ data: datiFinali, rev: revRef.current }),
       });
-      setSaveStatus(res.ok?"saved":"error");
-    } catch { setSaveStatus("error"); }
-    setTimeout(()=>setSaveStatus(null),2500);
+      const j = await res.json().catch(()=>({}));
+      if (res.status === 409) {
+        // Ha salvato l'altro dispositivo dopo che abbiamo aperto la pagina.
+        // Non tocchiamo niente su ClickUp e lo diciamo chiaramente: il
+        // salvataggio si rifà dopo aver ricaricato.
+        setSaveStatus("conflitto");
+        return;              // niente timeout: l'avviso deve restare
+      }
+      if (res.ok) {
+        if (typeof j.rev === "number") setRev(j.rev);
+        setSaveStatus("saved");
+      } else {
+        setSaveStatus("error");
+        return;              // vedi sotto
+      }
+    } catch { setSaveStatus("error"); return; }
+    // Solo "Salvato" sparisce da solo. Prima il timeout valeva anche per
+    // l'errore: l'avviso spariva dopo 2,5 secondi e si continuava a inserire
+    // movimenti su uno stato che su ClickUp non esisteva — al primo reload
+    // erano tutti spariti. PipelinePage lo faceva già giusto; sulle finanze
+    // conta anche di più.
+    setTimeout(()=>setSaveStatus(s=>s==="saved"?null:s),2500);
   },[loadOk, snapshot]);
 
   const handleUndo = () => {
@@ -309,7 +337,15 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
     .filter(([k])=>/^\d{4}-\d{2}$/.test(k) && k.startsWith(year))
     .reduce((s,[,v])=>s+(v.entrate||[]).filter(isReal).reduce((ss,e)=>ss+toEur(e),0),0);
   const ytdPct = Math.min(Math.round((ytdRevenue/OBIETTIVO_ANNUO)*100*10)/10, 100);
-  const mesiRimanenti = 13 - (new Date().getMonth()+1); // dicembre incluso = 1
+  // Mese corrente nel fuso di Dario, non in quello del browser: /api/revenue
+  // fa lo stesso calcolo in Europe/Bucharest, e il 1° del mese tra mezzanotte
+  // e le 3 i due numeri divergevano (la home diceva una cosa, il tab IAGREX
+  // un'altra, sugli stessi dati).
+  const meseCorrenteNum = parseInt(
+    new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Bucharest", month: "2-digit" }).format(new Date()),
+    10
+  );
+  const mesiRimanenti = 13 - meseCorrenteNum; // dicembre incluso = 1
   const ritmoMensileNecessario = Math.round(Math.max(OBIETTIVO_ANNUO-ytdRevenue,0)/mesiRimanenti);
 
   const totEntrate = monthData.entrate.filter(isReal).reduce((s,e)=>s+toEur(e),0);
@@ -985,6 +1021,15 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
             {saveStatus==="saved"   && <span style={{fontSize:11,color:"#10B981"}}>✅ Salvato</span>}
             {saveStatus==="error"   && <span style={{fontSize:11,color:"#EF4444"}}>❌ Errore</span>}
             {saveStatus==="blocked" && <span style={{fontSize:11,color:"#EF4444"}}>🚫 Salvataggio bloccato: dati non caricati</span>}
+            {saveStatus==="conflitto" && (
+              <span style={{fontSize:11,color:"#EF4444",display:"inline-flex",alignItems:"center",gap:6}}>
+                ⚠️ Modificato da un altro dispositivo — non ho salvato
+                <button onClick={()=>{ setSaveStatus(null); loadData(); }}
+                  style={{padding:"2px 8px",borderRadius:6,border:"1px solid #EF444450",background:"#EF444415",color:"#EF4444",cursor:"pointer",fontSize:11,fontWeight:600}}>
+                  Ricarica
+                </button>
+              </span>
+            )}
             <UndoButton voci={undoVoci} onUndo={handleUndo} accent="#8B5CF6" compact/>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:8}}>

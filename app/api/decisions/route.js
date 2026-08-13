@@ -63,8 +63,10 @@ export async function PATCH(request) {
     if (!id) return Response.json({ error: "id mancante" }, { status: 400 });
 
     let esito;
+    // body.dataRevisione, quando c'è, identifica la revisione in modo stabile:
+    // l'indice si sposta se l'array viene riordinato (vedi rimandaRevisione).
     if (azione === "revisione")      esito = await salvaRevisione(id, indice, body);
-    else if (azione === "rimanda")   esito = await rimandaRevisione(id, indice, body.giorni);
+    else if (azione === "rimanda")   esito = await rimandaRevisione(id, indice, body.giorni, body.dataRevisione);
     else                             esito = await aggiornaDecisione(id, body);
 
     if (!esito.ok) return errore(esito);

@@ -35,7 +35,17 @@ async function datiHabits() {
     const prev = storico.find((d) => d.data === oggi) || {};
     // La nota del giorno la scrive Dario, non ClickUp: va conservata.
     days = [...storico.filter((d) => d.data !== oggi), { ...live, nota: prev.nota }];
-    saveSnapshot(live.data, live).catch(() => {});
+    // AWAIT, non fire-and-forget. Su Vercel la funzione serverless viene
+    // congelata appena si restituisce la Response: una scrittura ancora in
+    // volo poteva essere troncata a metà, e lo snapshot del giorno spariva
+    // ogni tanto senza che niente lo segnalasse. Costa ~400ms di ClickUp ed è
+    // la differenza tra "salvato" e "forse salvato".
+    //
+    // L'errore resta non fatale: se il Doc non risponde, la pagina Abitudini
+    // deve caricarsi lo stesso — lo snapshot vero lo rifà il cron a mezzanotte.
+    // Questo è ora l'UNICO punto dell'app che scrive lo snapshot del giorno in
+    // corso (prima lo faceva anche /api/habits, in concorrenza con questo).
+    try { await saveSnapshot(live.data, live); } catch {}
   }
 
   days.sort((a, b) => (a.data < b.data ? -1 : 1));

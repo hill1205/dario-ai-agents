@@ -531,11 +531,23 @@ export default function PipelinePage({ fontSize=14, theme="dark", onGoToIagrex }
     loadData();
   },[]);
 
+  // Se Notion risponde, la sua risposta e' la verita' — ANCHE se e' vuota.
+  //
+  // Prima la condizione era `if (e.length > 0)`: una pipeline legittimamente
+  // vuota (tutto archiviato, o un permesso/filtro cambiato) faceva cadere il
+  // codice nel fallback e ripescava i lead vecchi da localStorage. Il guaio
+  // vero veniva dopo: quelle entry hanno un notionId, quindi al primo
+  // drag&drop venivano riscritte su Notion, resuscitando record archiviati.
+  // Il fallback locale ha senso solo quando la fetch FALLISCE davvero.
   const loadData = async ()=>{
     setLoading(true);
     try {
       const res = await fetch("/api/pipeline-data");
-      if (res.ok) { const data=await res.json(); const e=data.entries||[]; if(e.length>0){setEntries(e);lsSet(e);setLoading(false);return;} }
+      if (res.ok) {
+        const data = await res.json();
+        const e = data.entries || [];
+        setEntries(e); lsSet(e); setLoading(false); return;
+      }
     } catch {}
     setEntries(lsGet()); setLoading(false);
   };
@@ -550,22 +562,41 @@ export default function PipelinePage({ fontSize=14, theme="dark", onGoToIagrex }
   // o Notion fallivano, la modifica sembrava salvata ma andava persa in
   // silenzio. Ora tutti i salvataggi passano da qui e aggiornano l'indicatore
   // saveStatus (saving/saved/error) già mostrato in header.
-  const postEntries = useCallback(async (updated, opts={})=>{
+  // Manda a Notion SOLO le entry passate in `daInviare`.
+  //
+  // Prima riceveva sempre l'array completo, e il POST lato server cicla
+  // facendo una PATCH per ogni entry: spostare UNA card da "Contattato" a
+  // "In Trattativa" con 60 lead in pipeline voleva dire 60 chiamate Notion
+  // in sequenza. Notion sta sulle ~3 richieste al secondo, quindi erano ~20
+  // secondi di "salvataggio" e, oltre il centinaio di lead, i 429 facevano
+  // finire in `failed` entry che nessuno aveva toccato — indicatore rosso su
+  // un'operazione perfettamente riuscita. Il costo cresceva col numero di
+  // lead, cioe' peggiorava proprio quando l'agenzia va bene.
+  //
+  // ClientiPage lo faceva gia' giusto (POST di un record alla volta): qui
+  // adottiamo lo stesso principio. `entries` resta la lista completa per lo
+  // stato locale e per localStorage, la rete vede solo il delta.
+  const postEntries = useCallback(async (daInviare, opts={})=>{
     // Cronologia Annulla: tutte le scritture della pipeline passano da qui
     // (drag&drop, tentativi, form), quindi basta un solo punto di snapshot.
     if (!opts.skipSnapshot) snapshot(entriesRef.current, opts.etichetta || "Modifica pipeline");
+    const payload = (daInviare || []).filter(Boolean);
+    if (payload.length === 0) return;
     setSaveStatus("saving");
     let ok = false;
-    try { const res=await fetch("/api/pipeline-data",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({entries:updated})}); ok = res.ok; } catch { ok = false; }
+    try { const res=await fetch("/api/pipeline-data",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({entries:payload})}); ok = res.ok; } catch { ok = false; }
     setSaveStatus(ok?"saved":"error");
     // "Salvato" sparisce da solo; "Errore" resta visibile finché un nuovo
     // salvataggio non va a buon fine, così un fallimento non passa inosservato.
     if (ok) setTimeout(()=>setSaveStatus(s=>s==="saved"?null:s),2500);
   },[snapshot]);
 
+  // `updated` = nuova lista completa (stato locale + localStorage).
+  // `opts.daInviare` = sottoinsieme da mandare a Notion; se assente si manda
+  // tutto, che serve ancora per l'import CSV e per l'annulla.
   const saveData = useCallback(async (updated, opts={})=>{
     setEntries(updated); lsSet(updated);
-    await postEntries(updated, opts);
+    await postEntries(opts.daInviare || updated, opts);
   },[postEntries]);
 
   const handleUndo = () => {
@@ -578,7 +609,8 @@ export default function PipelinePage({ fontSize=14, theme="dark", onGoToIagrex }
     setEntries(prev=>{
       const updated = prev.map(e=>e.id===entryId?{...e,stage:newStage}:e);
       lsSet(updated);
-      postEntries(updated);
+      // Solo la card spostata: una PATCH invece di una per ogni lead.
+      postEntries(updated.filter(e=>e.id===entryId));
       return updated;
     });
   },[postEntries]);
@@ -588,7 +620,7 @@ export default function PipelinePage({ fontSize=14, theme="dark", onGoToIagrex }
     setEntries(prev=>{
       const updated = prev.map(e=>e.id===entryId?{...e,tentativi:(e.tentativi||0)+1,ultimo_contatto:today}:e);
       lsSet(updated);
-      postEntries(updated);
+      postEntries(updated.filter(e=>e.id===entryId));
       return updated;
     });
   },[postEntries]);
@@ -616,8 +648,10 @@ export default function PipelinePage({ fontSize=14, theme="dark", onGoToIagrex }
   const closeModal = ()=>{ setModal(null); setForm(EMPTY_FORM); };
   const saveEntry  = ()=>{
     if(!form.nome.trim()) return;
-    const updated=modal==="add"?[...entries,{...form,id:genId()}]:entries.map(e=>e.id===form.id?form:e);
-    saveData(updated); closeModal();
+    const nuova = modal==="add" ? {...form,id:genId()} : form;
+    const updated = modal==="add" ? [...entries, nuova] : entries.map(e=>e.id===form.id?form:e);
+    // Solo la entry creata/modificata va su Notion: le altre non sono cambiate.
+    saveData(updated, { daInviare: [nuova] }); closeModal();
   };
   // Prima questa funzione toglieva solo l'entry dall'array locale e
   // rimandava tutto il resto su Notion via saveData — ma senza dire mai a
@@ -662,7 +696,9 @@ export default function PipelinePage({ fontSize=14, theme="dark", onGoToIagrex }
     if (!csvPreview || !csvPreview.length) return;
     setCsvImporting(true);
     const updated = [...entries, ...csvPreview];
-    await saveData(updated);
+    // Qui si mandano solo le righe importate: le entry gia' in pipeline non
+    // sono cambiate e non c'e' motivo di riscriverle tutte su Notion.
+    await saveData(updated, { daInviare: csvPreview });
     setCsvImporting(false);
     setCsvPreview(null);
   };

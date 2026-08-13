@@ -733,7 +733,10 @@ export default function DecisionsPage({ fontSize=14, theme="dark", isMobile=fals
       imparato:esito.imparato, diverso:esito.diverso,
     } : ESITO_VUOTO);
     setErroreRevisione(null);
-    setRevisioneAttiva({id:d.id, indice});
+    // Insieme all'indice teniamo la DATA della revisione: è l'identificatore
+    // che sopravvive a un riordino dell'array (rimandare la prima di sei mesi
+    // la sposta dopo la seconda, e l'indice punta di colpo a quella sbagliata).
+    setRevisioneAttiva({id:d.id, indice, dataRevisione: d.revisioni?.[indice]?.data || null});
     setAperta(d.id);
   };
 
@@ -742,7 +745,7 @@ export default function DecisionsPage({ fontSize=14, theme="dark", isMobile=fals
     setSalvando(true); setErroreRevisione(null);
     try {
       const res = await fetch("/api/decisions",{method:"PATCH",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({...bozzaEsito,id:revisioneAttiva.id,indice:revisioneAttiva.indice,azione:"revisione"})});
+        body:JSON.stringify({...bozzaEsito,id:revisioneAttiva.id,indice:revisioneAttiva.indice,dataRevisione:revisioneAttiva.dataRevisione,azione:"revisione"})});
       const d = await res.json();
       if (!res.ok) { setErroreRevisione(d.error || "Errore di salvataggio"); setSalvando(false); return; }
       setRevisioneAttiva(null); setBozzaEsito(ESITO_VUOTO);
@@ -751,10 +754,10 @@ export default function DecisionsPage({ fontSize=14, theme="dark", isMobile=fals
     setSalvando(false);
   };
 
-  const rimanda = async (id, indice, giorni) => {
+  const rimanda = async (id, indice, giorni, dataRevisione) => {
     try {
       await fetch("/api/decisions",{method:"PATCH",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({id,indice,azione:"rimanda",giorni})});
+        body:JSON.stringify({id,indice,dataRevisione,azione:"rimanda",giorni})});
       await carica();
     } catch {}
   };
@@ -848,7 +851,7 @@ export default function DecisionsPage({ fontSize=14, theme="dark", isMobile=fals
               aperta={aperta===d.id}
               onToggle={()=>setAperta(aperta===d.id?null:d.id)}
               onRivedi={(i)=>apriRevisione(d,i)}
-              onRimanda={(i,g)=>rimanda(d.id,i,g)}
+              onRimanda={(i,g)=>rimanda(d.id,i,g,d.revisioni?.[i]?.data || null)}
               onModifica={()=>apriModifica(d)}
               onElimina={()=>elimina(d)}
               revisioneAttiva={revisioneAttiva?.id===d.id ? revisioneAttiva.indice : null}

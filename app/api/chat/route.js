@@ -1,27 +1,35 @@
 // app/api/chat/route.js — self-contained, no external imports
+//
+// COSA FA OGGI
+// Proxy verso l'API Anthropic per la generazione dei messaggi ai lead
+// (PipelinePage.jsx, agentId "mario"): la chiave sta su Vercel e non nel
+// browser, e la route ci attacca il contesto ClickUp dell'agente.
+//
+// COSA NON FA PIU' (13/08/2026)
+// Fino a oggi qui dentro c'era anche il "briefing del mattino": se scrivevi
+// "buongiorno" a Bea, buildMorningContext() chiamava resetRoutineDaily(), che
+// scriveva su ClickUp. Tre cose sbagliate in una:
+//   1. un messaggio di saluto che scrive su ClickUp, nascosto dentro una
+//      funzione che si chiama "build..." — nessuno se lo aspetta;
+//   2. non resettava niente. getTasksFromList filtra statuses[]=da fare|in
+//      corso|aperto con include_closed=false, quindi le routine COMPLETATE
+//      non tornavano indietro: la PUT "da fare" cadeva solo su task gia' "da
+//      fare". Chiamate ClickUp buttate;
+//   3. l'intestazione diceva [ROUTINE DAILY — resettate a "da fare"] mentre
+//      la lista conteneva solo le routine ancora aperte.
+// Il reset vero ce l'abbiamo dove deve stare: /api/cron/reset a mezzanotte di
+// Bucarest, che prima di azzerare salva anche lo snapshot delle abitudini —
+// cosa che questo non faceva. Dario ha confermato che il "buongiorno Bea" non
+// lo usa piu': tolto tutto il ramo, con le mappe che serviva solo a lui.
 
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const CU_V2 = "https://api.clickup.com/api/v2";
 const CU_V3 = "https://api.clickup.com/api/v3";
 const WORKSPACE_ID = "90121769473";
 
-const LISTS = {
-  TO_DO_DAILY:         "901218950374",
-  ROUTINE_DAILY:       "901218950375",
-  ROUTINE_SETTIMANALE: "901218950376",
-  IN_SOSPESO:          "901218950377",
-};
-
-const DAILY_DOCS = {
-  MARIO:   { docId: "2kxuu4g1-632", pageId: "2kxuu4g1-392" },
-  MIMMO:   { docId: "2kxuu4g1-652", pageId: "2kxuu4g1-412" },
-  CARMINE: { docId: "2kxuu4g1-672", pageId: "2kxuu4g1-432" },
-  VLAD:    { docId: "2kxuu4g1-692", pageId: "2kxuu4g1-452" },
-  BRUNO:   { docId: "2kxuu4g1-732", pageId: "2kxuu4g1-512" },
-};
-
+// Doc "stato progetto" per agente: l'ultima sessione di lavoro, così l'agente
+// non riparte da zero ogni volta.
 const STATO_DOCS = {
-  bea:     { docId: "2kxuu4g1-792", pageId: "2kxuu4g1-672" },
   mario:   { docId: "2kxuu4g1-872", pageId: "2kxuu4g1-752" },
   mimmo:   { docId: "2kxuu4g1-892", pageId: "2kxuu4g1-772" },
   carmine: { docId: "2kxuu4g1-832", pageId: "2kxuu4g1-712" },
@@ -64,6 +72,23 @@ const AGENT_EXTRA_DOCS = {
   ],
 };
 
+// --- Tetto di spesa ---------------------------------------------------------
+// Questa route inoltrava il body VERBATIM all'API Anthropic: model, max_tokens
+// e messages arrivavano dal browser senza nessun controllo. E' dietro Basic
+// Auth, quindi non e' un buco di sicurezza — ma e' un buco nel portafoglio:
+// un bug nel client (un ciclo, un max_tokens con uno zero di troppo) si
+// traduce direttamente in fattura. Qui mettiamo i due paletti che costano
+// niente e chiudono il caso.
+// Volutamente un CONTROLLO DI FORMA e non una lista chiusa di id: la lista
+// esatta invecchia (PipelinePage manda "claude-sonnet-4-6", che tra sei mesi
+// sara' un altro nome) e un elenco tassativo qui vorrebbe dire rompere la
+// generazione messaggi al primo cambio di modello, in silenzio e in
+// produzione. Il rischio da coprire e' la spesa, e la spesa la governa
+// max_tokens: qui basta impedire che finisca in body un valore arbitrario.
+const MODELLO_VALIDO = /^claude-[a-z0-9.\-]{3,60}$/;
+const MODELLO_DEFAULT = "claude-haiku-4-5-20251001";
+const MAX_TOKENS_CAP = 4000;
+
 function cuHeaders(apiKey) {
   return { Authorization: apiKey, "Content-Type": "application/json" };
 }
@@ -89,20 +114,6 @@ async function getTasksFromList(listId, apiKey) {
   }
 }
 
-async function resetRoutineDaily(apiKey) {
-  const tasks = await getTasksFromList(LISTS.ROUTINE_DAILY, apiKey);
-  await Promise.all(
-    tasks.map((t) =>
-      fetch(`${CU_V2}/task/${t.id}`, {
-        method: "PUT",
-        headers: cuHeaders(apiKey),
-        body: JSON.stringify({ status: "da fare" }),
-      })
-    )
-  );
-  return tasks;
-}
-
 async function getDocPage(docId, pageId, apiKey, format = "text/plain") {
   try {
     const url = `${CU_V3}/workspaces/${WORKSPACE_ID}/docs/${docId}/pages/${pageId}?content_format=${encodeURIComponent(format)}`;
@@ -120,69 +131,24 @@ async function getDocPage(docId, pageId, apiKey, format = "text/plain") {
   }
 }
 
+// L'API v2 restituisce la priorita' come OGGETTO ({priority:"high",...}), non
+// come stringa: il vecchio `t.priority === "high"` era sempre falso e il 🔴
+// non compariva mai. Stessa logica di priorityOf() in app/lib/habits-store.js,
+// riscritta qui perche' questo file non importa nulla.
+function priorityOf(t) {
+  const p = t?.priority;
+  return (typeof p === "string" ? p : p?.priority || "").toLowerCase();
+}
+
 function formatTasks(tasks) {
   if (!tasks.length) return "(nessuna)";
   return tasks
-    .map((t) => `- [${t.status?.status ?? t.status ?? "?"}] ${t.name}${t.priority === "high" ? " 🔴" : ""}`)
+    .map((t) => {
+      const prio = priorityOf(t);
+      const bollino = prio === "urgent" ? " 🔴" : prio === "high" ? " 🟠" : "";
+      return `- [${t.status?.status ?? t.status ?? "?"}] ${t.name}${bollino}`;
+    })
     .join("\n");
-}
-
-async function buildMorningContext(apiKey) {
-  const isSaturday =
-    new Date().toLocaleDateString("en-US", {
-      timeZone: "Europe/Bucharest",
-      weekday: "long",
-    }) === "Saturday";
-
-  const [todo, routineDaily, inSospeso, settimanale, mario, mimmo, carmine, vlad, bruno, stato] =
-    await Promise.all([
-      getTasksFromList(LISTS.TO_DO_DAILY, apiKey),
-      resetRoutineDaily(apiKey),
-      getTasksFromList(LISTS.IN_SOSPESO, apiKey),
-      isSaturday ? getTasksFromList(LISTS.ROUTINE_SETTIMANALE, apiKey) : Promise.resolve([]),
-      getDocPage(DAILY_DOCS.MARIO.docId,   DAILY_DOCS.MARIO.pageId,   apiKey),
-      getDocPage(DAILY_DOCS.MIMMO.docId,   DAILY_DOCS.MIMMO.pageId,   apiKey),
-      getDocPage(DAILY_DOCS.CARMINE.docId, DAILY_DOCS.CARMINE.pageId, apiKey),
-      getDocPage(DAILY_DOCS.VLAD.docId,    DAILY_DOCS.VLAD.pageId,    apiKey),
-      getDocPage(DAILY_DOCS.BRUNO.docId,   DAILY_DOCS.BRUNO.pageId,   apiKey),
-      getDocPage(STATO_DOCS.bea.docId,     STATO_DOCS.bea.pageId,     apiKey),
-    ]);
-
-  const now = new Date().toLocaleString("it-IT", { timeZone: "Europe/Bucharest" });
-
-  return `
-=== CONTESTO AGGIORNATO — ${now} (Bucarest) ===
-ISTRUZIONE OBBLIGATORIA: Il briefing mattutino DEVE includere una sezione "Aggiornamenti Assistenti" con il contenuto esatto dei Daily Update qui sotto.
-
-[STATO PROGETTO BEA]
-${stato}
-
-[ROUTINE DAILY — resettate a "da fare"]
-${formatTasks(routineDaily)}
-
-[TO DO DAILY]
-${formatTasks(todo)}
-
-[IN SOSPESO]
-${formatTasks(inSospeso)}
-
-${isSaturday ? `[ROUTINE SETTIMANALE — oggi e sabato]\n${formatTasks(settimanale)}\n` : ""}
-[MARIO — Daily Update]
-${mario}
-
-[MIMMO — Daily Update]
-${mimmo}
-
-[CARMINE — Daily Update]
-${carmine}
-
-[VLAD — Daily Update]
-${vlad}
-
-[BRUNO — Daily Update]
-${bruno}
-
-=== FINE CONTESTO ===`.trim();
 }
 
 async function buildAgentContext(agentId, apiKey) {
@@ -214,25 +180,6 @@ async function buildAgentContext(agentId, apiKey) {
   return ctx;
 }
 
-function isMorningGreeting(messages) {
-  const last = [...messages].reverse().find((m) => m.role === "user");
-  if (!last) return false;
-  const text = (
-    typeof last.content === "string" ? last.content : last.content?.[0]?.text ?? ""
-  ).toLowerCase().trim();
-  return ["buongiorno", "buon giorno", "ciao bea", "morning"].some((g) => text.includes(g));
-}
-
-function isBea(body) {
-  if (body.agentId) return body.agentId === "bea";
-  const system = body.system;
-  if (!system) return false;
-  const allText = Array.isArray(system)
-    ? system.map((b) => b.text ?? "").join(" ")
-    : String(system);
-  return allText.toLowerCase().includes("beatrice");
-}
-
 function injectContext(body, ctx) {
   if (typeof body.system === "string") {
     body.system = body.system + "\n\n" + ctx;
@@ -247,17 +194,21 @@ export async function POST(request) {
     const clickupKey = process.env.CLICKUP_API_KEY;
     const agentId = body.agentId;
 
-    if (clickupKey) {
-      if (isBea(body) && isMorningGreeting(body.messages)) {
-        const ctx = await buildMorningContext(clickupKey);
-        injectContext(body, ctx);
-      } else if (agentId && agentId !== "bea" && AGENT_LISTS[agentId]) {
-        const ctx = await buildAgentContext(agentId, clickupKey);
-        if (ctx) injectContext(body, ctx);
-      }
+    if (clickupKey && agentId && AGENT_LISTS[agentId]) {
+      const ctx = await buildAgentContext(agentId, clickupKey);
+      if (ctx) injectContext(body, ctx);
     }
 
     delete body.agentId;
+
+    // Paletti di spesa: modello dalla whitelist, max_tokens con un tetto.
+    if (typeof body.model !== "string" || !MODELLO_VALIDO.test(body.model)) {
+      body.model = MODELLO_DEFAULT;
+    }
+    const richiesti = parseInt(body.max_tokens, 10);
+    body.max_tokens = Number.isFinite(richiesti)
+      ? Math.min(Math.max(richiesti, 1), MAX_TOKENS_CAP)
+      : 1000;
 
     const response = await fetch(ANTHROPIC_URL, {
       method: "POST",

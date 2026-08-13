@@ -9,6 +9,7 @@
 //   { data:"YYYY-MM-DD", done:[nomi], all:[nomi], strategiche:[nomi], nota:"" }
 
 import { leggiJson, scriviJson, PAGINE } from "./clickup-doc";
+import { fetchTuttiITask } from "./clickup-liste";
 
 const CLICKUP_API_KEY = process.env.CLICKUP_API_KEY;
 // Doc "Storico Abitudini e Mood (dashboard)" — pagina Abitudini.
@@ -69,13 +70,10 @@ export async function writeHabits(days) {
 // "done" che da "all": in griglia risultavano × (saltate) le uniche
 // rimaste aperte e le fatte non comparivano proprio.
 export async function fetchRoutineTasks() {
-  if (!CLICKUP_API_KEY) throw new Error("CLICKUP_API_KEY non configurata");
-  const res = await fetch(
-    `https://api.clickup.com/api/v2/list/${ROUTINE_DAILY_LIST_ID}/task?include_closed=true`,
-    { headers: { Authorization: CLICKUP_API_KEY }, cache: "no-store" }
-  );
-  if (!res.ok) throw new Error(`ClickUp list routine: ${res.status}`);
-  return (await res.json()).tasks || [];
+  return fetchTuttiITask(ROUTINE_DAILY_LIST_ID, {
+    apiKey: CLICKUP_API_KEY,
+    includeClosed: true,
+  });
 }
 
 export function snapshotDaTasks(tasks, day) {

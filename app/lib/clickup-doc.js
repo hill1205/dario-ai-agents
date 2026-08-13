@@ -40,7 +40,46 @@ export const PAGINE = {
 // ha la sua memoria, quindi a volte il colpo lo paghi lo stesso. Serve a
 // togliere le riletture ravvicinate, non a rendere l'app offline.
 const TTL_MS = 45 * 1000;
-const cache = new Map(); // "docId/pageId" -> { dati, scadenza }
+const cache = new Map(); // "docId/pageId" -> { dati, rev, scadenza }
+
+// --- Numero di versione (13/08/2026) ----------------------------------------
+// Le pagine Finanze salvano SEMPRE l'oggetto intero (tutti i mesi) a ogni
+// modifica. Finche' si lavora da un dispositivo alla volta va bene; se apri
+// Finanze sul Mac e sul telefono insieme, il secondo che salva riscrive tutto
+// con la propria copia e le modifiche dell'altro spariscono senza un errore,
+// senza un avviso, senza modo di accorgersene finche' non si va a cercare un
+// movimento che non c'e' piu'.
+//
+// Ora ogni pagina porta in testa la sua versione:
+//
+//     REV:7
+//     IAGREX_FINANCE_JSON:B64,eyJ...
+//
+// Chi legge si porta dietro il numero; chi scrive lo dichiara. Se nel
+// frattempo la versione sul server e' cambiata, la scrittura viene RIFIUTATA
+// (409) invece di sovrascrivere. Meglio un "ricarica, qualcuno ha salvato
+// prima di te" che un movimento sparito in silenzio.
+//
+// La riga REV sta PRIMA del marcatore dei dati apposta: la regex di lettura
+// del payload e' golosa fino a fine contenuto, quindi qualsiasi cosa messa
+// dopo verrebbe inghiottita dentro il base64.
+//
+// Le pagine scritte prima di oggi non hanno la riga REV: valgono 0 e si
+// allineano da sole alla prima scrittura. Nessuna migrazione da fare.
+const REV_MARCATORE = "REV";
+
+export class ConflittoVersione extends Error {
+  constructor(revAttesa, revTrovata) {
+    super(
+      "Questi dati sono stati modificati da un altro dispositivo dopo che li hai aperti. " +
+      "Ricarica la pagina prima di salvare, così non sovrascrivi quelle modifiche."
+    );
+    this.name = "ConflittoVersione";
+    this.conflitto = true;
+    this.revAttesa = revAttesa;
+    this.revTrovata = revTrovata;
+  }
+}
 
 // La chiave include il docId: gli id di pagina non sono unici tra Doc
 // diversi (2kxuu4g1-972 e' insieme un doc e una pagina di un altro doc), e
@@ -78,12 +117,14 @@ const urlPagina = (docId, pageId) =>
 // forza=true salta la cache: lo usano le scritture, che devono partire dal
 // contenuto reale e non da una copia di 40 secondi fa, altrimenti due
 // salvataggi ravvicinati si sovrascriverebbero a vicenda.
+// Restituisce { dati, rev }. rev = 0 sulle pagine scritte prima
+// dell'introduzione del versionamento (nessuna riga REV) e sulle pagine nuove.
 async function leggiPagina(docId, pageId, marcatore, { forza = false } = {}) {
   if (!CLICKUP_API_KEY) throw new Error("CLICKUP_API_KEY non configurata");
 
   if (!forza) {
     const hit = cache.get(chiave(docId, pageId));
-    if (hit && hit.scadenza > Date.now()) return hit.dati;
+    if (hit && hit.scadenza > Date.now()) return { dati: hit.dati, rev: hit.rev };
   }
 
   const res = await fetchConRetry(
@@ -93,7 +134,14 @@ async function leggiPagina(docId, pageId, marcatore, { forza = false } = {}) {
   if (!res.ok) throw new Error(`ClickUp doc error: ${res.status}`);
 
   const data = await res.json();
-  const match = (data.content || "").match(new RegExp(`${marcatore}:([\\s\\S]*)`));
+  const contenuto = data.content || "";
+
+  // La riga REV sta sopra al marcatore dei dati: si legge separatamente e
+  // prima, perche' la regex del payload arriva fino a fine contenuto.
+  const mRev = contenuto.match(new RegExp(`(?:^|\\n)${REV_MARCATORE}:(\\d+)\\s*(?:\\n|$)`));
+  const rev = mRev ? parseInt(mRev[1], 10) || 0 : 0;
+
+  const match = contenuto.match(new RegExp(`${marcatore}:([\\s\\S]*)`));
 
   let dati = null;
   if (match) {
@@ -106,17 +154,48 @@ async function leggiPagina(docId, pageId, marcatore, { forza = false } = {}) {
     }
   }
 
-  cache.set(chiave(docId, pageId), { dati, scadenza: Date.now() + TTL_MS });
-  return dati;
+  cache.set(chiave(docId, pageId), { dati, rev, scadenza: Date.now() + TTL_MS });
+  return { dati, rev };
 }
 
 // Scrive la pagina e AGGIORNA la cache col contenuto appena scritto invece
 // di svuotarla. Sembra un dettaglio, e' la differenza tra cache utile e
-// cache inutile: /api/habits risalva lo snapshot di oggi a ogni GET, quindi
-// con la semplice invalidazione la cache sarebbe morta a ogni caricamento.
-async function scriviPagina(docId, pageId, intestazione, marcatore, dati) {
+// cache inutile: /api/abitudini-tutto risalva lo snapshot di oggi a ogni GET,
+// quindi con la semplice invalidazione la cache sarebbe morta a ogni
+// caricamento della pagina Abitudini.
+// revAttesa: se valorizzata, la scrittura avviene solo se la pagina sul
+// server e' ancora a quella versione. Altrimenti ConflittoVersione, e i dati
+// dell'altro dispositivo restano dove sono.
+async function scriviPagina(docId, pageId, intestazione, marcatore, dati, { revAttesa = null } = {}) {
   if (!CLICKUP_API_KEY) throw new Error("CLICKUP_API_KEY non configurata");
-  const corpo = `${marcatore}:${codificaPayload(dati)}`;
+
+  // Da dove viene la versione corrente, e perche' non si rilegge sempre.
+  //
+  // Quando c'e' una revAttesa da verificare (le Finanze, che salvano tutto
+  // l'oggetto da un client che puo' avere una copia vecchia di ore) si va a
+  // leggere il server saltando la cache: e' proprio la copia vecchia il
+  // problema da intercettare, e 400ms valgono la certezza.
+  //
+  // Negli altri casi no. Tutte le scritture degli store in lib/ sono precedute
+  // nella stessa richiesta da una readDoc({forza:true}), che lascia in cache
+  // la versione appena letta dal server: rileggerla sarebbe una seconda
+  // chiamata ClickUp identica alla prima, su ogni singolo salvataggio di
+  // abitudini, mood, diario, decisioni e apprendimento. Si legge davvero solo
+  // se in cache non c'e' niente.
+  let revCorrente;
+  const verifica = revAttesa !== null && revAttesa !== undefined;
+  const inCache = cache.get(chiave(docId, pageId));
+  if (!verifica && inCache) {
+    revCorrente = inCache.rev || 0;
+  } else {
+    revCorrente = (await leggiPagina(docId, pageId, marcatore, { forza: true })).rev;
+  }
+  if (verifica && Number(revAttesa) !== revCorrente) {
+    throw new ConflittoVersione(Number(revAttesa), revCorrente);
+  }
+
+  const nuovaRev = revCorrente + 1;
+  const corpo = `${REV_MARCATORE}:${nuovaRev}\n${marcatore}:${codificaPayload(dati)}`;
   const content = intestazione ? `${intestazione}\n\n${corpo}` : corpo;
   const res = await fetchConRetry(urlPagina(docId, pageId), {
     method: "PUT",
@@ -127,7 +206,8 @@ async function scriviPagina(docId, pageId, intestazione, marcatore, dati) {
     cache.delete(chiave(docId, pageId));
     throw new Error(`ClickUp doc write error: ${res.status}`);
   }
-  cache.set(chiave(docId, pageId), { dati, scadenza: Date.now() + TTL_MS });
+  cache.set(chiave(docId, pageId), { dati, rev: nuovaRev, scadenza: Date.now() + TTL_MS });
+  return nuovaRev;
 }
 
 // Dichiara una pagina-database. E' il modo giusto di aggiungerne una nuova:
@@ -152,13 +232,24 @@ export function creaArchivio({ docId = DOC_ID, pageId, marcatore, intestazione =
   const nuovoVuoto = () => (attesoArray ? [] : {});
 
   return {
+    // Comportamento invariato per tutti i chiamanti esistenti: restituisce i
+    // dati e basta.
     async leggi(opts) {
-      const v = await leggiPagina(docId, pageId, marcatore, senzaCache ? { ...opts, forza: true } : opts);
-      return formaOk(v) ? v : nuovoVuoto();
+      const { dati } = await leggiPagina(docId, pageId, marcatore, senzaCache ? { ...opts, forza: true } : opts);
+      return formaOk(dati) ? dati : nuovoVuoto();
     },
-    scrivi(dati) {
+    // Come leggi(), ma restituisce anche il numero di versione. La usano gli
+    // endpoint che consegnano i dati a una pagina che poi li risalvera' per
+    // intero, e che quindi deve poter dichiarare da quale versione parte.
+    async leggiConRev(opts) {
+      const { dati, rev } = await leggiPagina(docId, pageId, marcatore, senzaCache ? { ...opts, forza: true } : opts);
+      return { dati: formaOk(dati) ? dati : nuovoVuoto(), rev };
+    },
+    // opts.revAttesa → scrittura condizionata (lancia ConflittoVersione).
+    // Senza, il comportamento e' quello di sempre: ultimo che scrive vince.
+    scrivi(dati, opts = {}) {
       const testa = typeof intestazione === "function" ? intestazione(dati) : intestazione;
-      return scriviPagina(docId, pageId, testa, marcatore, dati);
+      return scriviPagina(docId, pageId, testa, marcatore, dati, opts);
     },
     invalida() { cache.delete(chiave(docId, pageId)); },
   };
@@ -166,8 +257,8 @@ export function creaArchivio({ docId = DOC_ID, pageId, marcatore, intestazione =
 
 // Scorciatoie per le pagine del Doc principale, usate dagli store in lib/.
 export async function leggiJson(pageId, marcatore, opts) {
-  const v = await leggiPagina(DOC_ID, pageId, marcatore, opts);
-  return Array.isArray(v) ? v : [];
+  const { dati } = await leggiPagina(DOC_ID, pageId, marcatore, opts);
+  return Array.isArray(dati) ? dati : [];
 }
 
 export function scriviJson(pageId, intestazione, marcatore, dati) {

@@ -1,4 +1,5 @@
 import { stripSystemTasks } from "../../lib/system-tasks";
+import { fetchTuttiITask } from "../../lib/clickup-liste";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -18,19 +19,12 @@ const LIST_IDS = {
 // giornata perché la lista sembrava vuota. Ora l'errore viene propagato
 // (stessa scelta già fatta in /api/revenue e /api/bruno-finance).
 async function fetchTasks(listId) {
-  const res = await fetch(
-    `https://api.clickup.com/api/v2/list/${listId}/task?include_closed=false`,
-    { headers: { Authorization: CLICKUP_API_KEY }, cache: "no-store" }
-  );
-  if (!res.ok) {
-    const errorText = await res.text();
-    console.error(`ClickUp API error for list ${listId}:`, res.status, errorText);
-    throw new Error(`ClickUp list ${listId}: ${res.status}`);
-  }
-  const data = await res.json();
+  // La paginazione la gestisce lib/clickup-liste.js: prima si leggeva solo la
+  // prima pagina (max 100 task) e il resto spariva senza errore.
+  const tasks = await fetchTuttiITask(listId, { apiKey: CLICKUP_API_KEY });
   // Via i contenitori di sistema (⚙️): restano aperti su ClickUp perche' il
   // bot Telegram ci legge dentro, ma in dashboard non sono task da fare.
-  return stripSystemTasks(data.tasks || []);
+  return stripSystemTasks(tasks);
 }
 
 export async function GET() {

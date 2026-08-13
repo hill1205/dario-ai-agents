@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { creaArchivio } from "../../lib/clickup-doc";
+import { fetchTuttiITask } from "../../lib/clickup-liste";
 
 // Backup unico di tutti i dati sparsi tra ClickUp e Notion. Nato dal
 // problema reale: pipeline lead/clienti vive su Notion, to-do/routine/
@@ -53,17 +54,15 @@ async function safe(label, fn) {
 }
 
 async function fetchTaskList(listId) {
-  if (!CLICKUP_API_KEY) throw new Error("CLICKUP_API_KEY non configurata");
   // include_closed=true qui (a differenza di /api/tasks che alimenta la
   // dashboard live): per un backup vogliamo anche i task già completati,
   // non solo quelli ancora aperti.
-  const res = await fetch(
-    `https://api.clickup.com/api/v2/list/${listId}/task?include_closed=true`,
-    { headers: { Authorization: CLICKUP_API_KEY }, cache: "no-store" }
-  );
-  if (!res.ok) throw new Error(`ClickUp list ${listId} error: ${res.status}`);
-  const data = await res.json();
-  return data.tasks || [];
+  //
+  // Ed è proprio per questo che la paginazione qui è più urgente che altrove:
+  // le task chiuse si accumulano per sempre, quindi questa è la chiamata che
+  // supererà le 100 per prima — e un backup troncato in silenzio è il tipo di
+  // guasto che scopri solo quando ti serve il backup.
+  return fetchTuttiITask(listId, { apiKey: CLICKUP_API_KEY, includeClosed: true });
 }
 
 // Un backup deve leggere il Doc adesso, non una copia in cache di 40

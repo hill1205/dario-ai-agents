@@ -141,6 +141,8 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
   const [vistaUscite, setVistaUscite]   = useState("recenti");
   const [loading, setLoading]   = useState(true);
   const [saveStatus, setSaveStatus] = useState(null);
+  // Versione dei dati caricati (vedi REV in app/lib/clickup-doc.js).
+  const [rev, setRev] = useState(null);
   const [modal, setModal]       = useState(null); // {tipo:"entrata"|"uscita", mode:"add"|"edit", item?}
   const [form, setForm]         = useState({});
   const [customCat, setCustomCat] = useState("");
@@ -204,6 +206,9 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
         // Migriamo solo le chiavi in formato YYYY-MM.
         const migrated = Object.fromEntries(Object.entries(raw).map(([ym,md])=>[ym, /^\d{4}-\d{2}$/.test(ym) ? migrateMonth(md) : md]));
         setAllData(migrated);
+        // Versione dei dati appena letti: la rimandiamo a ogni salvataggio
+        // così il server può rifiutare una sovrascrittura cieca.
+        setRev(json.rev ?? 0);
         setLoadOk(true);
       }
       else { setLoadError(json.error || `Errore ${res.status}`); setLoadOk(false); }
@@ -237,6 +242,10 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
   const { snapshot, undo, voci: undoVoci } = useUndoStack("finanze");
   const allDataRef = useRef(allData);
   useEffect(()=>{ allDataRef.current = allData; },[allData]);
+  // saveData è memoizzata: senza il ref leggerebbe il rev catturato alla
+  // creazione della callback, cioè quello di due salvataggi fa.
+  const revRef = useRef(null);
+  useEffect(()=>{ revRef.current = rev; },[rev]);
 
   const saveData = useCallback(async (newAllData, opts={}) => {
     if (!loadOk) {
@@ -257,11 +266,27 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
       const res = await fetch("/api/bruno-finance", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ data: datiFinali }),
+        body: JSON.stringify({ data: datiFinali, rev: revRef.current }),
       });
-      setSaveStatus(res.ok ? "saved" : "error");
-    } catch { setSaveStatus("error"); }
-    setTimeout(()=>setSaveStatus(null), 2500);
+      const j = await res.json().catch(()=>({}));
+      if (res.status === 409) {
+        // Ha salvato l'altro dispositivo dopo che abbiamo aperto la pagina:
+        // niente scritto su ClickUp, e l'avviso resta finché non si ricarica.
+        setSaveStatus("conflitto");
+        return;
+      }
+      if (res.ok) {
+        if (typeof j.rev === "number") setRev(j.rev);
+        setSaveStatus("saved");
+      } else {
+        setSaveStatus("error");
+        return;
+      }
+    } catch { setSaveStatus("error"); return; }
+    // Solo "Salvato" sparisce da solo: prima il timeout azzerava anche
+    // l'errore dopo 2,5 secondi, e si continuava a inserire movimenti su uno
+    // stato che su ClickUp non esisteva.
+    setTimeout(()=>setSaveStatus(s=>s==="saved"?null:s), 2500);
   }, [loadOk, snapshot]);
 
   // Ripristina lo stato precedente e lo risalva su ClickUp: senza il salvataggio
@@ -1407,6 +1432,15 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
             {saveStatus==="saved"   && <span style={{ fontSize:11, color:"#10B981" }}>✅ Salvato</span>}
             {saveStatus==="error"   && <span style={{ fontSize:11, color:"#EF4444" }}>❌ Errore</span>}
             {saveStatus==="blocked" && <span style={{ fontSize:11, color:"#EF4444" }}>🚫 Salvataggio bloccato: dati non caricati</span>}
+            {saveStatus==="conflitto" && (
+              <span style={{ fontSize:11, color:"#EF4444", display:"inline-flex", alignItems:"center", gap:6 }}>
+                ⚠️ Modificato da un altro dispositivo — non ho salvato
+                <button onClick={()=>{ setSaveStatus(null); loadData(); }}
+                  style={{ padding:"2px 8px", borderRadius:6, border:"1px solid #EF444450", background:"#EF444415", color:"#EF4444", cursor:"pointer", fontSize:11, fontWeight:600 }}>
+                  Ricarica
+                </button>
+              </span>
+            )}
             <UndoButton voci={undoVoci} onUndo={handleUndo} accent="#8B5CF6" compact/>
           </div>
           {/* Month selector */}

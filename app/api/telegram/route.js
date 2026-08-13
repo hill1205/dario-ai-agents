@@ -8,6 +8,7 @@
 // link "apri" portava su ClickUp, fuori dal posto dove Dario lavora davvero.
 // Tutto in TO DO DAILY, contesto nel titolo, zero tap.
 import { codificaPayload, decodificaPayload } from "../../lib/doc-payload";
+import { fetchTuttiITask } from "../../lib/clickup-liste";
 
 export const dynamic = "force-dynamic";
 
@@ -108,11 +109,25 @@ async function getStateTaskId() {
   if (cachedStateTaskId) return cachedStateTaskId;
   // include_closed=true: se la task di stato finisse per sbaglio in stato
   // chiuso, con false sparirebbe dalla risposta e ne creeremmo una seconda.
-  const res = await cu(`/list/${STATE_LIST_ID}/task?include_closed=true&subtasks=false`);
-  if (res.ok) {
-    const data = await res.json();
-    const found = (data.tasks || []).find((t) => t.name === STATE_TASK_NAME);
+  //
+  // E per lo stesso motivo si scorrono TUTTE le pagine (13/08): la ricerca
+  // guardava solo le prime 100 task di IN SOSPESO. Superata quella soglia la
+  // task di stato non si sarebbe piu' trovata, se ne sarebbe creata una
+  // seconda, e la deduplica degli update_id sarebbe ripartita da zero — con
+  // ogni retry di Telegram che diventa una task doppia.
+  try {
+    const tutte = await fetchTuttiITask(STATE_LIST_ID, {
+      apiKey: CLICKUP_API_KEY,
+      includeClosed: true,
+      subtasks: false,
+    });
+    const found = tutte.find((t) => t.name === STATE_TASK_NAME);
     if (found) return (cachedStateTaskId = found.id);
+  } catch (e) {
+    // Se la lettura fallisce NON si prosegue con la creazione: creeremmo un
+    // doppione della task di stato solo perche' ClickUp era irraggiungibile
+    // per un istante, e con lui perderemmo la memoria della deduplica.
+    throw new Error(`Lettura lista stato fallita: ${e.message}`);
   }
   const created = await cu(`/list/${STATE_LIST_ID}/task`, {
     method: "POST",

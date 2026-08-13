@@ -1,19 +1,17 @@
 export const dynamic = 'force-dynamic';
 
 import { saveSnapshot, snapshotDaTasks, bucharestDate } from '../../../lib/habits-store';
+import { fetchTuttiITask } from '../../../lib/clickup-liste';
 
 const CLICKUP_API_KEY = process.env.CLICKUP_API_KEY;
 const CRON_SECRET = process.env.CRON_SECRET;
 const ROUTINE_DAILY_LIST_ID = "901218950375";
 
 async function fetchRoutineTasks() {
-  const res = await fetch(
-    `https://api.clickup.com/api/v2/list/${ROUTINE_DAILY_LIST_ID}/task?include_closed=true`,
-    { headers: { Authorization: CLICKUP_API_KEY }, cache: 'no-store' }
-  );
-  if (!res.ok) throw new Error(`ClickUp GET error ${res.status}`);
-  const data = await res.json();
-  return data.tasks || [];
+  return fetchTuttiITask(ROUTINE_DAILY_LIST_ID, {
+    apiKey: CLICKUP_API_KEY,
+    includeClosed: true,
+  });
 }
 
 async function resetTask(taskId) {
@@ -29,9 +27,24 @@ async function resetTask(taskId) {
 }
 
 export async function GET(req) {
-  // Verifica di sicurezza: solo Vercel Cron (o chi conosce il secret) può chiamare questa route
+  // Verifica di sicurezza: solo Vercel Cron (o chi conosce il secret) può
+  // chiamare questa route.
+  //
+  // FAIL-CLOSED, non fail-open. Il controllo era `if (CRON_SECRET && ...)`:
+  // la route si proteggeva solo SE la variabile esisteva. Ma il middleware
+  // esclude apposta /api/cron/* dal Basic Auth (il cron di Vercel non può
+  // mandare credenziali), quindi con CRON_SECRET mancante o cancellata per
+  // sbaglio su Vercel questo endpoint restava aperto a internet: chiunque
+  // conoscesse l'URL poteva chiamare /api/cron/reset?force=1 e azzerare le
+  // routine a piacere. Su APP_PASSWORD il fail-open è una scelta ragionata
+  // (c'è il banner rosso a segnalarlo); qui no, e non c'è nessun motivo per
+  // cui il reset debba funzionare senza secret.
   const authHeader = req.headers.get('authorization');
-  if (CRON_SECRET && authHeader !== `Bearer ${CRON_SECRET}`) {
+  if (!CRON_SECRET) {
+    console.error('CRON_SECRET non configurata: reset rifiutato.');
+    return Response.json({ error: 'CRON_SECRET non configurata sul server' }, { status: 401 });
+  }
+  if (authHeader !== `Bearer ${CRON_SECRET}`) {
     return Response.json({ error: 'Non autorizzato' }, { status: 401 });
   }
 

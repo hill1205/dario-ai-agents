@@ -29,7 +29,12 @@ export async function GET() {
       const prev = storico.find((d) => d.data === oggi) || {};
       // La nota del giorno la scrive Dario, non ClickUp: va conservata.
       days = [...storico.filter((d) => d.data !== oggi), { ...live, nota: prev.nota }];
-      saveSnapshot(live.data, live).catch(() => {});
+      // NIENTE scrittura qui: lo snapshot del giorno in corso lo salva
+      // /api/abitudini-tutto, che è l'endpoint che la dashboard usa davvero.
+      // Prima lo facevano entrambi, in fire-and-forget: due read-modify-write
+      // concorrenti sulla stessa pagina ClickUp, senza lock né versione,
+      // quindi l'ultimo che finiva cancellava il lavoro dell'altro. Un solo
+      // scrittore è la parte di correzione che conta di più.
     }
 
     days.sort((a, b) => (a.data < b.data ? -1 : 1));
