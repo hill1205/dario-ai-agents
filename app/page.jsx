@@ -429,6 +429,19 @@ export default function App() {
 
   const T = THEMES[theme] || THEMES.dark;
 
+  // Il body ha sempre avuto lo sfondo bianco di default: finche' il
+  // contenitore dell'app copriva tutto lo schermo non si vedeva, ma con le
+  // safe area scoperte (viewport-fit=cover) sotto la barra di navigazione
+  // resta una striscia alta quanto la barretta home dell'iPhone, e li' il
+  // bianco spuntava fuori. Lo tingiamo del colore del tema attivo.
+  useEffect(()=>{
+    // Colore della barra (T.panel) e non dello sfondo: cosi' la striscia
+    // sotto il menu sembra la continuazione del menu stesso, invece di un
+    // gradino di colore diverso.
+    document.body.style.background = T.panel;
+    document.documentElement.style.background = T.panel;
+  },[T.panel]);
+
   // Load settings
   useEffect(()=>{
     try {
@@ -1316,7 +1329,7 @@ export default function App() {
         <div ref={mobileNavRef} className="mobile-nav"
           style={{display:"flex",gap:6,overflowX:"auto",overflowY:"hidden",WebkitOverflowScrolling:"touch",overscrollBehaviorX:"contain",scrollSnapType:"x proximity",
             background:T.panel,borderTop:`1px solid ${T.border}`,
-            padding:"6px 10px",paddingBottom:"max(10px, env(safe-area-inset-bottom))",
+            padding:"6px 10px",paddingBottom:8,
             flexShrink:0,zIndex:100}}>
           {NAV_ITEMS.map(item=>{
             const c = item.color || T.cardText;
