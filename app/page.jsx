@@ -551,7 +551,7 @@ export default function App() {
       try {
         const installata = window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone;
         const scarto = (window.screen?.height || 0) - h;
-        if (installata && scarto > 0 && scarto < 120) extra = Math.round(scarto / 2);
+        if (installata && scarto > 0 && scarto < 120) extra = Math.round(scarto / 4);
       } catch {}
       setAppHeight(h + extra);
     };
@@ -1361,7 +1361,7 @@ export default function App() {
         <div ref={mobileNavRef} className="mobile-nav"
           style={{display:"flex",gap:6,overflowX:"auto",overflowY:"hidden",WebkitOverflowScrolling:"touch",overscrollBehaviorX:"contain",scrollSnapType:"x proximity",
             background:T.panel,borderTop:`1px solid ${T.border}`,
-            padding:"6px 10px",paddingBottom:8,
+            padding:"6px 10px",paddingBottom:12,
             flexShrink:0,zIndex:100}}>
           {NAV_ITEMS_MOBILE.map(item=>{
             const c = item.color || T.cardText;
