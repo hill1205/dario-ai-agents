@@ -44,6 +44,19 @@ const NAV_ITEMS = [
   { id:"apprendimento", icon:"📚", label:"Apprendimento", breve:"Studio", color:"#06B6D4" },
 ];
 
+// Ordine della barra mobile (14/08, deciso da Dario). Sul telefono la
+// sequenza non e' quella del desktop: prima quello che apre ogni giorno
+// (Dashboard, Abitudini), poi il blocco soldi (IAGREX, Finanze, Calc), poi
+// il commerciale (Pipeline, Clienti, 1M€), infine le due pagine riflessive
+// (Decisioni, Studio). Non tocca la sidebar desktop, che resta com'era.
+// E' una lista di id: se un giorno aggiungi una voce a NAV_ITEMS e ti
+// dimentichi di metterla qui, finisce comunque in fondo invece di sparire.
+const MOBILE_NAV_ORDER = ["home","abitudini","iagrex","finanze","calcolatrice","pipeline","clienti","simulatore","decisioni","apprendimento"];
+const NAV_ITEMS_MOBILE = [...NAV_ITEMS].sort((a,b)=>{
+  const ia = MOBILE_NAV_ORDER.indexOf(a.id), ib = MOBILE_NAV_ORDER.indexOf(b.id);
+  return (ia<0?999:ia) - (ib<0?999:ib);
+});
+
 // "breve" e' l'etichetta usata SOLO nella barra mobile. Con dieci voci in
 // fondo allo schermo ognuna ha una cinquantina di pixel: "Apprendimento" a
 // 8px non ci sta e veniva tagliato a meta'. Dove manca si usa "label",
@@ -1331,7 +1344,7 @@ export default function App() {
             background:T.panel,borderTop:`1px solid ${T.border}`,
             padding:"6px 10px",paddingBottom:8,
             flexShrink:0,zIndex:100}}>
-          {NAV_ITEMS.map(item=>{
+          {NAV_ITEMS_MOBILE.map(item=>{
             const c = item.color || T.cardText;
             const attivo = view===item.id;
             return (
