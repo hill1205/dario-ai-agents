@@ -535,7 +535,26 @@ export default function App() {
   // anche i resize dovuti a barra URL/tastiera che "resize" non sempre emette.
   const [appHeight, setAppHeight] = useState(null);
   useEffect(()=>{
-    const measure = ()=>setAppHeight(window.innerHeight);
+    // Su iPhone, con l'app aperta dalla schermata home, window.innerHeight
+    // e' piu' corto dello schermo fisico: sotto al contenitore resta una
+    // fascia (la zona della barretta home piu' un po' di margine di Safari)
+    // dove non disegniamo nulla. Dario la vuole dimezzata, cosi' il menu
+    // scende senza finire sotto la barretta.
+    // Il valore non e' fisso: lo calcoliamo dallo scarto reale del
+    // dispositivo (schermo - viewport) e ne riprendiamo meta'. Lo facciamo
+    // solo se l'app e' installata e se lo scarto e' plausibile (sotto i
+    // 120px), altrimenti su un browser normale — dove quello scarto e'
+    // la barra degli indirizzi — l'app finirebbe fuori schermo.
+    const measure = ()=>{
+      const h = window.innerHeight;
+      let extra = 0;
+      try {
+        const installata = window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone;
+        const scarto = (window.screen?.height || 0) - h;
+        if (installata && scarto > 0 && scarto < 120) extra = Math.round(scarto / 2);
+      } catch {}
+      setAppHeight(h + extra);
+    };
     measure();
     window.addEventListener("resize", measure);
     window.visualViewport?.addEventListener("resize", measure);
