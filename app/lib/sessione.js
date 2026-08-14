@@ -60,14 +60,36 @@ const ETICHETTA_BIO = "dario-ai-agents-sessione-bio-v1";
 export const COOKIE_SBLOCCO = "dario_unlock";
 export const COOKIE_CHALLENGE = "dario_chal";
 
-// Ogni apertura, con 30 secondi di tolleranza.
+// QUANTO DURA UNO SBLOCCO, E PERCHE' NON E' UN TIMER FISSO
 //
-// La tolleranza serve a un caso concreto: esci dall'app per copiare un numero
-// da WhatsApp e rientri: senza, ti chiederebbe il dito ogni volta. Trenta
-// secondi coprono quel rimbalzo e non coprono un telefono lasciato sul
-// tavolo. E' l'unica manopola di tutto il sistema: portarla a 900 vuol dire
-// "richiedi il dito dopo 15 minuti di inattivita'".
-export const DURATA_SBLOCCO_S = 30;
+// Prima erano 30 secondi secchi dal momento dello sblocco. Era sbagliato, e
+// di quelli che si scoprono solo usando l'app: non voleva dire "si blocca 30
+// secondi dopo che esci", voleva dire "si blocca 30 secondi dopo, e basta".
+// Mentre stavi lavorando dentro l'app ti avrebbe richiesto il Face ID ogni
+// mezzo minuto.
+//
+// Ora la finestra e' SCORREVOLE: ogni richiesta che passa dal middleware la
+// sposta in avanti (vedi middleware.js). Finche' l'app e' aperta e viva
+// davanti a te, resta sbloccata; quando la chiudi o la mandi in secondo
+// piano, il battito si ferma e la finestra si esaurisce da sola.
+//
+// 90 secondi e non 60: la grazia che conta e' quella del client
+// (GRAZIA_BACKGROUND_S), questa e' solo la rete di sicurezza del server e
+// deve essere un po' piu' larga, altrimenti il lucchetto scatterebbe per
+// colpa di un battito arrivato in ritardo sulla rete mobile.
+export const DURATA_SBLOCCO_S = 90;
+
+// Quanto puoi stare fuori dall'app prima che si richiuda.
+//
+// E' il minuto chiesto da Dario: il tempo di uscire, copiare un numero da
+// WhatsApp o leggere un messaggio, e rientrare senza che ti richieda niente.
+// Oltre, alla riapertura serve di nuovo il volto o il dito.
+export const GRAZIA_BACKGROUND_S = 60;
+
+// Ogni quanto l'app aperta e in primo piano dice "ci sono ancora".
+// Abbondantemente sotto DURATA_SBLOCCO_S, cosi' anche saltando un battito
+// per una connessione ballerina non si viene buttati fuori mentre si lavora.
+export const BATTITO_S = 30;
 
 // Le challenge vivono due minuti: il tempo di guardare il telefono e
 // appoggiare il dito, non abbastanza da essere riusate se intercettate.

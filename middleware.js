@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { tipoSessione, sbloccoValido, COOKIE_SESSIONE, COOKIE_SBLOCCO } from "./app/lib/sessione";
+import {
+  tipoSessione, sbloccoValido, creaGettoneSblocco,
+  COOKIE_SESSIONE, COOKIE_SBLOCCO, DURATA_SBLOCCO_S,
+} from "./app/lib/sessione";
 
 // L'app è deployata su un URL Vercel pubblico e mostra patrimonio, saldi,
 // clienti e fatturato: senza questo middleware chiunque conoscesse l'URL
@@ -78,7 +81,19 @@ export async function middleware(request) {
   // di sessione è ancora buono. Facendolo rispettare qui, la risposta non
   // esce proprio dal server — né dall'icona né da Safari.
   if (await sbloccoValido(request.cookies.get(COOKIE_SBLOCCO)?.value, password)) {
-    return NextResponse.next();
+    // FINESTRA SCORREVOLE: ogni richiesta sposta in avanti la scadenza.
+    //
+    // È questo che rende il lucchetto "si blocca quando esci" invece di "si
+    // blocca dopo tot minuti": finché l'app è aperta davanti a te qualcosa
+    // continua a passare di qui (le chiamate dati e il battito di
+    // BloccoSchermo) e resta sbloccata. Appena la chiudi o la mandi in
+    // secondo piano, il battito si ferma, niente sposta più la scadenza e la
+    // finestra si esaurisce da sola.
+    const res = NextResponse.next();
+    res.cookies.set(COOKIE_SBLOCCO, await creaGettoneSblocco(password), {
+      path: "/", maxAge: DURATA_SBLOCCO_S, httpOnly: true, secure: true, sameSite: "lax",
+    });
+    return res;
   }
   return alLogin(request, "/sblocca");
 }

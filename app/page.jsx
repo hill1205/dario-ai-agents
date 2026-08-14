@@ -11,6 +11,7 @@ import SimulatorPage from "./components/SimulatorPage";
 import CalculatorPage from "./components/CalculatorPage";
 import HabitsPage from "./components/HabitsPage";
 import LucchettoSettings from "./components/LucchettoSettings";
+import BloccoSchermo from "./components/BloccoSchermo";
 
 const DONE_STATUSES = ["complete","completed","done","chiuso","closed","fatto","completato","completata"];
 
@@ -963,6 +964,9 @@ export default function App() {
 
   return (
     <div style={{display:"flex",flexDirection:"column",height:appHeight?`${appHeight}px`:"100dvh",background:T.bg,color:T.text,fontFamily:"system-ui,-apple-system,sans-serif",overflow:"hidden"}}>
+      {/* Richiude l'app quando esci per più di un minuto. Non disegna nulla,
+          e sui dispositivi senza lucchetto non fa proprio niente. */}
+      <BloccoSchermo/>
       <div style={{display:"flex",flex:1,overflow:"hidden"}}>
 
         {/* SIDEBAR DESKTOP */}
