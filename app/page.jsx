@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { localISODate } from "./lib/finance-ui";
 import PipelinePage, { STAGE_PROBABILITY } from "./components/PipelinePage";
 import BrunoPage from "./components/BrunoPage";
@@ -369,6 +369,16 @@ export default function App() {
   const [fontSize, setFontSize]           = useState(14);
   const [showSettings, setShowSettings]   = useState(false);
   const [isMobile, setIsMobile]           = useState(false);
+  // Barra mobile scorrevole: quando cambio pagina porto la voce attiva in
+  // vista da solo. Senza questo, aprendo "Studio" (ultima delle dieci) il
+  // tasto evidenziato resta fuori schermo e sembra che non sia successo nulla.
+  const mobileNavRef = useRef(null);
+  useEffect(()=>{
+    const bar = mobileNavRef.current;
+    if(!bar) return;
+    const btn = bar.querySelector(`[data-nav="${view}"]`);
+    btn?.scrollIntoView({behavior:"smooth",inline:"center",block:"nearest"});
+  },[view,isMobile]);
   const [checkedTasks, setCheckedTasks]   = useState({});
   const [showWeightModal, setShowWeightModal] = useState(false);
   const [weightInput, setWeightInput]     = useState("");
@@ -963,7 +973,7 @@ export default function App() {
   );
 
   return (
-    <div style={{display:"flex",flexDirection:"column",height:appHeight?`${appHeight}px`:"100dvh",background:T.bg,color:T.text,fontFamily:"system-ui,-apple-system,sans-serif",overflow:"hidden"}}>
+    <div style={{display:"flex",flexDirection:"column",height:appHeight?`${appHeight}px`:"100dvh",paddingTop:"env(safe-area-inset-top)",background:T.bg,color:T.text,fontFamily:"system-ui,-apple-system,sans-serif",overflow:"hidden"}}>
       {/* Richiude l'app quando esci per più di un minuto. Non disegna nulla,
           e sui dispositivi senza lucchetto non fa proprio niente. */}
       <BloccoSchermo/>
@@ -1293,18 +1303,35 @@ export default function App() {
         </div>
       </div>
 
-      {/* MOBILE BOTTOM NAV */}
+      {/* MOBILE BOTTOM NAV (rifatta 14/08).
+          Prima: dieci voci schiacciate in una riga fissa da flex:1, circa 37px
+          l'una — sotto i 44px minimi indicati da Apple, quindi si sbagliava
+          tasto di continuo. Ora la riga scorre in orizzontale e ogni voce ha
+          una larghezza propria: icone e testo grandi il doppio, e il pollice
+          ha dove atterrare. L'auto-scroll piu' sotto tiene la voce attiva
+          sempre in vista, cosi' le pagine di destra non spariscono.
+          Il paddingBottom con env() ora funziona davvero: serviva
+          viewport-fit=cover in layout.jsx (senza, env() vale 0). */}
       {isMobile && (
-        <div style={{display:"flex",background:T.panel,borderTop:`1px solid ${T.border}`,padding:"4px 2px",paddingBottom:"max(4px, env(safe-area-inset-bottom))",flexShrink:0,zIndex:100}}>
+        <div ref={mobileNavRef} className="mobile-nav"
+          style={{display:"flex",gap:6,overflowX:"auto",overflowY:"hidden",WebkitOverflowScrolling:"touch",overscrollBehaviorX:"contain",scrollSnapType:"x proximity",
+            background:T.panel,borderTop:`1px solid ${T.border}`,
+            padding:"6px 10px",paddingBottom:"max(10px, env(safe-area-inset-bottom))",
+            flexShrink:0,zIndex:100}}>
           {NAV_ITEMS.map(item=>{
             const c = item.color || T.cardText;
+            const attivo = view===item.id;
             return (
-            <button key={item.id} onClick={()=>setView(item.id)}
-              style={{flex:1,padding:"6px 2px",borderRadius:8,border:"none",background:view===item.id?T.border:"transparent",color:view===item.id?c:T.textDim,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1,position:"relative"}}>
-              <span style={{fontSize:18}}>{item.icon}</span>
-              <span style={{fontSize:8,whiteSpace:"nowrap"}}>{item.breve || item.label}</span>
+            <button key={item.id} data-nav={item.id} onClick={()=>setView(item.id)}
+              style={{flex:"0 0 auto",minWidth:70,minHeight:54,padding:"7px 8px",borderRadius:12,border:"none",scrollSnapAlign:"center",
+                background:attivo?`${c}22`:"transparent",
+                boxShadow:attivo?`inset 0 0 0 1.5px ${c}66`:"none",
+                color:attivo?c:T.textDim,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,position:"relative",
+                WebkitTapHighlightColor:"transparent"}}>
+              <span style={{fontSize:22,lineHeight:1}}>{item.icon}</span>
+              <span style={{fontSize:10,fontWeight:attivo?700:500,whiteSpace:"nowrap",lineHeight:1}}>{item.breve || item.label}</span>
               {item.id==="decisioni" && decisioniDaRivedere>0 && (
-                <span style={{position:"absolute",top:2,right:"50%",marginRight:-16,minWidth:14,height:14,padding:"0 3px",borderRadius:7,background:"#F59E0B",color:"#0F172A",fontSize:9,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                <span style={{position:"absolute",top:3,right:8,minWidth:16,height:16,padding:"0 4px",borderRadius:8,background:"#F59E0B",color:"#0F172A",fontSize:10,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center"}}>
                   {decisioniDaRivedere}
                 </span>
               )}
@@ -1337,6 +1364,9 @@ export default function App() {
         ::-webkit-scrollbar-thumb{background:#1A1A2E;border-radius:2px}
         button:hover{filter:brightness(1.08)}
         .dcard:hover{transform:translateY(-3px)}
+        .mobile-nav::-webkit-scrollbar{display:none}
+        .mobile-nav{scrollbar-width:none}
+        .mobile-nav button:active{transform:scale(0.94)}
       `}</style>
     </div>
   );
