@@ -50,10 +50,27 @@ async function chiediChallenge(tipo) {
 }
 
 // Registra il Face ID / l'impronta di questo dispositivo.
-export async function registraQuestoDispositivo(nome) {
-  const { challenge, rpId } = await chiediChallenge("registrazione");
-
-  const cred = await navigator.credentials.create({
+//
+// DUE TENTATIVI, E IL PERCHE'
+// Il primo chiede una chiave SINCRONIZZABILE (residentKey "preferred"): e'
+// quella che su iPhone finisce nel portachiavi iCloud e su Android nel
+// Password Manager di Google, quindi sopravvive al cambio di telefono.
+//
+// Ma su Android quella strada passa per il gestore credenziali di sistema, e
+// li' i dispositivi che non hanno i servizi Google in ordine — l'Honor di
+// Dario, 14/08/2026 — rispondono "an unknown error occurred while talking to
+// the credential manager". L'impronta c'e' e funziona, e' il provider delle
+// passkey a mancare.
+//
+// Al secondo tentativo si chiede una chiave NON sincronizzabile
+// (residentKey "discouraged"): resta nel chip del telefono e non ha bisogno
+// di nessun provider. Per noi non cambia niente, perche' allo sblocco il
+// server manda sempre l'elenco delle credenziali ammesse (allowCredentials) e
+// non ci serve che il telefono se le ricordi da solo. L'unica differenza
+// reale: cambiando telefono va rifatta la registrazione, che per un lucchetto
+// legato a QUESTO dispositivo e' semmai la cosa giusta.
+function opzioniCreazione(challenge, rpId, residentKey) {
+  return {
     publicKey: {
       challenge: aBytes(challenge),
       rp: { name: "Dario AI Agents", id: rpId },
@@ -65,12 +82,27 @@ export async function registraQuestoDispositivo(nome) {
       authenticatorSelection: {
         authenticatorAttachment: "platform", // il chip del telefono, non una chiavetta
         userVerification: "required",        // Face ID/impronta OBBLIGATORI, non facoltativi
-        residentKey: "preferred",
+        residentKey,
       },
       timeout: 60000,
       attestation: "none", // non ci serve sapere che marca di chip e': meno dati, meno da verificare
     },
-  });
+  };
+}
+
+export async function registraQuestoDispositivo(nome) {
+  const { challenge, rpId } = await chiediChallenge("registrazione");
+
+  let cred;
+  try {
+    cred = await navigator.credentials.create(opzioniCreazione(challenge, rpId, "preferred"));
+  } catch (e) {
+    // Se l'utente ha annullato lui, non si insiste: riproporgli subito un
+    // secondo prompt sarebbe insistente e confuso.
+    if (e?.name === "NotAllowedError") throw e;
+    // Qualsiasi altro intoppo: si riprova senza chiedere la sincronizzazione.
+    cred = await navigator.credentials.create(opzioniCreazione(challenge, rpId, "discouraged"));
+  }
   if (!cred) throw new Error("Registrazione annullata.");
 
   const res = await fetch("/api/passkey/registra", {
@@ -134,9 +166,17 @@ export function nomeDispositivo() {
 // Tradotti in italiano dicono cosa fare davvero.
 export function spiegaErrore(e) {
   const n = e?.name || "";
+  const m = String(e?.message || "");
   if (n === "NotAllowedError") return "Sblocco annullato o scaduto. Riprova, oppure entra con la password.";
   if (n === "InvalidStateError") return "Questo dispositivo risulta già registrato.";
   if (n === "NotSupportedError") return "Questo dispositivo non supporta lo sblocco biometrico per le app web.";
   if (n === "SecurityError") return "Blocco di sicurezza del browser: l'app deve essere aperta in HTTPS.";
-  return e?.message || "Qualcosa è andato storto.";
+  // Il caso Honor: l'impronta c'è e funziona, è il servizio che gestisce le
+  // passkey a non rispondere. Dirlo esplicitamente evita di mettersi a
+  // cercare il problema nell'impronta, che è la reazione naturale.
+  if (n === "NotReadableError" || /credential manager/i.test(m)) {
+    return "Il servizio credenziali di questo telefono non risponde (l'impronta è a posto, è il gestore delle passkey a mancare). "
+      + "Prova ad aggiornare i Servizi Google Play; se non basta, questo dispositivo va protetto in un altro modo.";
+  }
+  return m || "Qualcosa è andato storto.";
 }
