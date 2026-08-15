@@ -7,3 +7,11 @@ node_modules/
 *.local
 *.token
 .meta-token*
+
+# File di sistema macOS: si ricreano da soli in ogni cartella
+.DS_Store
+
+# Cartella di servizio: device_bash non puo' cancellare nei mount, quindi i
+# file da buttare (compresi i lock git residui) finiscono qui. Non e' roba
+# di progetto e non deve stare su GitHub.
+_to_delete/
