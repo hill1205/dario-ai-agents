@@ -317,7 +317,9 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
   // né spesa reale: vanno esclusi da entrate/uscite/YTD, altrimenti una
   // conversione gonfierebbe artificialmente il progresso verso 1.000.000€
   // (o le uscite del mese) pur non essendo un vero incasso/costo.
-  const isReal = (e) => !e.isConversione;
+  // Proposte escluse: sono righe dell'estratto in attesa di decisione, non
+  // movimenti registrati. Devono restare fuori da ogni totale.
+  const isReal = (e) => !e.isConversione && !e._proposta;
 
   // Quando la lista e' filtrata su un conto in RON, accanto al totale in €
   // (che dipende dal cambio) serve la somma in RON: e' quella che deve
@@ -561,7 +563,14 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
 
   const saveItem = () => {
     if (!form.descrizione?.trim()||!form.importo) return;
+    // Se il movimento nasce da una proposta dell'estratto, accettarla vuol
+    // dire toglierla dalla lista d'attesa: si fa qui e non al click su
+    // "Accetta", cosi' chiudere il form senza salvare non la perde.
+    const propostaId = form._propostaId;
+    const senzaProposta = (d) => propostaId ? { ...d, proposteMovimenti: (d.proposteMovimenti||[]).filter(p=>p.id!==propostaId) } : d;
     const item = {...form,importo:parseFloat(form.importo),id:modal.mode==="add"?genId():form.id};
+    delete item._propostaId;
+    delete item._segnoCerto;
     // La sottocategoria vale solo dentro le categorie che ne hanno una lista
     // (SOTTOCAT_IAGREX): se la categoria è un'altra, o il valore non appartiene
     // a quella lista, si butta invece di restare appiccicato al movimento.
@@ -587,7 +596,7 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
     if (meseTarget === month) {
       applicaSaldo(updated, item.conto, segno * parseFloat(item.importo));
       updated[chiave] = modal.mode==="add"?[...updated[chiave],item]:updated[chiave].map(e=>e.id===item.id?item:e);
-      updateMonth(updated);
+      saveData(senzaProposta({ ...allData, [month]: updated }));
     } else {
       updated.uscite  = updated.uscite.filter(e=>e.id!==item.id);
       updated.entrate = updated.entrate.filter(e=>e.id!==item.id);
@@ -595,7 +604,7 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
       const target = { ...base, uscite:[...(base.uscite||[])], entrate:[...(base.entrate||[])], saldi:{...base.saldi} };
       target[chiave] = [...target[chiave].filter(e=>e.id!==item.id), item];
       applicaSaldo(target, item.conto, segno * parseFloat(item.importo));
-      saveData({ ...allData, [month]: updated, [meseTarget]: target });
+      saveData(senzaProposta({ ...allData, [month]: updated, [meseTarget]: target }));
     }
     closeModal();
   };
@@ -845,6 +854,63 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
     saveData({ ...allData, flaggedMovimenti: [...ids] });
   };
 
+  // --- Proposte dall'estratto -------------------------------------------
+  // Speculare alle evidenziazioni: righe che stanno SULL'ESTRATTO ma non in
+  // app. Restano salvate e compaiono in Entrate/Uscite nel giorno della loro
+  // data, con Accetta / Rifiuta. Stessa logica di BrunoPage.
+  const proposte = allData.proposteMovimenti || [];
+
+  // Chiave stabile della riga di estratto (l'id e' nuovo a ogni confronto):
+  // serve a contare quante volte quella riga e' stata rifiutata.
+  const propostaKey = (conto, m) => [
+    conto,
+    m.data || "",
+    round2(m.importo).toFixed(2),
+    (m.descrizione || "").toLowerCase().replace(/\s+/g, " ").trim().slice(0, 40),
+  ].join("|");
+
+  const rifiutiProposte = allData.proposteRifiuti || {};
+  const rifiutaProposta = (p) => {
+    const rifiuti = { ...rifiutiProposte };
+    const n = (rifiuti[p.key] || 0) + 1;
+    rifiuti[p.key] = n;
+    saveData({
+      ...allData,
+      proposteMovimenti: proposte.filter(x => x.id !== p.id),
+      proposteRifiuti: rifiuti,
+    }, { etichetta: n >= 2 ? "Rifiuta movimento per sempre" : "Rifiuta movimento dall'estratto" });
+  };
+
+  // Da che parte va una proposta. Quando l'estratto non scrive il segno
+  // (segnoCerto falso) si assume USCITA: in un conto aziendale le entrate
+  // sono poche e riconoscibili, le uscite la maggioranza. L'interruttore nel
+  // form permette di correggere in un tap.
+  const tipoProposta = (p) => (p.segnoCerto && p.importo > 0) ? "entrata" : "uscita";
+
+  // Accettare non inserisce al volo: apre il form gia' compilato, cosi' la
+  // categoria la scegli tu e i totali per categoria restano puliti.
+  // _propostaId viaggia nel form e fa sparire la proposta solo al salvataggio.
+  const accettaProposta = (p) => {
+    const tipo = tipoProposta(p);
+    setForm({
+      descrizione: p.descrizione,
+      importo: String(Math.abs(round2(p.importo))),
+      categoria: tipo === "uscita" ? CAT_USCITE[0] : CAT_ENTRATE[0],
+      cliente: "",
+      conto: p.conto,
+      data: p.data || localISODate(),
+      _propostaId: p.id,
+      _segnoCerto: !!p.segnoCerto,
+    });
+    setModal({ tipo, mode: "add" });
+  };
+
+  // Le proposte seguono gli stessi filtri della lista che le ospita.
+  const proposteVisibili = (tipo, contoFiltro) => proposte
+    .filter(p => p.mese === month && tipoProposta(p) === tipo)
+    .filter(p => (!contoFiltro || p.conto === contoFiltro) && inDateRange(p))
+    .map(p => ({ ...p, _proposta: true, categoria: "Da confermare" }));
+
   const openReconcile = () => {
     setReconcileForm({ mese: prevMonthYm(), conto: CONTI_IAGREX[0].id, file: null });
     setReconcileResult(null);
@@ -883,12 +949,38 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
         else mancantiInApp.push(mov);
       }
       const mancantiInEstratto = appMovs.filter(a => !usedIds.has(a.id));
-      setFlaggedPersistente(new Set(mancantiInEstratto.map(a=>a.id)));
+
+      // Le righe dell'estratto senza riscontro diventano proposte in attesa di
+      // decisione. Quelle gia' rifiutate due volte non tornano piu'.
+      const nuoveProposte = [];
+      let ignorate = 0;
+      for (const m of mancantiInApp) {
+        const key = propostaKey(conto, m);
+        if ((rifiutiProposte[key] || 0) >= 2) { ignorate++; continue; }
+        nuoveProposte.push({
+          id: genId(), mese, conto,
+          data: m.data || "",
+          importo: round2(m.importo),
+          segnoCerto: !!m.segnoCerto,
+          descrizione: (m.descrizione || "").trim().slice(0, 120) || "Movimento dall'estratto",
+          key,
+        });
+      }
+      // Un solo salvataggio per evidenziazioni e proposte: due saveData di
+      // fila partirebbero dallo stesso allData e il secondo cancellerebbe il
+      // primo. Le proposte di altri mesi/conti restano dove sono.
+      saveData({
+        ...allData,
+        flaggedMovimenti: mancantiInEstratto.map(a => a.id),
+        proposteMovimenti: [...proposte.filter(p => !(p.mese === mese && p.conto === conto)), ...nuoveProposte],
+      }, { etichetta: "Confronto estratto conto" });
+
       setReconcileResult({
         totaleEstratto: (json.movimenti||[]).length,
         abbinati: usedIds.size,
         mancantiInApp,
         mancantiInEstratto,
+        ignorate,
         righeRiconosciute: json.righeRiconosciute,
         righeTotali: json.righeTotali,
       });
@@ -998,6 +1090,31 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
   const Cell = ({style={},children}) => (
     <div style={{padding:"10px 12px",fontSize:fs-2,color:"var(--c-text-muted)",display:"flex",alignItems:"center",...style}}>{children}</div>
   );
+
+  // Riga di una proposta dall'estratto: stessa griglia delle righe vere ma
+  // ciano e con due bottoni al posto di matita e cestino. Non entra in
+  // nessun totale finche' non la accetti (vedi isReal).
+  const PropostaRow = (e, i) => {
+    const valuta = contoCurrency(e.conto)==="RON" ? " RON" : "€";
+    const giaRifiutata = (rifiutiProposte[e.key] || 0) >= 1;
+    return (
+      <div key={e.id} style={{display:"grid",gridTemplateColumns:"1fr auto auto auto",gap:0,borderTop:i===0?"none":"1px solid var(--c-border)",background:"#06B6D40D",boxShadow:"inset 3px 0 0 #06B6D4"}}>
+        <Cell style={{flexDirection:"column",alignItems:"flex-start",gap:2}}>
+          <span style={{color:"var(--c-text)",fontWeight:600}}>📄 {e.descrizione}</span>
+          <span style={{fontSize:fs-4,color:"#06B6D4"}}>
+            {e.data?`${e.data} · `:""}Sull'estratto, non in app{e.conto?` · ${CONTI_IAGREX_BY_ID[e.conto]?.label||e.conto}`:""}
+            {!e.segnoCerto && <span style={{color:"#F59E0B"}}> · segno non esplicito, l&apos;ho messo fra le {tipoProposta(e)==="uscita"?"uscite":"entrate"}</span>}
+          </span>
+        </Cell>
+        <Cell style={{color:"#06B6D4",fontWeight:700}}>{e.importo>0?"+":"−"}{fmt(Math.abs(e.importo))}{valuta}</Cell>
+        <Cell><button onClick={()=>accettaProposta(e)} title="Aggiungilo ai movimenti: apre il form gia' compilato"
+          style={{padding:"4px 8px",borderRadius:6,border:"none",background:"#10B981",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>✓</button></Cell>
+        <Cell><button onClick={()=>rifiutaProposta(e)}
+          title={giaRifiutata ? "Gia' rifiutato una volta: ora sparisce per sempre" : "Nascondilo fino al prossimo confronto"}
+          style={{padding:"4px 8px",borderRadius:6,border:`1px solid ${giaRifiutata?"#EF444460":"var(--c-border)"}`,background:"transparent",color:giaRifiutata?"#EF4444":"var(--c-text-dim)",cursor:"pointer",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>{giaRifiutata?"✕✕":"✕"}</button></Cell>
+      </div>
+    );
+  };
 
   return (
     <div style={{...themeVars,display:"flex",flexDirection:"column",height:"100%",overflow:"auto",background:"var(--c-bg)"}}>
@@ -1253,7 +1370,11 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
               </div>
               {(() => {
                 const filtered = monthData.entrate.filter(e=>(!filtroContoEntrate||e.conto===filtroContoEntrate)&&inDateRange(e));
-                if (filtered.length===0) return (
+                // Le proposte compaiono solo nella vista per giorno: in quella
+                // per categoria non avrebbero una categoria a cui appartenere.
+                const proposteQui = vistaEntrate==="recenti" ? proposteVisibili("entrata", filtroContoEntrate) : [];
+                const conProposte = [...filtered, ...proposteQui];
+                if (conProposte.length===0) return (
                   <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,padding:20,textAlign:"center",color:"var(--c-text-faintest)",fontSize:fs-2}}>
                     {monthData.entrate.length===0?"Nessuna entrata — aggiungi la prima":"Nessuna entrata nel periodo/conto selezionato"}
                   </div>
@@ -1269,14 +1390,15 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
                     <Cell><button onClick={()=>deleteItem("entrata",e.id)} style={{width:24,height:24,borderRadius:5,border:"1px solid #2A1A1A",background:"transparent",color:"#EF4444",cursor:"pointer",fontSize:12,fontWeight:700}}>×</button></Cell>
                   </div>
                 );
-                if (vistaEntrate==="recenti") return groupByDayDesc(filtered).map(({key,data,items})=>(
+                const RowOProposta = (e,i) => e._proposta ? PropostaRow(e,i) : Row(e,i);
+                if (vistaEntrate==="recenti") return groupByDayDesc(conProposte).map(({key,data,items})=>(
                   <div key={key} style={{marginBottom:12}}>
                     <div style={{fontSize:fs-3,fontWeight:700,color:"var(--c-text-dim)",marginBottom:6,display:"flex",justifyContent:"space-between"}}>
                       <span>{formatDayLabel(data)}</span>
-                      <span style={{color:"#10B981"}}>+{fmt(items.filter(isReal).reduce((s,e)=>s+toEur(e),0))}€{suffissoRon(items, filtroContoEntrate)}</span>
+                      <span style={{color:"#10B981"}}>+{fmt(items.filter(isReal).reduce((s,e)=>s+toEur(e),0))}€{suffissoRon(items.filter(isReal), filtroContoEntrate)}</span>
                     </div>
                     <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,overflow:"hidden"}}>
-                      {items.map(Row)}
+                      {items.map(RowOProposta)}
                     </div>
                   </div>
                 ));
@@ -1321,8 +1443,10 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
               </div>
               {(() => {
                 const filtered = monthData.uscite.filter(e=>(!filtroConto || e.conto===filtroConto)&&inDateRange(e));
-                if (monthData.uscite.length===0) return <div style={{padding:20,textAlign:"center",color:"var(--c-text-faintest)",fontSize:fs-2,background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10}}>Nessuna uscita — aggiungi la prima</div>;
-                if (filtered.length===0) return <div style={{padding:20,textAlign:"center",color:"var(--c-text-faintest)",fontSize:fs-2,background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10}}>Nessuna uscita nel periodo/conto selezionato</div>;
+                const proposteQui = vistaUscite==="recenti" ? proposteVisibili("uscita", filtroConto) : [];
+                const conProposte = [...filtered, ...proposteQui];
+                if (monthData.uscite.length===0 && proposteQui.length===0) return <div style={{padding:20,textAlign:"center",color:"var(--c-text-faintest)",fontSize:fs-2,background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10}}>Nessuna uscita — aggiungi la prima</div>;
+                if (conProposte.length===0) return <div style={{padding:20,textAlign:"center",color:"var(--c-text-faintest)",fontSize:fs-2,background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10}}>Nessuna uscita nel periodo/conto selezionato</div>;
                 const Row = (e,i) => (
                   <div key={e.id} style={{display:"grid",gridTemplateColumns:"1fr auto auto auto",gap:0,borderTop:i===0?"none":"1px solid var(--c-border)",background:flaggedIds.has(e.id)?"#F59E0B1F":(i%2===0?"var(--c-panel)":"var(--c-panel2)"),boxShadow:flaggedIds.has(e.id)?"inset 3px 0 0 #F59E0B":"none"}}>
                     <Cell style={{flexDirection:"column",alignItems:"flex-start",gap:2}}>
@@ -1334,14 +1458,15 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
                     <Cell><button onClick={()=>deleteItem("uscita",e.id)} style={{width:24,height:24,borderRadius:5,border:"1px solid #2A1A1A",background:"transparent",color:"#EF4444",cursor:"pointer",fontSize:12,fontWeight:700}}>×</button></Cell>
                   </div>
                 );
-                if (vistaUscite==="recenti") return groupByDayDesc(filtered).map(({key,data,items})=>(
+                const RowOProposta = (e,i) => e._proposta ? PropostaRow(e,i) : Row(e,i);
+                if (vistaUscite==="recenti") return groupByDayDesc(conProposte).map(({key,data,items})=>(
                   <div key={key} style={{marginBottom:12}}>
                     <div style={{fontSize:fs-3,fontWeight:700,color:"var(--c-text-dim)",marginBottom:6,display:"flex",justifyContent:"space-between"}}>
                       <span>{formatDayLabel(data)}</span>
-                      <span style={{color:"#EF4444"}}>-{fmt(items.filter(isReal).reduce((s,e)=>s+toEur(e),0))}€{suffissoRon(items, filtroConto)}</span>
+                      <span style={{color:"#EF4444"}}>-{fmt(items.filter(isReal).reduce((s,e)=>s+toEur(e),0))}€{suffissoRon(items.filter(isReal), filtroConto)}</span>
                     </div>
                     <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,overflow:"hidden"}}>
-                      {items.map(Row)}
+                      {items.map(RowOProposta)}
                     </div>
                   </div>
                 ));
@@ -1412,6 +1537,11 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
                     <button onClick={openCheckAdd} style={{padding:"5px 12px",borderRadius:7,border:"none",background:"#06B6D4",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:600}}>+ Nuovo check</button>
                   </div>
                 </div>
+                {proposte.filter(p=>p.mese===month).length > 0 && (
+                  <div style={{fontSize:fs-4,color:"#06B6D4",marginBottom:8,background:"#06B6D415",border:"1px solid #06B6D440",borderRadius:8,padding:"6px 10px"}}>
+                    📄 {proposte.filter(p=>p.mese===month).length} movimento{proposte.filter(p=>p.mese===month).length>1?"i":""} dell&apos;estratto non ancora in app, in attesa di Accetta/Rifiuta in Entrate/Uscite (vista &quot;Per giorno&quot;)
+                  </div>
+                )}
                 {flaggedIds.size > 0 && (
                   <div style={{fontSize:fs-4,color:"#F59E0B",marginBottom:8,background:"#F59E0B15",border:"1px solid #F59E0B40",borderRadius:8,padding:"6px 10px"}}>
                     ⚠️ {flaggedIds.size} movimento{flaggedIds.size>1?"i":""} senza riscontro sull'estratto, evidenziat{flaggedIds.size>1?"i":"o"} in arancione in Entrate/Uscite — <button onClick={()=>setFlaggedPersistente(new Set())} style={{background:"none",border:"none",color:"#F59E0B",textDecoration:"underline",cursor:"pointer",fontSize:fs-4,padding:0}}>pulisci evidenziazione</button>
@@ -1745,6 +1875,29 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
             <div style={{fontSize:15,fontWeight:700,color:"var(--c-text-strong)",marginBottom:20}}>
               {modal.mode==="add"?"➕ Nuova":"✏️ Modifica"} {modal.tipo==="entrata"?"Entrata":"Uscita"}
             </div>
+
+            {/* Solo per i movimenti accettati dall'estratto: la banca non
+                sempre scrive il segno, quindi la parte va confermata qui
+                invece di costringere a cancellare e rifare. */}
+            {form._propostaId && (
+              <div style={{marginBottom:16}}>
+                <div style={{fontSize:11,color: form._segnoCerto ? "var(--c-text-dim)" : "#F59E0B",marginBottom:6}}>
+                  {form._segnoCerto ? "Dall'estratto" : "⚠️ Sull'estratto il segno non era esplicito — controlla che sia la parte giusta"}
+                </div>
+                <div style={{display:"flex",gap:8}}>
+                  {[["uscita","− Uscita","#EF4444"],["entrata","+ Entrata","#10B981"]].map(([t,label,col])=>(
+                    <button key={t} onClick={()=>{
+                        setModal(m=>({...m, tipo:t}));
+                        setForm(pf=>({ ...pf, categoria: t==="uscita"?CAT_USCITE[0]:CAT_ENTRATE[0] }));
+                      }}
+                      style={{flex:1,padding:"8px 0",borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:700,
+                        border: modal.tipo===t ? "none" : "1px solid var(--c-border)",
+                        background: modal.tipo===t ? col : "var(--c-bg)",
+                        color: modal.tipo===t ? "#fff" : "var(--c-text-dim)"}}>{label}</button>
+                  ))}
+                </div>
+              </div>
+            )}
             <div style={{display:"flex",flexDirection:"column",gap:12}}>
               <div>
                 <div style={{fontSize:11,color:"var(--c-text-dim)",marginBottom:4}}>Descrizione *</div>
@@ -2312,7 +2465,7 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
                 </div>
                 {reconcileResult.mancantiInApp.length > 0 && (
                   <div style={{background:"#EF444415",border:"1px solid #EF444440",borderRadius:8,padding:"8px 10px"}}>
-                    <div style={{fontSize:12,fontWeight:700,color:"#EF4444",marginBottom:4}}>Sull'estratto ma non in app ({reconcileResult.mancantiInApp.length})</div>
+                    <div style={{fontSize:12,fontWeight:700,color:"#EF4444",marginBottom:4}}>Sull&apos;estratto ma non in app ({reconcileResult.mancantiInApp.length}) — ora in attesa in Entrate/Uscite con Accetta/Rifiuta{reconcileResult.ignorate>0?`, ${reconcileResult.ignorate} gia' rifiutat${reconcileResult.ignorate>1?"i":"o"} due volte e non piu' riproposto`:""}</div>
                     {reconcileResult.mancantiInApp.map((m,i)=>(
                       <div key={i} style={{fontSize:11,color:"var(--c-text-dim)",padding:"2px 0"}}>{m.data} · {m.descrizione} · {fmt(m.importo)}</div>
                     ))}
