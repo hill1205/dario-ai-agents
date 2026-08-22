@@ -335,7 +335,9 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
   // vanno esclusi da entrate/uscite/recap, altrimenti una conversione
   // gonfierebbe artificialmente le uscite o le entrate del mese pur non
   // essendo un vero costo/incasso (stessa logica già usata su IAGREX).
-  const isReal = (e) => !e.isConversione;
+  // Proposte escluse: sono righe dell'estratto in attesa di decisione,
+  // non movimenti registrati. Devono restare fuori da ogni totale.
+  const isReal = (e) => !e.isConversione && !e._proposta;
 
   // --- Totale nella valuta nativa del conto ---------------------------
   // Quando la lista è filtrata su un conto in RON (UniCredit Romania o
@@ -930,6 +932,40 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
       ? `${fmt(nativo)} RON · ${fmt(nativo/rate)}€`
       : `${fmt(nativo)}€ · ${fmt(nativo*rate)} RON`;
 
+  // --- Riga di una proposta dall'estratto --------------------------------
+  // Volutamente diversa da un movimento vero: bordo ciano, icona documento e
+  // due bottoni. Non entra in nessun totale finche' non la accetti.
+  const PropostaRow = ({ e, i }) => {
+    const valuta = contoCurrency(e.conto)==="RON" ? " RON" : "€";
+    const giaRifiutata = (rifiutiProposte[e.key] || 0) >= 1;
+    return (
+      <div key={e.id} style={{ borderTop:i===0?"none":"1px solid var(--c-border)", background:"#06B6D40D", boxShadow:"inset 3px 0 0 #06B6D4" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:10, padding:"11px 12px", flexWrap:"wrap" }}>
+          <span style={{ width:34, height:34, borderRadius:10, flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", fontSize:15, background:"#06B6D41F", border:"1px dashed #06B6D4" }}>📄</span>
+          <span style={{ flex:1, minWidth:140 }}>
+            <span style={{ display:"block", fontSize:fs-1, color:"var(--c-text)", fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{e.descrizione}</span>
+            <span style={{ display:"block", fontSize:fs-4, color:"#06B6D4", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+              Sull'estratto, non in app · {CONTI_BY_ID[e.conto]?.label || e.conto}
+            </span>
+          </span>
+          <span style={{ fontSize:fs-1, fontWeight:700, whiteSpace:"nowrap", color:"#06B6D4" }}>
+            {e.importo>0?"+":"−"}{fmt(Math.abs(e.importo))}
+            <span style={{ fontSize:fs-5, color:"var(--c-text-faintest)", fontWeight:400 }}>{valuta==="€"?" €":" RON"}</span>
+          </span>
+          <span style={{ display:"flex", gap:6, flexShrink:0 }}>
+            <button onClick={()=>accettaProposta(e)} title="Aggiungilo ai movimenti: apre il form gia' compilato, scegli la categoria e salvi"
+              style={{ padding:"6px 10px", borderRadius:7, border:"none", background:"#10B981", color:"#fff", cursor:"pointer", fontSize:11, fontWeight:700 }}>✓ Accetta</button>
+            <button onClick={()=>rifiutaProposta(e)}
+              title={giaRifiutata ? "L'hai gia' rifiutato una volta: ora sparisce per sempre e non verra' piu' riproposto" : "Nascondilo fino al prossimo confronto"}
+              style={{ padding:"6px 10px", borderRadius:7, border:`1px solid ${giaRifiutata?"#EF444460":"var(--c-border)"}`, background:"var(--c-bg)", color:giaRifiutata?"#EF4444":"var(--c-text-dim)", cursor:"pointer", fontSize:11, fontWeight:600 }}>
+              {giaRifiutata ? "✕ Per sempre" : "✕ Rifiuta"}
+            </button>
+          </span>
+        </div>
+      </div>
+    );
+  };
+
   // --- Riga di un movimento ---------------------------------------------
   // Una riga sola, usata da entrate e uscite. Le informazioni sono su tre
   // livelli di importanza: l'icona colorata dice la categoria senza leggere,
@@ -1036,7 +1072,13 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
     if (!form.descrizione?.trim() || !form.importo) return;
     if (parseFloat(form.commissioni) > parseFloat(form.importo)) return;
     const cat = customCat.trim() || form.categoria;
+    // Se il movimento nasce da una proposta dell'estratto, accettarla vuol dire
+    // toglierla dalla lista di attesa: si fa qui, non al click su "Accetta",
+    // cosi' chiudere il form senza salvare non la perde.
+    const propostaId = form._propostaId;
+    const senzaProposta = (d) => propostaId ? { ...d, proposteMovimenti: (d.proposteMovimenti||[]).filter(p=>p.id!==propostaId) } : d;
     const item = { ...form, categoria: cat, importo: parseFloat(form.importo), id: modal.mode==="add"?genId():form.id };
+    delete item._propostaId;
     // _viaggioManual è solo stato del form, non va salvato; viaggio vuoto
     // si salva come undefined (JSON lo scarta) invece di stringa vuota.
     delete item._viaggioManual;
@@ -1122,7 +1164,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
       // Caso normale: resta nel mese visualizzato.
       if (!noSaldoNuovo) applicaSaldo(updated, item.conto, segno * parseFloat(item.importo));
       updated[chiave] = modal.mode==="add" ? [...updated[chiave], item] : updated[chiave].map(e=>e.id===item.id?item:e);
-      updateMonth(updated);
+      saveData(senzaProposta({ ...allData, [month]: updated }));
     } else {
       // Il movimento appartiene a un altro mese: lo si toglie da qui e lo si
       // scrive nel contenitore giusto, creandolo se non esiste (con i saldi
@@ -1133,7 +1175,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
       const target = { ...base, uscite:[...(base.uscite||[])], entrate:[...(base.entrate||[])], saldi:{...base.saldi} };
       target[chiave] = [...target[chiave].filter(e=>e.id!==item.id), item];
       if (!noSaldoNuovo) applicaSaldo(target, item.conto, segno * parseFloat(item.importo));
-      saveData({ ...allData, [month]: updated, [meseTarget]: target });
+      saveData(senzaProposta({ ...allData, [month]: updated, [meseTarget]: target }));
     }
     closeModal();
   };
@@ -1228,6 +1270,65 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
     saveData({ ...allData, flaggedMovimenti: [...ids] });
   };
 
+  // --- Proposte dall'estratto -------------------------------------------
+  // Il caso opposto alle evidenziazioni: righe che stanno SULL'ESTRATTO ma
+  // non in app. Prima vivevano solo dentro il modale del confronto e
+  // sparivano chiudendolo; ora restano salvate e compaiono in Entrate/Uscite
+  // nel giorno della loro data, con Accetta / Rifiuta.
+  const proposte = allData.proposteMovimenti || [];
+
+  // Chiave stabile della riga di estratto (non l'id, che e' nuovo a ogni
+  // confronto): serve a ricordare quante volte quella stessa riga e' stata
+  // rifiutata. Primo rifiuto = sparisce fino al prossimo confronto, secondo
+  // rifiuto = non viene mai piu' riproposta.
+  const propostaKey = (conto, m) => [
+    conto,
+    m.data || "",
+    round2(m.importo).toFixed(2),
+    (m.descrizione || "").toLowerCase().replace(/\s+/g, " ").trim().slice(0, 40),
+  ].join("|");
+
+  const rifiutiProposte = allData.proposteRifiuti || {};
+  const rifiutaProposta = (p) => {
+    const rifiuti = { ...rifiutiProposte };
+    const n = (rifiuti[p.key] || 0) + 1;
+    rifiuti[p.key] = n;
+    saveData({
+      ...allData,
+      proposteMovimenti: proposte.filter(x => x.id !== p.id),
+      proposteRifiuti: rifiuti,
+    }, { etichetta: n >= 2 ? "Rifiuta movimento per sempre" : "Rifiuta movimento dall'estratto" });
+  };
+
+  // Accettare non inserisce al volo: apre il form gia' compilato, perche' un
+  // movimento senza categoria sporcherebbe budget e recap. _propostaId viaggia
+  // nel form e fa sparire la proposta solo quando il movimento e' salvato
+  // davvero (vedi saveItem): se chiudi il form senza salvare, resta li'.
+  const accettaProposta = (p) => {
+    const tipo = p.importo > 0 ? "entrata" : "uscita";
+    const data = p.data || localISODate();
+    setForm({
+      descrizione: p.descrizione,
+      importo: String(Math.abs(round2(p.importo))),
+      categoria: tipo === "uscita" ? CAT_USCITE_FISSE[0] : "Stipendio",
+      conto: p.conto,
+      data,
+      viaggio: tipo === "uscita" ? (viaggioPerData(data)?.id || "") : "",
+      _viaggioManual: false,
+      _propostaId: p.id,
+    });
+    setCustomCat("");
+    setModal({ tipo, mode: "add" });
+  };
+
+  // Le proposte seguono gli stessi filtri della lista che le ospita e vanno
+  // in Uscite o in Entrate secondo il segno dell'importo. Con un filtro
+  // viaggio attivo spariscono: non hanno ancora un viaggio assegnato.
+  const proposteVisibili = (tipo, contoFiltro, viaggioFiltro) => proposte
+    .filter(p => p.mese === month && (tipo === "uscita" ? p.importo <= 0 : p.importo > 0))
+    .filter(p => (!contoFiltro || p.conto === contoFiltro) && !viaggioFiltro && inDateRange(p))
+    .map(p => ({ ...p, _proposta: true, categoria: "Da confermare" }));
+
   const openReconcile = () => {
     setReconcileForm({ mese: prevMonthYm(), conto: CONTI[0].id, file: null });
     setReconcileResult(null);
@@ -1269,12 +1370,37 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
         else mancantiInApp.push(mov);
       }
       const mancantiInEstratto = appMovs.filter(a => !usedIds.has(a.id));
-      setFlaggedPersistente(new Set(mancantiInEstratto.map(a=>a.id)));
+
+      // Le righe dell'estratto senza riscontro diventano proposte in attesa di
+      // decisione. Quelle gia' rifiutate due volte non tornano piu'.
+      const nuoveProposte = [];
+      let ignorate = 0;
+      for (const m of mancantiInApp) {
+        const key = propostaKey(conto, m);
+        if ((rifiutiProposte[key] || 0) >= 2) { ignorate++; continue; }
+        nuoveProposte.push({
+          id: genId(), mese, conto,
+          data: m.data || "",
+          importo: round2(m.importo),
+          descrizione: (m.descrizione || "").trim().slice(0, 120) || "Movimento dall'estratto",
+          key,
+        });
+      }
+      // Un solo salvataggio per evidenziazioni e proposte: due saveData di
+      // fila partirebbero dallo stesso allData e il secondo cancellerebbe il
+      // primo. Le proposte di altri mesi/conti restano dove sono.
+      saveData({
+        ...allData,
+        flaggedMovimenti: mancantiInEstratto.map(a => a.id),
+        proposteMovimenti: [...proposte.filter(p => !(p.mese === mese && p.conto === conto)), ...nuoveProposte],
+      }, { etichetta: "Confronto estratto conto" });
+
       setReconcileResult({
         totaleEstratto: (json.movimenti||[]).length,
         abbinati: usedIds.size,
         mancantiInApp,
         mancantiInEstratto,
+        ignorate,
         righeRiconosciute: json.righeRiconosciute,
         righeTotali: json.righeTotali,
       });
@@ -1646,17 +1772,19 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
               </div>
               {(() => {
                 const filtered = monthData.entrate.filter(e=>(!filtroContoEntrate||e.conto===filtroContoEntrate)&&inDateRange(e));
-                if (filtered.length===0) return (
+                const proposteQui = vistaEntrate==="recenti" ? proposteVisibili("entrata", filtroContoEntrate, null) : [];
+                const conProposte = [...filtered, ...proposteQui];
+                if (conProposte.length===0) return (
                   <div style={{ background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10, padding:20, textAlign:"center", color:"var(--c-text-faintest)", fontSize:fs-2 }}>
                     {monthData.entrate.length===0?"Nessuna entrata — aggiungi la prima":"Nessuna entrata nel periodo/conto selezionato"}
                   </div>
                 );
-                const Row = (e,i) => MovRow({ e, i, tipo:"entrata" });
-                if (vistaEntrate==="recenti") return groupByDayDesc(filtered).map(({key,data,items})=>(
+                const Row = (e,i) => e._proposta ? PropostaRow({ e, i }) : MovRow({ e, i, tipo:"entrata" });
+                if (vistaEntrate==="recenti") return groupByDayDesc(conProposte).map(({key,data,items})=>(
                   <div key={key} style={{ marginBottom:12 }}>
                     <div style={{ fontSize:fs-3, fontWeight:700, color:"var(--c-text-dim)", marginBottom:6, display:"flex", justifyContent:"space-between" }}>
                       <span>{formatDayLabel(data)}</span>
-                      <span style={{ color:"#10B981" }}>+{fmt(items.filter(isReal).reduce((s,e)=>s+toEur(e),0))}€{suffissoRon(items, filtroContoEntrate)}</span>
+                      <span style={{ color:"#10B981" }}>+{fmt(items.filter(isReal).reduce((s,e)=>s+toEur(e),0))}€{suffissoRon(items.filter(isReal), filtroContoEntrate)}</span>
                     </div>
                     <div style={{ background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10, overflow:"hidden" }}>
                       {items.map(Row)}
@@ -1700,14 +1828,18 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
               </div>
               {(() => {
                 const filtered = monthData.uscite.filter(e=>(!filtroConto||e.conto===filtroConto)&&(!filtroViaggio||e.viaggio===filtroViaggio)&&inDateRange(e));
-                if (monthData.uscite.length===0) return <div style={{ padding:20, textAlign:"center", color:"var(--c-text-faintest)", fontSize:fs-2, background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10 }}>Nessuna uscita — aggiungi la prima</div>;
-                if (filtered.length===0) return <div style={{ padding:20, textAlign:"center", color:"var(--c-text-faintest)", fontSize:fs-2, background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10 }}>Nessuna uscita nel periodo/conto/viaggio selezionato</div>;
-                const Row = (e,i) => MovRow({ e, i, tipo:"uscita" });
-                if (vistaUscite==="recenti") return groupByDayDesc(filtered).map(({key,data,items})=>(
+                // Le proposte compaiono solo nella vista per giorno: nella vista
+                // per categoria non avrebbero una categoria a cui appartenere.
+                const proposteQui = vistaUscite==="recenti" ? proposteVisibili("uscita", filtroConto, filtroViaggio) : [];
+                const conProposte = [...filtered, ...proposteQui];
+                if (monthData.uscite.length===0 && proposteQui.length===0) return <div style={{ padding:20, textAlign:"center", color:"var(--c-text-faintest)", fontSize:fs-2, background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10 }}>Nessuna uscita — aggiungi la prima</div>;
+                if (conProposte.length===0) return <div style={{ padding:20, textAlign:"center", color:"var(--c-text-faintest)", fontSize:fs-2, background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10 }}>Nessuna uscita nel periodo/conto/viaggio selezionato</div>;
+                const Row = (e,i) => e._proposta ? PropostaRow({ e, i }) : MovRow({ e, i, tipo:"uscita" });
+                if (vistaUscite==="recenti") return groupByDayDesc(conProposte).map(({key,data,items})=>(
                   <div key={key} style={{ marginBottom:12 }}>
                     <div style={{ fontSize:fs-3, fontWeight:700, color:"var(--c-text-dim)", marginBottom:6, display:"flex", justifyContent:"space-between" }}>
                       <span>{formatDayLabel(data)}</span>
-                      <span style={{ color:"#EF4444" }}>-{fmt(items.filter(isReal).reduce((s,e)=>s+toEur(e),0))}€{suffissoRon(items, filtroConto)}</span>
+                      <span style={{ color:"#EF4444" }}>-{fmt(items.filter(isReal).reduce((s,e)=>s+toEur(e),0))}€{suffissoRon(items.filter(isReal), filtroConto)}</span>
                     </div>
                     <div style={{ background:"var(--c-panel)", border:"1px solid var(--c-border)", borderRadius:10, overflow:"hidden" }}>
                       {items.map(Row)}
@@ -1781,6 +1913,11 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                     <button onClick={openCheckAdd} style={{ padding:"5px 12px", borderRadius:7, border:"none", background:"#06B6D4", color:"#fff", cursor:"pointer", fontSize:11, fontWeight:600 }}>+ Nuovo check</button>
                   </div>
                 </div>
+                {proposte.filter(p=>p.mese===month).length > 0 && (
+                  <div style={{ fontSize:fs-4, color:"#06B6D4", marginBottom:8, background:"#06B6D415", border:"1px solid #06B6D440", borderRadius:8, padding:"6px 10px" }}>
+                    📄 {proposte.filter(p=>p.mese===month).length} movimento{proposte.filter(p=>p.mese===month).length>1?"i":""} dell'estratto non ancora in app, in attesa di Accetta/Rifiuta in Entrate/Uscite (vista "Per giorno")
+                  </div>
+                )}
                 {flaggedIds.size > 0 && (
                   <div style={{ fontSize:fs-4, color:"#F59E0B", marginBottom:8, background:"#F59E0B15", border:"1px solid #F59E0B40", borderRadius:8, padding:"6px 10px" }}>
                     ⚠️ {flaggedIds.size} movimento{flaggedIds.size>1?"i":""} senza riscontro sull'estratto, evidenziat{flaggedIds.size>1?"i":"o"} in arancione in Entrate/Uscite — <button onClick={()=>setFlaggedPersistente(new Set())} style={{ background:"none", border:"none", color:"#F59E0B", textDecoration:"underline", cursor:"pointer", fontSize:fs-4, padding:0 }}>pulisci evidenziazione</button>
@@ -3419,7 +3556,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
                 </div>
                 {reconcileResult.mancantiInApp.length > 0 && (
                   <div style={{ background:"#EF444415", border:"1px solid #EF444440", borderRadius:8, padding:"8px 10px" }}>
-                    <div style={{ fontSize:12, fontWeight:700, color:"#EF4444", marginBottom:4 }}>Sull'estratto ma non in app ({reconcileResult.mancantiInApp.length})</div>
+                    <div style={{ fontSize:12, fontWeight:700, color:"#EF4444", marginBottom:4 }}>Sull'estratto ma non in app ({reconcileResult.mancantiInApp.length}) — ora in attesa in Entrate/Uscite con Accetta/Rifiuta{reconcileResult.ignorate>0?`, ${reconcileResult.ignorate} gia' rifiutat${reconcileResult.ignorate>1?"i":"o"} due volte e non piu' riproposto`:""}</div>
                     {reconcileResult.mancantiInApp.map((m,i)=>(
                       <div key={i} style={{ fontSize:11, color:"var(--c-text-dim)", padding:"2px 0" }}>{m.data} · {m.descrizione} · {fmt(m.importo)}</div>
                     ))}
