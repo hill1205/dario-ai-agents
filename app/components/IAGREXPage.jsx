@@ -832,6 +832,27 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
     saveData({ ...allData, checkSaldi: [entry, ...checkSaldi] });
     closeCheckModal();
   };
+  // Allinea il saldo in app a quello dell'estratto. Stesse ragioni di
+  // BrunoPage: non e' automatico perche' la differenza e' il sintomo di
+  // movimenti mancanti, e sopra la soglia l'app avvisa invece di eseguire.
+  const SOGLIA_ALLINEA = 10;
+  const allineaCheck = (c) => {
+    const valuta = CONTI_IAGREX_BY_ID[c.conto]?.currency || "€";
+    const label = CONTI_IAGREX_BY_ID[c.conto]?.label || c.conto;
+    if (Math.abs(c.differenza) >= SOGLIA_ALLINEA && !confirm(
+      `Differenza di ${fmt(c.differenza)} ${valuta} su ${label}.\n\n` +
+      `Sopra i ${SOGLIA_ALLINEA} ${valuta} di solito non sono arrotondamenti ma movimenti mancanti: conviene prima "Confronta movimenti" e accettare le proposte, cosi' la differenza si chiude da sola con dati veri.\n\n` +
+      `Allineare comunque il saldo a ${fmt(c.saldoEstratto)} ${valuta}?`
+    )) return;
+    const base = allData[c.mese] || { ...EMPTY_MONTH, saldi: getCarriedSaldi(allData, c.mese) };
+    const target = { ...base, saldi: { ...base.saldi, [c.conto]: round2(c.saldoEstratto) } };
+    saveData({
+      ...allData,
+      [c.mese]: target,
+      checkSaldi: checkSaldi.map(x => x.id === c.id ? { ...x, allineato: true } : x),
+    }, { etichetta: "Allinea saldo all'estratto" });
+  };
+
   const deleteCheck = (id) => {
     saveData({ ...allData, checkSaldi: checkSaldi.filter(c=>c.id!==id) });
   };
@@ -1566,6 +1587,11 @@ export default function IAGREXPage({ fontSize=14, onBack, theme="dark", isMobile
                           <span style={{fontSize:fs-2,fontWeight:700,color:ok?"#10B981":"#EF4444"}}>
                             {ok ? "✅ combacia" : `⚠️ ${c.differenza>0?"+":""}${fmt(c.differenza)}`}
                           </span>
+                          {!ok && !c.allineato && (
+                            <button onClick={()=>allineaCheck(c)} title={`Porta il saldo in app a ${fmt(c.saldoEstratto)}, il valore dell'estratto. Non crea movimenti.`}
+                              style={{padding:"4px 9px",borderRadius:6,border:"1px solid #06B6D4",background:"transparent",color:"#06B6D4",cursor:"pointer",fontSize:11,fontWeight:600,whiteSpace:"nowrap"}}>⇄ Allinea</button>
+                          )}
+                          {c.allineato && <span style={{fontSize:fs-4,color:"#10B981",whiteSpace:"nowrap"}}>saldo allineato</span>}
                           <button onClick={()=>deleteCheck(c.id)} style={{width:22,height:22,borderRadius:5,border:"1px solid #2A1A1A",background:"transparent",color:"#EF4444",cursor:"pointer",fontSize:12,fontWeight:700}}>×</button>
                         </div>
                       </div>
