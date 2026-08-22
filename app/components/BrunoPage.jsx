@@ -946,6 +946,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
             <span style={{ display:"block", fontSize:fs-1, color:"var(--c-text)", fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{e.descrizione}</span>
             <span style={{ display:"block", fontSize:fs-4, color:"#06B6D4", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
               Sull'estratto, non in app · {CONTI_BY_ID[e.conto]?.label || e.conto}
+              {!e.segnoCerto && <span style={{ color:"#F59E0B" }}> · segno non esplicito, l'ho messo fra le {tipoProposta(e)==="uscita"?"uscite":"entrate"}</span>}
             </span>
           </span>
           <span style={{ fontSize:fs-1, fontWeight:700, whiteSpace:"nowrap", color:"#06B6D4" }}>
@@ -1079,6 +1080,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
     const senzaProposta = (d) => propostaId ? { ...d, proposteMovimenti: (d.proposteMovimenti||[]).filter(p=>p.id!==propostaId) } : d;
     const item = { ...form, categoria: cat, importo: parseFloat(form.importo), id: modal.mode==="add"?genId():form.id };
     delete item._propostaId;
+    delete item._segnoCerto;
     // _viaggioManual è solo stato del form, non va salvato; viaggio vuoto
     // si salva come undefined (JSON lo scarta) invece di stringa vuota.
     delete item._viaggioManual;
@@ -1305,7 +1307,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
   // nel form e fa sparire la proposta solo quando il movimento e' salvato
   // davvero (vedi saveItem): se chiudi il form senza salvare, resta li'.
   const accettaProposta = (p) => {
-    const tipo = p.importo > 0 ? "entrata" : "uscita";
+    const tipo = tipoProposta(p);
     const data = p.data || localISODate();
     setForm({
       descrizione: p.descrizione,
@@ -1316,16 +1318,25 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
       viaggio: tipo === "uscita" ? (viaggioPerData(data)?.id || "") : "",
       _viaggioManual: false,
       _propostaId: p.id,
+      _segnoCerto: !!p.segnoCerto,
     });
     setCustomCat("");
     setModal({ tipo, mode: "add" });
   };
 
+  // Da che parte va una proposta. Il segno sull'estratto non e' affidabile
+  // allo stesso modo su tutte le banche: quando il documento non lo dice
+  // esplicitamente (segnoCerto falso) si assume USCITA, perche' la quasi
+  // totalita' delle righe di un estratto personale sono spese — e sbagliare
+  // di rado e' meglio che sbagliare a caso. Nel form c'e' comunque
+  // l'interruttore Uscita/Entrata per correggere in un tap.
+  const tipoProposta = (p) => (p.segnoCerto && p.importo > 0) ? "entrata" : "uscita";
+
   // Le proposte seguono gli stessi filtri della lista che le ospita e vanno
-  // in Uscite o in Entrate secondo il segno dell'importo. Con un filtro
+  // in Uscite o in Entrate secondo tipoProposta. Con un filtro
   // viaggio attivo spariscono: non hanno ancora un viaggio assegnato.
   const proposteVisibili = (tipo, contoFiltro, viaggioFiltro) => proposte
-    .filter(p => p.mese === month && (tipo === "uscita" ? p.importo <= 0 : p.importo > 0))
+    .filter(p => p.mese === month && tipoProposta(p) === tipo)
     .filter(p => (!contoFiltro || p.conto === contoFiltro) && !viaggioFiltro && inDateRange(p))
     .map(p => ({ ...p, _proposta: true, categoria: "Da confermare" }));
 
@@ -1382,6 +1393,7 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
           id: genId(), mese, conto,
           data: m.data || "",
           importo: round2(m.importo),
+          segnoCerto: !!m.segnoCerto,
           descrizione: (m.descrizione || "").trim().slice(0, 120) || "Movimento dall'estratto",
           key,
         });
@@ -2737,6 +2749,30 @@ export default function BrunoPage({ fontSize=14, theme="dark", isMobile: isMobil
             <div style={{ fontSize:15, fontWeight:700, color:"var(--c-text-strong)", marginBottom:20 }}>
               {modal.mode==="add"?"➕ Nuova":"✏️ Modifica"} {modal.tipo==="entrata"?"Entrata":"Uscita"}
             </div>
+
+            {/* Solo per i movimenti accettati dall'estratto: la banca non
+                sempre scrive il segno, quindi la parte (uscita o entrata) va
+                confermata qui invece di costringere a cancellare e rifare. */}
+            {form._propostaId && (
+              <div style={{ marginBottom:16 }}>
+                <div style={{ fontSize:11, color: form._segnoCerto ? "var(--c-text-dim)" : "#F59E0B", marginBottom:6 }}>
+                  {form._segnoCerto ? "Dall'estratto" : "⚠️ Sull'estratto il segno non era esplicito — controlla che sia la parte giusta"}
+                </div>
+                <div style={{ display:"flex", gap:8 }}>
+                  {[["uscita","− Uscita","#EF4444"],["entrata","+ Entrata","#10B981"]].map(([t,label,col])=>(
+                    <button key={t} onClick={()=>{
+                        setModal(m=>({...m, tipo:t}));
+                        setForm(pf=>({ ...pf, categoria: t==="uscita"?CAT_USCITE_FISSE[0]:"Stipendio", viaggio: t==="uscita"?pf.viaggio:"" }));
+                        setCustomCat("");
+                      }}
+                      style={{ flex:1, padding:"8px 0", borderRadius:8, cursor:"pointer", fontSize:12, fontWeight:700,
+                        border: modal.tipo===t ? "none" : "1px solid var(--c-border)",
+                        background: modal.tipo===t ? col : "var(--c-bg)",
+                        color: modal.tipo===t ? "#fff" : "var(--c-text-dim)" }}>{label}</button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
               <div>

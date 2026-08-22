@@ -27,15 +27,32 @@ function findDate(line) {
   return null;
 }
 
+// Restituisce { valore, segnoCerto } per ogni importo trovato nella riga.
+//
+// segnoCerto dice se il segno viene DAL DOCUMENTO o se l'abbiamo solo
+// supposto: senza questa distinzione un "9,95" scritto in una colonna
+// "addebiti" diventava un numero positivo indistinguibile da un accredito,
+// e il movimento finiva fra le entrate. Chi legge decide cosa fare del
+// dubbio (in app: si assume uscita e si chiede conferma).
 function extractAmounts(line) {
   // \d+ (non \d{1,3}) per la parte intera: deve reggere sia "2500.00"
   // (senza separatore delle migliaia) sia "1.250,00" (con separatore).
-  const matches = [...line.matchAll(/[+-]?\d+(?:[.,]\d{3})*(?:[.,]\d{1,2})?/g)];
-  return matches
-    .map(m => m[0])
-    .filter(s => /[.,]\d{1,2}$/.test(s) || s.replace(/[^0-9]/g,"").length >= 3)
-    .map(s => parseAmount(s))
-    .filter(n => !isNaN(n));
+  const out = [];
+  for (const m of line.matchAll(/[+-]?\d+(?:[.,]\d{3})*(?:[.,]\d{1,2})?/g)) {
+    const raw = m[0];
+    if (!(/[.,]\d{1,2}$/.test(raw) || raw.replace(/[^0-9]/g,"").length >= 3)) continue;
+    let valore = parseAmount(raw);
+    if (isNaN(valore)) continue;
+    let segnoCerto = /^[+-]/.test(raw);
+    // Segno in coda ("12,50-"): formato usato da diverse banche italiane per
+    // gli addebiti. Senza questo caso l'addebito sembrava un accredito.
+    if (!segnoCerto && line.slice(m.index + raw.length, m.index + raw.length + 1) === "-") {
+      valore = -Math.abs(valore);
+      segnoCerto = true;
+    }
+    out.push({ valore, segnoCerto });
+  }
+  return out;
 }
 
 function parseAmount(s) {
@@ -62,12 +79,16 @@ function parseHeuristic(text) {
     const rest = line.replace(dateInfo.match, "");
     const amounts = extractAmounts(rest);
     if (amounts.length === 0) continue;
-    const importo = amounts[0];
+    const { valore: importo, segnoCerto } = amounts[0];
     const descrizione = rest
-      .replace(/[+-]?\d+(?:[.,]\d{3})*(?:[.,]\d{1,2})?/g, "")
+      // Il "-?" finale toglie anche il segno in coda ("64,64-"), che
+      // altrimenti restava appiccicato alla descrizione ("Lidl -"). Un
+      // trattino non preceduto da cifre (es. "Uber - carrozziere") non viene
+      // toccato.
+      .replace(/[+-]?\d+(?:[.,]\d{3})*(?:[.,]\d{1,2})?-?/g, "")
       .replace(/\s{2,}/g, " ")
       .trim();
-    movimenti.push({ data: dateInfo.data, importo, descrizione: descrizione.slice(0,120) });
+    movimenti.push({ data: dateInfo.data, importo, segnoCerto, descrizione: descrizione.slice(0,120) });
   }
   return movimenti;
 }
@@ -166,18 +187,24 @@ function parseCsv(text) {
     const dateInfo = findDate(rawData) || (rawData ? { data: rawData } : null);
     if (!dateInfo?.data) continue;
 
-    let importo;
+    let importo, segnoCerto;
     if (colMap.importo !== undefined) {
-      importo = parseAmount(cells[colMap.importo]);
+      const cella = cells[colMap.importo] || "";
+      importo = parseAmount(cella);
+      // Colonna unica: il segno e' certo solo se sta scritto nella cella.
+      segnoCerto = /[+-]/.test(cella);
     } else {
       const entrata = parseAmount(cells[colMap.entrata]) || 0;
       const uscita = parseAmount(cells[colMap.uscita]) || 0;
       importo = entrata - Math.abs(uscita);
+      // Due colonne separate: e' il CSV stesso a dire da che parte sta il
+      // movimento, non serve dedurre niente.
+      segnoCerto = true;
     }
     if (isNaN(importo)) continue;
 
     const descrizione = colMap.descrizione !== undefined ? cells[colMap.descrizione] : "";
-    movimenti.push({ data: dateInfo.data, importo, descrizione: (descrizione||"").slice(0,120) });
+    movimenti.push({ data: dateInfo.data, importo, segnoCerto, descrizione: (descrizione||"").slice(0,120) });
   }
   return movimenti;
 }
