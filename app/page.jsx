@@ -120,12 +120,59 @@ function todayBucharest() {
   return new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Bucharest" }); // YYYY-MM-DD
 }
 
-// Tema "auto": notte (dark) dalle 21:00 alle 06:59 ora di Bucarest,
-// giorno (light) dalle 07:00 alle 20:59. Usiamo sempre il fuso di
-// Bucarest (non quello del device) per coerenza con il resto dell'app.
+// --- Tema "auto": chiaro dall'alba al tramonto -------------------------
+//
+// Prima erano due orari fissi (21:00 e 07:00 ora di Bucarest), che d'inverno
+// tenevano l'app chiara col buio pesto delle 17 e d'estate scura mentre fuori
+// c'era ancora sole alle 20:30. Ora alba e tramonto sono calcolati davvero,
+// dalle coordinate e dalla data.
+//
+// Il calcolo e' locale (nessuna chiamata di rete, funziona anche offline):
+// e' l'algoritmo NOAA nella forma divulgata da Wikipedia, precisione di
+// qualche minuto — piu' che sufficiente per decidere un colore di sfondo.
+const LAT_DEFAULT = 45.7489, LON_DEFAULT = 21.2087; // Timișoara
+
+function sunTimes(date, lat, lon) {
+  const rad = Math.PI / 180;
+  // Attenzione al segno: il mezzogiorno solare si sposta di 4 minuti per
+  // grado di longitudine, quindi invertirlo sbaglia l'alba di ~3 ore a
+  // Timișoara (verificato: con il segno opposto usciva alle 09:33 invece che
+  // alle 06:43). Con questa forma i valori tornano — Roma 22/08: 06:25 e
+  // 20:01, contro i 06:31 e 20:00 reali.
+  const lw = lon;
+  const jDate = date.getTime() / 86400000 + 2440587.5;      // giorno giuliano
+  const n = Math.round(jDate - 2451545.0 + 0.0008);         // giorno solare
+  const jStar = n - lw / 360;                               // mezzogiorno solare medio
+  const M = (357.5291 + 0.98560028 * jStar) % 360;          // anomalia media del Sole
+  const C = 1.9148*Math.sin(M*rad) + 0.02*Math.sin(2*M*rad) + 0.0003*Math.sin(3*M*rad);
+  const lambda = (M + C + 180 + 102.9372) % 360;            // longitudine eclittica
+  const jTransit = 2451545.0 + jStar + 0.0053*Math.sin(M*rad) - 0.0069*Math.sin(2*lambda*rad);
+  const delta = Math.asin(Math.sin(lambda*rad) * Math.sin(23.44*rad)); // declinazione
+  // -0.833° tiene conto del raggio del disco solare e della rifrazione
+  // atmosferica: e' l'istante in cui il bordo del Sole tocca l'orizzonte.
+  const cosOmega = (Math.sin(-0.833*rad) - Math.sin(lat*rad)*Math.sin(delta)) / (Math.cos(lat*rad)*Math.cos(delta));
+  // Oltre il circolo polare il Sole puo' non sorgere o non tramontare
+  // affatto: in quel caso non c'e' un'alba da calcolare.
+  if (cosOmega > 1 || cosOmega < -1) return null;
+  const omega = Math.acos(cosOmega) / rad;
+  const toDate = (j) => new Date((j - 2440587.5) * 86400000);
+  return { alba: toDate(jTransit - omega/360), tramonto: toDate(jTransit + omega/360) };
+}
+
+// Ripiego se il calcolo non e' possibile (sole di mezzanotte, notte polare):
+// i vecchi orari fissi sull'ora di Bucarest.
 function autoThemeByHour() {
   const hour = Number(new Date().toLocaleString("en-US", { timeZone: "Europe/Bucharest", hour: "2-digit", hour12: false }));
   return (hour >= 21 || hour < 7) ? "dark" : "light";
+}
+
+// Il confronto e' fra istanti assoluti, non fra orologi: qualunque fuso
+// abbia il telefono, "adesso" e "il tramonto di oggi qui" sono due momenti
+// sulla stessa linea del tempo. Per questo funziona anche in viaggio.
+function autoThemeBySun(lat, lon, now = new Date()) {
+  const t = sunTimes(now, lat ?? LAT_DEFAULT, lon ?? LON_DEFAULT);
+  if (!t) return autoThemeByHour();
+  return (now >= t.alba && now < t.tramonto) ? "light" : "dark";
 }
 
 // Scadenze (ClickUp due_date): arrivano come stringa di millisecondi epoch.
@@ -406,6 +453,11 @@ export default function App() {
   const [syncError, setSyncError]           = useState(null);
   const [lastUpdated, setLastUpdated]       = useState(null);
   const [themeMode, setThemeMode]           = useState("auto"); // "dark" | "light" | "auto"
+  // Coordinate usate per alba e tramonto. Di base Timișoara; se il meteo
+  // sulla posizione attuale e' attivo (permesso gia' concesso) si aggiornano
+  // da sole, cosi' in viaggio il tema segue il sole del posto dove sei.
+  const [coords, setCoords]                 = useState(null); // {lat, lon} | null
+  const [sole, setSole]                     = useState(null); // {alba, tramonto} di oggi
   const [theme, setTheme]                   = useState("dark"); // tema effettivamente applicato
   const [routineStreak, setRoutineStreak]   = useState(0);
   const [streakHistory, setStreakHistory]   = useState([]); // ultimi 30 giorni, da ClickUp
@@ -480,6 +532,8 @@ export default function App() {
       // altrove di proposito — ha senso solo se attivata sul telefono che stai
       // usando in quel momento, non su tutti e tre insieme.
       if (localStorage.getItem("dario-use-local-weather") === "1") setUseLocalWeather(true);
+      const c = localStorage.getItem("dario-coords");
+      if (c) { const p = JSON.parse(c); if (typeof p?.lat === "number" && typeof p?.lon === "number") setCoords(p); }
     } catch {}
     caricaDecisioniDaRivedere();
   },[]);
@@ -504,18 +558,24 @@ export default function App() {
   },[fontSize,themeMode]);
 
   // Risolve il tema effettivo da themeMode: "dark"/"light" sono fissi,
-  // "auto" segue l'orario di Bucarest (21:00-06:59 = notte). Ricontrolliamo
-  // ogni minuto cosi' l'app cambia tema da sola allo scoccare delle 21/07
-  // senza bisogno di un refresh manuale.
+  // "auto" segue alba e tramonto del posto dove sei. Ricontrolliamo ogni
+  // minuto, cosi' l'app cambia da sola al tramonto senza refresh.
   useEffect(()=>{
     function applyAutoTheme() {
-      setTheme(themeMode === "auto" ? autoThemeByHour() : themeMode);
+      setTheme(themeMode === "auto" ? autoThemeBySun(coords?.lat, coords?.lon) : themeMode);
+      // Orari mostrati nelle Impostazioni. Si calcolano qui e non durante il
+      // render: un valore che dipende dall'ora corrente, calcolato mentre si
+      // disegna, differisce fra server e browser e rompe l'idratazione.
+      const t = sunTimes(new Date(), coords?.lat ?? LAT_DEFAULT, coords?.lon ?? LON_DEFAULT);
+      const fmtOra = (d) => d.toLocaleTimeString("it-IT", { hour:"2-digit", minute:"2-digit" });
+      const nuovo = t ? { alba: fmtOra(t.alba), tramonto: fmtOra(t.tramonto) } : null;
+      setSole(prev => (prev?.alba === nuovo?.alba && prev?.tramonto === nuovo?.tramonto) ? prev : nuovo);
     }
     applyAutoTheme();
     if (themeMode !== "auto") return;
     const id = setInterval(applyAutoTheme, 60000);
     return ()=>clearInterval(id);
-  },[themeMode]);
+  },[themeMode, coords]);
 
   useEffect(()=>{
     const check = ()=>setIsMobile(window.innerWidth<640);
@@ -618,6 +678,12 @@ export default function App() {
       async (pos) => {
         try {
           const { latitude, longitude } = pos.coords;
+          // Le stesse coordinate servono al tema automatico (alba/tramonto):
+          // si salvano cosi' il tema resta corretto anche al riavvio, senza
+          // dover richiedere di nuovo la posizione.
+          const nuove = { lat: latitude, lon: longitude };
+          setCoords(nuove);
+          try { localStorage.setItem("dario-coords", JSON.stringify(nuove)); } catch {}
           const res = await fetch(`/api/weather?lat=${latitude}&lon=${longitude}`,{cache:"no-store"});
           const data = await res.json();
           if (res.ok && !data.error) { setWeather(data); setWeatherStatus(null); }
@@ -1002,7 +1068,11 @@ export default function App() {
         ))}
       </div>
       <div style={{fontSize:9,color:"#334155",marginTop:6,lineHeight:1.4}}>
-        {themeMode==="auto" ? "Auto: notte 21:00-07:00, giorno il resto (ora Bucarest)." : "Si applica a tutta l'app."}
+        {themeMode==="auto"
+          ? (sole
+              ? `Auto: chiaro dall'alba (${sole.alba}) al tramonto (${sole.tramonto}), scuro il resto. ${coords ? "Sole della tua posizione attuale." : "Sole di Timișoara — attiva il meteo sulla posizione per seguirti in viaggio."}`
+              : "Auto: chiaro dall'alba al tramonto, scuro il resto.")
+          : "Si applica a tutta l'app."}
       </div>
 
       <div style={{marginTop:16,paddingTop:14,borderTop:`1px solid ${T.border}`}}>
