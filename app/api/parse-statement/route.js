@@ -210,7 +210,27 @@ export async function POST(request) {
     // da librerie moderne come reportlab — probabile bug della versione
     // pdf.js ormai abbandonata che pdf-parse si porta dietro.
     const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-    const doc = await pdfjs.getDocument({ data, useSystemFonts: true }).promise;
+
+    // In Node pdf.js avvia un "fake worker" importando pdf.worker.mjs. Se non
+    // gli si dice dove sta, usa il percorso relativo "./pdf.worker.mjs", che
+    // su Vercel viene risolto rispetto al chunk della funzione serverless
+    // (/var/task/.next/server/chunks/) dove il worker non c'e' mai:
+    //   Setting up fake worker failed: "Cannot find module .../pdf.worker.mjs"
+    // Qui lo risolviamo dentro node_modules e lo passiamo come percorso
+    // assoluto. Vedi anche experimental.serverComponentsExternalPackages in
+    // next.config.mjs: senza quello la libreria verrebbe impacchettata e il
+    // worker resterebbe comunque irraggiungibile.
+    try {
+      const { createRequire } = await import("node:module");
+      const { pathToFileURL } = await import("node:url");
+      const req = createRequire(import.meta.url);
+      const workerPath = req.resolve("pdfjs-dist/legacy/build/pdf.worker.mjs");
+      pdfjs.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
+    } catch {
+      // se la risoluzione fallisce si prova comunque col default di pdf.js
+    }
+
+    const doc = await pdfjs.getDocument({ data, useSystemFonts: true, isEvalSupported: false }).promise;
     const lines = [];
     for (let i = 1; i <= doc.numPages; i++) {
       const page = await doc.getPage(i);
